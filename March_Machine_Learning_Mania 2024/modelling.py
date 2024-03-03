@@ -18,6 +18,8 @@ DATA_PATH = 'G:/kaggle/March_Machine_Learning_Mania_2024/march-machine-learning-
 for filename in sorted(os.listdir(DATA_PATH)):
     print(filename)
     
+    
+    
 df_seeds = pd.concat([
     pd.read_csv(DATA_PATH + "MNCAATourneySeeds.csv"),
     pd.read_csv(DATA_PATH + "WNCAATourneySeeds.csv"),
@@ -26,9 +28,20 @@ df_seeds = pd.concat([
 df_seeds.head()
 
 
+
+
 df_season_results = pd.concat([
     pd.read_csv(DATA_PATH + "MRegularSeasonCompactResults.csv"),
     pd.read_csv(DATA_PATH + "WRegularSeasonCompactResults.csv"),
 ], ignore_index=True)
 
 df_season_results
+
+
+# scoregap between W & L
+df_season_results['ScoreGap'] = df_season_results['WScore'] - df_season_results['LScore']
+df_season_results.head()
+
+# wining margin
+df_season_results['WinMargin'] = df_season_results['ScoreGap'] / df_season_results['LScore']
+df_season_results.head()
