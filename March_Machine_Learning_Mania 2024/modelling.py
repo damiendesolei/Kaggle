@@ -144,3 +144,12 @@ df = pd.merge(df, df_features_season, how='left', left_on=['Season', 'LTeamID'],
                                 
                                 
 df_test = pd.read_csv(DATA_PATH  + "/sample_submission.csv")
+
+
+#https://www.kaggle.com/code/samdaltonjr/preliminary-preds-into-bracket/notebook
+
+preds = pd.read_csv(DATA_PATH + 'submission_rustyb.csv')
+round_slots = pd.read_csv(DATA_PATH + 'MNCAATourneySeedRoundSlots.csv')
+seeds = pd.read_csv(DATA_PATH + '2024_tourney_seeds.csv')
+
+preds['Year'], preds['Team1ID'], preds['Team2ID'] = zip(*preds['ID'].apply(lambda x: x.split('_')).tolist())
