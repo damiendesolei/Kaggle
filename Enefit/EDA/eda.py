@@ -34,4 +34,7 @@ historical_weather.head()
 # for col in historical_weather.columns:
 #     print(str(col) + ' has unique values of:')
 #     print(set(historical_weather[col].unique()))
+
+# consumption = train[train["is_consumption"]==1]
+# monthlyCons = consumption.groupby(pd.Grouper(key="datetime", freq='M')).mean()
     
