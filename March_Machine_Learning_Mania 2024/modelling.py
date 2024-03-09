@@ -153,3 +153,94 @@ round_slots = pd.read_csv(DATA_PATH + 'MNCAATourneySeedRoundSlots.csv')
 seeds = pd.read_csv(DATA_PATH + '2024_tourney_seeds.csv')
 
 preds['Year'], preds['Team1ID'], preds['Team2ID'] = zip(*preds['ID'].apply(lambda x: x.split('_')).tolist())
+preds['Team1ID'] = preds['Team1ID'].astype(int)
+preds['Team2ID'] = preds['Team2ID'].astype(int)
+preds['Year'] = preds['Year'].astype(int)
+
+seeds['Year'] = 2023
+
+# Merge seeds with preds for both teams
+preds = preds.merge(seeds, left_on=['Year', 'Team1ID'], right_on=['Year', 'TeamID'], how='left')
+preds.rename(columns={'Seed': 'Team1Seed'}, inplace=True)
+preds.drop('TeamID', axis=1, inplace=True)
+
+preds = preds.merge(seeds, left_on=['Year', 'Team2ID'], right_on=['Year', 'TeamID'], how='left')
+preds.rename(columns={'Seed': 'Team2Seed', 'Tournament_x':'Tournament'}, inplace=True)
+preds.drop(['TeamID', 'Tournament_y'], axis=1, inplace=True)
+
+#drop rows where pred has null values
+preds = preds.dropna()
+
+#This cell is where the transformation of your original prediction file takes place, it flips the {Year}_{Team1ID}_{Team2ID} format into {Year}_{HigherSeed}_{LowerSeed}
+#An Additional Column new_ID will be created to comtain the original Team IDs
+
+preds_w_seeds = preds.copy()
+
+#sort preds_w_seeds by Team1Seed
+preds_w_seeds = preds_w_seeds.sort_values(by='Team1Seed')
+
+#Flip preds to where pred is based on the higher seed and not lower seed, so pred must be transformed accordingly but new_ID would be formated as 2023_X01_X16, etc. only where pred is not already in the correct format
+
+def extract_seed_number(seed):
+    return int(seed[1:])
+
+
+# Assuming preds_w_seeds is your DataFrame
+# Define a function to compare seeds
+def compare_seeds(seed1, seed2):
+    seed1_num = extract_seed_number(seed1)
+    seed2_num = extract_seed_number(seed2)
+    seed1_prefix = seed1[0]
+    seed2_prefix = seed2[0]
+
+    if seed1_num < seed2_num:
+        return -1
+    elif seed1_num > seed2_num:
+        return 1
+    else:  # If seed numbers are equal, compare prefixes
+        if seed1_prefix < seed2_prefix:
+            return -1
+        elif seed1_prefix > seed2_prefix:
+            return 1
+        else:
+            return 0
+
+# Assuming preds_w_seeds is your DataFrame
+# First, identify higher seed and lower seed for each matchup
+def determine_seeds(row):
+    seed1 = row['Team1Seed']
+    seed2 = row['Team2Seed']
+
+    comparison = compare_seeds(seed1, seed2)
+    if comparison < 0:
+        row['HigherSeed'] = row['Team1ID']
+        row['HigherSeedID'] = seed1
+        row['LowerSeed'] = row['Team2ID']
+        row['LowerSeedID'] = seed2
+    elif comparison > 0:
+        row['HigherSeed'] = row['Team2ID']
+        row['HigherSeedID'] = seed2
+        row['LowerSeed'] = row['Team1ID']
+        row['LowerSeedID'] = seed1
+    else:  # If seeds are equal
+        if row['Team1ID'] < row['Team2ID']:
+            row['HigherSeed'] = row['Team1ID']
+            row['HigherSeedID'] = seed1
+            row['LowerSeed'] = row['Team2ID']
+            row['LowerSeedID'] = seed2
+        else:
+            row['HigherSeed'] = row['Team2ID']
+            row['HigherSeedID'] = seed2
+            row['LowerSeed'] = row['Team1ID']
+            row['LowerSeedID'] = seed1
+
+    return row
+
+preds_w_seeds = preds_w_seeds.apply(determine_seeds, axis=1)
+
+# Then, rearrange the data to create new ID and update Pred column accordingly
+preds_w_seeds['ID'] = preds_w_seeds.apply(lambda x: f"{x['Year']}_{x['HigherSeed']}_{x['LowerSeed']}", axis=1)
+preds_w_seeds['Pred'] = preds_w_seeds.apply(lambda x: 1 - x['Pred'] if x['Team1ID'] != x['HigherSeed'] else x['Pred'], axis=1)  # Flip Pred only if teams are rearranged
+preds_w_seeds = preds_w_seeds[['ID', 'Pred', 'Year', 'HigherSeedID', 'LowerSeedID', 'Tournament', 'HigherSeed', 'LowerSeed']]
+
+preds_w_seeds['new_ID'] = preds_w_seeds['Tournament'] + '_' + preds_w_seeds['Year'].astype(str) + '_' + preds_w_seeds['HigherSeedID'] + '_' + preds_w_seeds['LowerSeedID']
