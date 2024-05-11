@@ -78,16 +78,16 @@ params = {
         'eta': [0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5],
         'min_child_weight': [1, 3, 5, 10],
         'gamma': [0.5, 1, 1.5, 2, 5, 10, 20],
-        'subsample': [0.8],
-        'colsample_bytree': [0.8],
-        'max_depth': [2, 3, 4, 5, 6]
+        'subsample': [1],
+        'colsample_bytree': [1],
+        'max_depth': [1, 2, 3, 4, 5, 6, 7, 8]
         }
 
-xgb = XGBRegressor(n_estimators=200, objective='binary:logistic', nthread=1)
+xgb = XGBRegressor(device="cuda", n_estimators=200, objective='reg:squarederror')
 
 
 folds = 5
-param_comb = 100
+param_comb = 1000
 
 kf = KFold(n_splits=folds, shuffle = True, random_state = 1024)
 
@@ -108,26 +108,31 @@ print('\n Best hyperparameters:')
 print(random_search.best_params_)
 best_params = random_search.best_params_
 results = pd.DataFrame(random_search.cv_results_)
-results.to_csv(path + 'xgb-random-grid-search-results-01.csv', index=False)
+results.to_csv(path + 'xgb-random-grid-search-results-02.csv', index=False)
 
 
 
 #fit the model
-xgb_model = XGBRegressor(n_estimators=500
-                         ,objective='reg:squaredlogerror'
+xgb_model = XGBRegressor(n_estimators=200
+                         ,objective='reg:squarederror'
                          ,learning_rate=0.3
-                         ,max_depth=5
+                         ,max_depth=2
                          ,min_child_weight=1
-                         ,gamma=0.5
+                         ,gamma=1
                          ,subsample=0.8
                          ,colsample_bytree=0.8
                          ,random_state=1024)
 xgb_model.fit(X_train, y_train, 
              eval_set=[(X_val, y_val)], 
-             verbose=True)
+             verbose=False)
 
-plot_importance(xgb_model, max_num_features=20, importance_type='weight', xlabel='weight')
-plot_importance(xgb_model, max_num_features=20, importance_type='gain', xlabel='gain')
+y_pred = xgb_model.predict(X_val)
+r2_score(y_val, y_pred) #0.8066538311585233
+
+plot_importance(xgb_model, max_num_features=25, importance_type='weight', xlabel='weight')
+plot_importance(xgb_model, max_num_features=25, importance_type='gain', xlabel='gain')
+
+
 
 #validation_0-rmsle:0.15438
 #LB top: 0.14482
