@@ -160,6 +160,7 @@ preds['Year'] = preds['Year'].astype(int)
 
 seeds['Year'] = 2023
 
+
 # Merge seeds with preds for both teams
 preds = preds.merge(seeds, left_on=['Year', 'Team1ID'], right_on=['Year', 'TeamID'], how='left')
 preds.rename(columns={'Seed': 'Team1Seed'}, inplace=True)
@@ -292,11 +293,11 @@ tourney_2023 = tourney_slots.copy()
 #find round 1 matchups
 initial_matchups = tourney_2023[tourney_2023['Round'] == 1]
 
-results = initial_matchups.merge(preds_df, left_on=['StrongSeed','WeakSeed','Season'], right_on=['HigherSeedID','LowerSeedID','Year'], how='left')
+results = initial_matchups.merge(preds_df, left_on=['StrongSeed','WeakSeed','Season','Tournament'], right_on=['HigherSeedID','LowerSeedID','Year','Tournament'], how='left')
 
-results.rename(columns={'Tournament_x':'Tournament'}, inplace=True)
+#results.rename(columns={'Tournament_x':'Tournament'}, inplace=True)
 #drop Touranment_y column  
-results.drop('Tournament_y', axis=1, inplace=True)
+#results.drop('Tournament_y', axis=1, inplace=True)
 
 
 #simulate round 1 matchups, if simulate_matchup results in True, winner is the higher seed, if False, winner is the lower seed
@@ -305,11 +306,11 @@ results['outcome'] = results['Pred'].apply(simulate_matchup)
 results['Team'] = results.apply(lambda x: x['HigherSeedID'] if x['outcome'] == True else x['LowerSeedID'], axis=1)
 
 #drop duplicates from results
-results.drop_duplicates(subset=['Slot','Tournament'], inplace=True)
+#results.drop_duplicates(subset=['Slot','Tournament'], inplace=True)
 
 results
 
-round_1_results = results[['Tournament','Slot','Team','ID']]
+round_1_results = results[['Tournament','Slot','Team','ID','new_ID']]
 
 round_1_results
 
