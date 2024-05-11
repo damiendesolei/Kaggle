@@ -8,11 +8,17 @@ Created on Wed Apr  3 20:11:37 2024
 import pandas as pd
 import numpy as np
 pd.set_option('display.max_columns', None)
+
+from sklearn.metrics import r2_score
+from sklearn.metrics import make_scorer
+
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import RandomizedSearchCV, GridSearchCV
+from sklearn.model_selection import KFold
+
 from xgboost import XGBRegressor
 from xgboost import plot_importance
-from sklearn.model_selection import KFold
+
 
 
 path = 'G:\kaggle\Regression_with_a_Flood_Prediction_Dataset\\'
@@ -53,15 +59,17 @@ train['random'] = np.random.rand(train.shape[0])
 y = train['FloodProbability']
 #drop unwanted columns
 train.drop(['FloodProbability'], axis=1, inplace=True)
-test.drop('Sex', axis=1, inplace=True)
+
 
 
 X_train, X_val, y_train, y_val = train_test_split(train, y, test_size=0.2, random_state = 24)
 
 
-#setup metrics
-from sklearn.metrics import r2_score
-
+#setup metrics 
+# y_true = [3, -0.5, 2, 7]
+# y_pred = [1, 0.0, 2, 5]
+# r2_score(y_true, y_pred)
+r2_score_cv = make_scorer(r2_score, greater_is_better=True)
 
 
 
@@ -83,7 +91,7 @@ param_comb = 100
 
 kf = KFold(n_splits=folds, shuffle = True, random_state = 1024)
 
-random_search = RandomizedSearchCV(xgb, param_distributions=params, n_iter=param_comb, scoring='neg_mean_squared_log_error', n_jobs=6, 
+random_search = RandomizedSearchCV(xgb, param_distributions=params, n_iter=param_comb, scoring=r2_score_cv, n_jobs=4, 
                                    cv=kf.split(X_train,y_train), verbose=3, random_state=1024)
 
 
