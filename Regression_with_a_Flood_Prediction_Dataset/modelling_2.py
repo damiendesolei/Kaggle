@@ -4,6 +4,9 @@ Created on Wed Apr  3 20:11:37 2024
 
 @author: damie
 """
+import time
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 import pandas as pd
 import numpy as np
@@ -19,6 +22,8 @@ from sklearn.model_selection import KFold
 from xgboost import XGBRegressor
 from xgboost import plot_importance
 
+from scipy.stats import randint as sp_randint
+from scipy.stats import uniform as sp_uniform
 
 
 path = 'G:\kaggle\Regression_with_a_Flood_Prediction_Dataset\\'
@@ -72,67 +77,124 @@ X_train, X_val, y_train, y_val = train_test_split(train, y, test_size=0.2, rando
 r2_score_cv = make_scorer(r2_score, greater_is_better=True)
 
 
+#define leaning rate shrinkage
+def learning_rate_010_decay_power_099(current_iter):
+    base_learning_rate = 0.1
+    lr = base_learning_rate  * np.power(.99, current_iter)
+    return lr if lr > 1e-3 else 1e-3
 
-#xgb hyper parameter tuning
-params = {
-        'eta': [0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5],
-        'min_child_weight': [1, 3, 5, 10],
-        'gamma': [0.5, 1, 1.5, 2, 5, 10, 20],
-        'subsample': [1],
-        'colsample_bytree': [1],
-        'max_depth': [1, 2, 3, 4, 5, 6, 7, 8]
-        }
+def learning_rate_010_decay_power_0995(current_iter):
+    base_learning_rate = 0.1
+    lr = base_learning_rate  * np.power(.995, current_iter)
+    return lr if lr > 1e-3 else 1e-3
 
-xgb = XGBRegressor(device="cuda", n_estimators=200, objective='reg:squarederror')
+def learning_rate_005_decay_power_099(current_iter):
+    base_learning_rate = 0.05
+    lr = base_learning_rate  * np.power(.99, current_iter)
+    return lr if lr > 1e-3 else 1e-3
 
 
-folds = 5
-param_comb = 1000
 
-kf = KFold(n_splits=folds, shuffle = True, random_state = 1024)
+#setup xgb parameters
+# fit_params={"early_stopping_rounds":100, 
+#             "eval_metric" : 'mae', 
+#             "eval_set" : [(X_val, y_val)],
+#             #'callbacks': [reset_parameter(learning_rate=learning_rate_010_decay_power_099)],
+#             'verbose': -1
+#             }
 
-random_search = RandomizedSearchCV(xgb, param_distributions=params, n_iter=param_comb, scoring=r2_score_cv, n_jobs=4, 
-                                   cv=kf.split(X_train,y_train), verbose=3, random_state=1024)
+#starting parameters
+param_test ={    
+            'eta': sp_uniform(loc=0.0, scale=3.0),
+            'max_depth': sp_randint(1, 10),
+            'min_child_weight': sp_uniform(loc=0, scale=5000.0),
+            #'subsample': sp_uniform(loc=0.2, scale=0.8), 
+            'gamma': sp_uniform(loc=0, scale=4.0), 
+            #'colsample_bytree': sp_uniform(loc=0.4, scale=0.6),
+            'alpha' : sp_uniform(loc=0.0, scale=2000.0),
+            'lambda': sp_uniform(loc=0.0, scale=2000.0)
+            #'scale_pos_weight': sp_uniform(loc=0, scale=1.0)
+            }
 
+
+
+n_hyper_parameter_points_to_test = 100
+
+#n_estimators is set to a "large value". The actual number of trees build will depend on early stopping and 50000 define only the absolute maximum
+xgb_reg = XGBRegressor(device="cuda", n_jobs=1, random_state=24, booster='gbtree', eval_metric=r2_score_cv, 
+                           objective='reg:squarederror', n_estimators=50000, early_stopping_rounds=100)
+random_search = RandomizedSearchCV(estimator=xgb_reg, param_distributions=param_test, n_iter=n_hyper_parameter_points_to_test, 
+                                 scoring='r2', cv=5, refit=True, random_state=24, verbose=3, n_jobs=5)
 
 random_search.fit(X_train, y_train)
-
-
-print('\n All results:')
-print(random_search.cv_results_)
-print('\n Best estimator:')
-print(random_search.best_estimator_)
-print('\n Best normalized gini score for %d-fold search with %d parameter combinations:' % (folds, param_comb))
-print(random_search.best_score_ * 2 - 1)
-print('\n Best hyperparameters:')
-print(random_search.best_params_)
-best_params = random_search.best_params_
-results = pd.DataFrame(random_search.cv_results_)
-results.to_csv(path + 'xgb-random-grid-search-results-02.csv', index=False)
+print('Best score reached: {} with params: {} '.format(random_search.best_score_, random_search.best_params_))
 
 
 
-#fit the model
-xgb_model = XGBRegressor(n_estimators=200
-                         ,objective='reg:squarederror'
-                         ,learning_rate=0.3
-                         ,max_depth=2
-                         ,min_child_weight=1
-                         ,gamma=1
-                         ,subsample=0.8
-                         ,colsample_bytree=0.8
-                         ,random_state=1024)
-xgb_model.fit(X_train, y_train, 
-             eval_set=[(X_val, y_val)], 
-             verbose=False)
+#steup cv fold
+n_fold = 5
+folds = KFold(n_splits=n_fold, shuffle=True, random_state=11)
 
-y_pred = xgb_model.predict(X_val)
-r2_score(y_val, y_pred) #0.8066538311585233
+#master model
+def train_model(X=X_train, X_test=X_val, y=y_train, params=None, folds=folds, plot_feature_importance=False, model=None):
 
-plot_importance(xgb_model, max_num_features=25, importance_type='weight', xlabel='weight')
-plot_importance(xgb_model, max_num_features=25, importance_type='gain', xlabel='gain')
+    oof = np.zeros(len(X))
+    prediction = np.zeros(len(X_test))
+    scores = []
+    feature_importance = pd.DataFrame()
+    
+    for fold_n, (train_index, valid_index) in enumerate(folds.split(X)):
+        print('Fold', fold_n, 'started at', time.ctime())
+        X_train, X_valid = X.iloc[train_index], X.iloc[valid_index]
+        y_train, y_valid = y.iloc[train_index], y.iloc[valid_index]
+        
+        model = xgb.xgbMRegressor(**params, n_estimators = 50000, n_jobs = 5)
+        model.fit(X_train, y_train, 
+                eval_set=[(X_train, y_train), (X_valid, y_valid)], eval_metric='mae',
+                verbose=10000, early_stopping_rounds=200)
+        
+        y_pred_valid = model.predict(X_valid)
+        y_pred = model.predict(X_test, num_iteration=model.best_iteration_)
+        
+        train_data = xgb.DMatrix(data=X_train, label=y_train, feature_names=X.columns)
+        valid_data = xgb.DMatrix(data=X_valid, label=y_valid, feature_names=X.columns)
 
+        watchlist = [(train_data, 'train'), (valid_data, 'valid_data')]
+        model = xgb.train(dtrain=train_data, num_boost_round=20000, evals=watchlist, early_stopping_rounds=200, verbose_eval=500, params=params)
+        y_pred_valid = model.predict(xgb.DMatrix(X_valid, feature_names=X.columns), ntree_limit=model.best_ntree_limit)
+        y_pred = model.predict(xgb.DMatrix(X_test, feature_names=X.columns), ntree_limit=model.best_ntree_limit)
+        
+            
+        oof[valid_index] = y_pred_valid.reshape(-1,)
+        scores.append(mean_absolute_error(y_valid, y_pred_valid))
 
+        prediction += y_pred    
+        
+        # feature importance
+        fold_importance = pd.DataFrame()
+        fold_importance["feature"] = X.columns
+        fold_importance["importance"] = model.feature_importances_
+        fold_importance["fold"] = fold_n + 1
+        feature_importance = pd.concat([feature_importance, fold_importance], axis=0)
 
-#validation_0-rmsle:0.15438
-#LB top: 0.14482
+    prediction /= n_fold
+    
+    print('CV mean score: {0:.4f}, std: {1:.4f}.'.format(np.mean(scores), np.std(scores)))
+    
+    if model_type == 'xgb':
+        feature_importance["importance"] /= n_fold
+        if plot_feature_importance:
+            cols = feature_importance[["feature", "importance"]].groupby("feature").mean().sort_values(
+                by="importance", ascending=False)[:50].index
+
+            best_features = feature_importance.loc[feature_importance.feature.isin(cols)]
+
+            plt.figure(figsize=(16, 12));
+            sns.barplot(x="importance", y="feature", data=best_features.sort_values(by="importance", ascending=False));
+            plt.title('xgb Features (avg over folds)');
+        
+            return oof, prediction, feature_importance
+        return oof, prediction
+    
+    else:
+        return oof, prediction
