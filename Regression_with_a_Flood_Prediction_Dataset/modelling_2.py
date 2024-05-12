@@ -74,34 +74,9 @@ X_train, X_val, y_train, y_val = train_test_split(train, y, test_size=0.2, rando
 # y_true = [3, -0.5, 2, 7]
 # y_pred = [1, 0.0, 2, 5]
 # r2_score(y_true, y_pred)
-r2_score_cv = make_scorer(r2_score, greater_is_better=True)
+#r2_score_cv = make_scorer(r2_score, greater_is_better=True)
 
 
-#define leaning rate shrinkage
-def learning_rate_010_decay_power_099(current_iter):
-    base_learning_rate = 0.1
-    lr = base_learning_rate  * np.power(.99, current_iter)
-    return lr if lr > 1e-3 else 1e-3
-
-def learning_rate_010_decay_power_0995(current_iter):
-    base_learning_rate = 0.1
-    lr = base_learning_rate  * np.power(.995, current_iter)
-    return lr if lr > 1e-3 else 1e-3
-
-def learning_rate_005_decay_power_099(current_iter):
-    base_learning_rate = 0.05
-    lr = base_learning_rate  * np.power(.99, current_iter)
-    return lr if lr > 1e-3 else 1e-3
-
-
-
-#setup xgb parameters
-# fit_params={"early_stopping_rounds":100, 
-#             "eval_metric" : 'mae', 
-#             "eval_set" : [(X_val, y_val)],
-#             #'callbacks': [reset_parameter(learning_rate=learning_rate_010_decay_power_099)],
-#             'verbose': -1
-#             }
 
 #starting parameters
 param_test ={    
@@ -118,16 +93,21 @@ param_test ={
 
 
 
-n_hyper_parameter_points_to_test = 100
+n_points_to_test = 10000
 
 #n_estimators is set to a "large value". The actual number of trees build will depend on early stopping and 50000 define only the absolute maximum
-xgb_reg = XGBRegressor(device="cuda", n_jobs=1, random_state=24, booster='gbtree', eval_metric=r2_score_cv, 
-                           objective='reg:squarederror', n_estimators=50000, early_stopping_rounds=100)
-random_search = RandomizedSearchCV(estimator=xgb_reg, param_distributions=param_test, n_iter=n_hyper_parameter_points_to_test, 
-                                 scoring='r2', cv=5, refit=True, random_state=24, verbose=3, n_jobs=5)
+xgb_reg = XGBRegressor(device="cuda", n_jobs=1, random_state=24, booster='gbtree', objective='reg:squarederror', #eval_metric=r2_score_cv,
+                       n_estimators=50000, early_stopping_rounds=100)
 
-random_search.fit(X_train, y_train)
-print('Best score reached: {} with params: {} '.format(random_search.best_score_, random_search.best_params_))
+kf = KFold(n_splits=5, shuffle = True, random_state = 1024)
+random_search = RandomizedSearchCV(estimator=xgb_reg, param_distributions=param_test, n_iter=n_points_to_test, scoring='r2', 
+                                   cv=kf.split(X_train,y_train), refit=True, random_state=24, verbose=1, n_jobs=5)
+
+random_search.fit(X_train, y_train, eval_set=[(X_val, y_val)])
+
+best_params = random_search.best_params_
+results = pd.DataFrame(random_search.cv_results_)
+results.to_csv(path + 'xgb-random-grid-search-results-02.csv', index=False)
 
 
 
