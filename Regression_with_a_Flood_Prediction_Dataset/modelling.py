@@ -16,12 +16,16 @@ from sklearn.model_selection import train_test_split
 from sklearn.model_selection import RandomizedSearchCV, GridSearchCV
 from sklearn.model_selection import KFold
 
+from scipy.stats import randint as sp_randint
+from scipy.stats import uniform as sp_uniform
+
 from xgboost import XGBRegressor
 from xgboost import plot_importance
 
 
 
-path = 'G:\kaggle\Regression_with_a_Flood_Prediction_Dataset\\'
+#path = 'G:\kaggle\Regression_with_a_Flood_Prediction_Dataset\\'
+path = r'C:\Users\damie\Downloads\playground-series-s4e5\\'
 
 train = pd.read_csv(path + 'train.csv', low_memory=True)
 test = pd.read_csv(path + 'test.csv', low_memory=True)
@@ -50,8 +54,8 @@ test = pd.read_csv(path + 'test.csv', low_memory=True)
 
 
 #set up random column
-np.random.seed(24)
-train['random'] = np.random.rand(train.shape[0])
+#np.random.seed(24)
+#train['random'] = np.random.rand(train.shape[0])
 
 
 
@@ -75,15 +79,18 @@ r2_score_cv = make_scorer(r2_score, greater_is_better=True)
 
 #xgb hyper parameter tuning
 params = {
-        'eta': [0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5],
-        'min_child_weight': [1, 3, 5, 10],
-        'gamma': [0.5, 1, 1.5, 2, 5, 10, 20],
+        'eta': sp_uniform(loc=0.0, scale=3.0),
+        'min_child_weight':  sp_uniform(loc=0, scale=5000.0),
+        'gamma': sp_uniform(loc=0, scale=20.0),
+        'alpha' : sp_uniform(loc=0.0, scale=2000.0),
+        'lambda': sp_uniform(loc=0.0, scale=2000.0),
         'subsample': [1],
         'colsample_bytree': [1],
-        'max_depth': [1, 2, 3, 4, 5, 6, 7, 8]
+        'max_depth': sp_randint(1, 10)
         }
 
-xgb = XGBRegressor(device="cuda", n_estimators=200, objective='reg:squarederror')
+#xgb = XGBRegressor(device="cuda", n_estimators=200, objective='reg:squarederror')
+xgb = XGBRegressor(n_estimators=200, objective='reg:squarederror')
 
 
 folds = 5
@@ -102,13 +109,13 @@ print('\n All results:')
 print(random_search.cv_results_)
 print('\n Best estimator:')
 print(random_search.best_estimator_)
-print('\n Best normalized gini score for %d-fold search with %d parameter combinations:' % (folds, param_comb))
+print('\n Best R2 for %d-fold search with %d parameter combinations:' % (folds, param_comb))
 print(random_search.best_score_ * 2 - 1)
 print('\n Best hyperparameters:')
 print(random_search.best_params_)
 best_params = random_search.best_params_
 results = pd.DataFrame(random_search.cv_results_)
-results.to_csv(path + 'xgb-random-grid-search-results-02.csv', index=False)
+results.to_csv(path + 'xgb-random-grid-search-results-01.csv', index=False)
 
 
 
