@@ -9,6 +9,8 @@ import pandas as pd
 import numpy as np
 pd.set_option('display.max_columns', None)
 
+import matplotlib.pyplot as plt
+
 from sklearn.metrics import r2_score
 from sklearn.metrics import make_scorer
 
@@ -30,6 +32,13 @@ path = r'C:\Users\damie\Downloads\playground-series-s4e5\\'
 train = pd.read_csv(path + 'train.csv', low_memory=True)
 test = pd.read_csv(path + 'test.csv', low_memory=True)
 
+
+
+#EDA
+plt.hist(train['FloodProbability'] , density=True)
+plt.ylabel('density')
+plt.xlabel('FloodProbability')
+plt.show()
 
 
 #integet encode the Sex
@@ -62,7 +71,7 @@ test = pd.read_csv(path + 'test.csv', low_memory=True)
 #train test split
 y = train['FloodProbability']
 #drop unwanted columns
-train.drop(['FloodProbability'], axis=1, inplace=True)
+train.drop(['FloodProbability','id'], axis=1, inplace=True)
 
 
 
@@ -80,13 +89,13 @@ r2_score_cv = make_scorer(r2_score, greater_is_better=True)
 #xgb hyper parameter tuning
 params = {
         'eta': sp_uniform(loc=0.0, scale=3.0),
-        'min_child_weight':  sp_uniform(loc=0, scale=5000.0),
+        'min_child_weight':  sp_uniform(loc=0, scale=500),
         'gamma': sp_uniform(loc=0, scale=20.0),
-        'alpha' : sp_uniform(loc=0.0, scale=2000.0),
-        'lambda': sp_uniform(loc=0.0, scale=2000.0),
-        'subsample': [1],
-        'colsample_bytree': [1],
-        'max_depth': sp_randint(1, 10)
+        'alpha' : sp_uniform(loc=0.0, scale=500.0),
+        'lambda': sp_uniform(loc=0.0, scale=500.0),
+        'subsample': [0.6,0.8,1],
+        'colsample_bytree': [0.6,0.8,1],
+        'max_depth': sp_randint(1, 8)
         }
 
 #xgb = XGBRegressor(device="cuda", n_estimators=200, objective='reg:squarederror')
@@ -115,7 +124,7 @@ print('\n Best hyperparameters:')
 print(random_search.best_params_)
 best_params = random_search.best_params_
 results = pd.DataFrame(random_search.cv_results_)
-results.to_csv(path + 'xgb-random-grid-search-results-01.csv', index=False)
+results.to_csv(path + 'xgb-random-grid-search-results-00.csv', index=False)
 
 
 
@@ -134,7 +143,7 @@ xgb_model.fit(X_train, y_train,
              verbose=False)
 
 y_pred = xgb_model.predict(X_val)
-r2_score(y_val, y_pred) #0.8066538311585233
+r2_score(y_val, y_pred) #0.8051867396014364
 
 plot_importance(xgb_model, max_num_features=25, importance_type='weight', xlabel='weight')
 plot_importance(xgb_model, max_num_features=25, importance_type='gain', xlabel='gain')
@@ -143,3 +152,16 @@ plot_importance(xgb_model, max_num_features=25, importance_type='gain', xlabel='
 
 #validation_0-rmsle:0.15438
 #LB top: 0.14482
+
+
+
+#predict the test set
+X_test = test.drop(['id'], axis=1)
+y_test = xgb_model.predict(X_test)
+
+
+submission = pd.DataFrame(test['id'])
+submission['FloodProbability'] = y_test
+
+#create submission file
+submission.to_csv(path+'submission_20240520_1.csv', index=False)
