@@ -7,19 +7,35 @@ Created on Wed Apr  3 20:11:37 2024
 
 import pandas as pd
 import numpy as np
+import datetime
+from colorama import Fore, Style
 pd.set_option('display.max_columns', None)
 
 import matplotlib.pyplot as plt
+import seaborn as sns
+from matplotlib.ticker import MaxNLocator
 
+from sklearn.decomposition import PCA
+#import umap
+
+from sklearn.base import clone
 from sklearn.metrics import r2_score
 from sklearn.metrics import make_scorer
 
+from sklearn.preprocessing import StandardScaler, PolynomialFeatures, SplineTransformer, OneHotEncoder
+from sklearn.kernel_approximation import Nystroem
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import RandomizedSearchCV, GridSearchCV
 from sklearn.model_selection import KFold
+from sklearn.pipeline import make_pipeline, Pipeline
+from sklearn.manifold import TSNE
 
 from scipy.stats import randint as sp_randint
 from scipy.stats import uniform as sp_uniform
+
+import pickle
+
+from sklearn.linear_model import Ridge, LinearRegression
 
 from xgboost import XGBRegressor
 from xgboost import plot_importance
@@ -29,17 +45,96 @@ from xgboost import plot_importance
 #path = 'G:\kaggle\Regression_with_a_Flood_Prediction_Dataset\\'
 path = r'C:\Users\damie\Downloads\playground-series-s4e5\\'
 
-train = pd.read_csv(path + 'train.csv', low_memory=True)
-test = pd.read_csv(path + 'test.csv', low_memory=True)
+train = pd.read_csv(path + 'train.csv', index_col='id', low_memory=True)
+test = pd.read_csv(path + 'test.csv', index_col='id', low_memory=True)
 
 
 
 #EDA
-plt.hist(train['FloodProbability'] , density=True)
+initial_features = list(test.columns)
+
+#target distribution
+train['FloodProbability'].describe()
+plt.hist(train['FloodProbability'], bins=np.linspace(0.2825, 0.7275, 90), density=True)
 plt.ylabel('density')
 plt.xlabel('FloodProbability')
 plt.show()
 
+
+#train vs test feature distribution
+_, axs = plt.subplots(5, 4, figsize=(12, 12))
+for col, ax in zip(initial_features, axs.ravel()):
+    vc = train[col].value_counts() / len(train)
+    ax.bar(vc.index, vc)
+    vc = test[col].value_counts() / len(test)
+    ax.bar(vc.index, vc, alpha=0.6)
+    ax.set_title(col)
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True)) # only integer labels
+plt.tight_layout()
+plt.show()
+
+
+#correlation matrix
+corr_features = initial_features + ['FloodProbability']
+cc = np.corrcoef(train[corr_features], rowvar=False)
+#plt.figure(figsize=(15, 15))
+sns.heatmap(cc, center=0, cmap='coolwarm', annot=True, fmt='.1f',
+            xticklabels=corr_features, yticklabels=corr_features)
+plt.title('Correlation matrix')
+plt.show()
+
+
+#PCA
+pca = PCA()
+pca.fit(train[initial_features])
+plt.figure(figsize=(3, 2.5))
+plt.plot(pca.explained_variance_ratio_.cumsum())
+plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True)) # only integer labels
+plt.title('Principal Components Analysis')
+plt.xlabel('component#')
+plt.ylabel('explained variance ratio')
+plt.yticks([0, 1])
+plt.show()
+
+
+
+# Unsupervised UMAP
+def plot_embedding(embedding, target, title):
+    plt.scatter(
+        embedding[:, 0],
+        embedding[:, 1],
+        s=1,
+        c=target,
+        cmap='coolwarm'
+    )
+    plt.gca().set_aspect('equal', 'datalim')
+    plt.title(title, fontsize=18)
+    plt.show()
+
+train_sample = train.sample(10000)
+reducer = umap.UMAP()
+plot_embedding(reducer.fit_transform(train_sample[initial_features]),
+               train_sample.FloodProbability,
+               'Unsupervised UMAP projection of the training dataset')
+
+
+
+# Supervised UMAP with regression target
+train_sample = train.sample(100000)
+reducer = umap.UMAP(n_neighbors=100, target_metric='manhattan',
+                    target_weight=0.6, min_dist=1)
+plot_embedding(reducer.fit_transform(train_sample[initial_features],
+                                     y=train_sample.FloodProbability),
+               train_sample.FloodProbability,
+               'Supervised UMAP projection of the training dataset')
+
+
+# t-SNE
+train_sample = train.sample(20000)
+reducer = TSNE()
+plot_embedding(reducer.fit_transform(train_sample[initial_features]),
+               train_sample.FloodProbability,
+               '(Unsupervised) t-SNE projection of the training dataset')
 
 #integet encode the Sex
 # def int_encode_sex(col):
@@ -67,11 +162,147 @@ plt.show()
 #train['random'] = np.random.rand(train.shape[0])
 
 
+kf = KFold(n_splits=5, shuffle=True, random_state=24)
+SINGLE_FOLD = False
+
+def cross_validate(model, label, features=initial_features, n_repeats=1):
+    """Compute out-of-fold and test predictions for a given model.
+    
+    Out-of-fold and test predictions are stored in the global variables
+    oof and test_pred, respectively.
+    
+    If n_repeats > 1, the model is trained several times with different seeds.
+    """
+    start_time = datetime.datetime.now()
+    scores = []
+    oof_preds = np.full_like(train.FloodProbability, np.nan, dtype=float)
+    for fold, (idx_tr, idx_va) in enumerate(kf.split(train)):
+        X_tr = train.iloc[idx_tr][features]
+        X_va = train.iloc[idx_va][features]
+        y_tr = train.iloc[idx_tr].FloodProbability
+        y_va = train.iloc[idx_va].FloodProbability
+        
+        y_pred = np.zeros_like(y_va, dtype=float)
+        for i in range(n_repeats):
+            m = clone(model)
+            if n_repeats > 1:
+                mm = m
+                if isinstance(mm, Pipeline):
+                    mm = mm[-1]
+                mm.set_params(random_state=i)
+            m.fit(X_tr, y_tr)
+            y_pred += m.predict(X_va)
+        y_pred /= n_repeats
+        
+#         residuals = y_va - y_pred
+#         plt.figure(figsize=(6, 2))
+#         plt.scatter(y_pred, residuals, s=1)
+#         plt.axhline(0, color='k')
+#         plt.show()
+        
+        score = r2_score(y_va, y_pred)
+        print(f"# Fold {fold}: R2={score:.5f}")
+        scores.append(score)
+        oof_preds[idx_va] = y_pred
+        if SINGLE_FOLD: break
+            
+    elapsed_time = datetime.datetime.now() - start_time
+    print(f"{Fore.GREEN}# Overall: {np.array(scores).mean():.5f} {label}"
+          f"{' single fold' if SINGLE_FOLD else ''}"
+          f"   {int(np.round(elapsed_time.total_seconds() / 60))} min{Style.RESET_ALL}")
+    oof[label] = oof_preds
+    
+    if COMPUTE_TEST_PRED:
+        # Retrain n_repeats times with the whole dataset and average
+        y_pred = np.zeros(len(test), dtype=float)
+        X_tr = train[features]
+        y_tr = train.FloodProbability
+        for i in range(n_repeats):
+            m = clone(model)
+            if n_repeats > 1:
+                mm = m
+                if isinstance(mm, Pipeline):
+                    mm = mm[-1]
+                if isinstance(mm, TransformedTargetRegressor):
+                    mm = mm.regressor
+                mm.set_params(random_state=i)
+            m.fit(X_tr, y_tr)
+            y_pred += m.predict(test[features])
+        y_pred /= n_repeats
+        test_pred[label] = y_pred
+
+
+
+# want to see the cross-validation results)
+COMPUTE_TEST_PRED = True
+
+# Containers for results
+oof, test_pred = {}, {}
+
+#linear models
+model = make_pipeline(StandardScaler(),
+                      LinearRegression())
+cross_validate(model, 'LinearRegression')
+
+#polynomial - ridge
+model = make_pipeline(StandardScaler(),
+                      PolynomialFeatures(degree=2),
+                      Ridge())
+cross_validate(model, 'Poly-Ridge')
+
+#splie - ridge
+model = make_pipeline(StandardScaler(),
+                      SplineTransformer(),
+                      Ridge())
+cross_validate(model, 'Spline-Ridge')
+
+
+# # Nystroem transformer + ridge
+# model = make_pipeline(StandardScaler(),
+#                       Nystroem(n_components=600),
+#                       Ridge())
+# cross_validate(model, 'Nystroem-Ridge')
+
+
+#stats model - linear regression
+import statsmodels.api as sm
+X = sm.add_constant(train[initial_features])
+res = sm.OLS(train.FloodProbability, X, missing='error').fit()
+res.summary()
+
+
+# XGBoost
+xgb_params = {'grow_policy': 'depthwise'
+              ,'n_estimators': 100
+              ,'learning_rate': 0.2639887908316703
+              ,'max_depth': 10
+              ,'reg_lambda': 62.46661785864016
+              ,'min_child_weight': 0.33652299514909034
+              ,'colsample_bytree': 0.2319730052165745
+              ,'objective': 'reg:squarederror'
+              ,'tree_method': 'hist'
+              ,'max_bin': 2048
+              ,'gamma': 0} # 0.83868
+model = XGBRegressor(**xgb_params)
+cross_validate(model, 'XGBoost')
+
+submission = pd.DataFrame(test_pred)
+submission['FloodProbability'] = (submission['LinearRegression']
+                                  +submission['Poly-Ridge']
+                                  +submission['Spline-Ridge']
+                                  +submission['XGBoost'])/4
+submission['id'] = test.index
+submission = submission[['id','FloodProbability']]
+#create submission file
+submission.to_csv(path+'submission_20240523_2.csv', index=False)
+
+
+
 
 #train test split
 y = train['FloodProbability']
 #drop unwanted columns
-train.drop(['FloodProbability','id'], axis=1, inplace=True)
+train.drop(['FloodProbability'], axis=1, inplace=True)
 
 
 
@@ -89,10 +320,10 @@ r2_score_cv = make_scorer(r2_score, greater_is_better=True)
 #xgb hyper parameter tuning
 params = {
         'eta': sp_uniform(loc=0.0, scale=3.0),
-        'min_child_weight':  sp_uniform(loc=0, scale=500),
+        'min_child_weight':  sp_uniform(loc=0, scale=100),
         'gamma': sp_uniform(loc=0, scale=20.0),
-        'alpha' : sp_uniform(loc=0.0, scale=500.0),
-        'lambda': sp_uniform(loc=0.0, scale=500.0),
+        'alpha' : sp_uniform(loc=0.0, scale=100.0),
+        'lambda': sp_uniform(loc=0.0, scale=100.0),
         'subsample': [0.6,0.8,1],
         'colsample_bytree': [0.6,0.8,1],
         'max_depth': sp_randint(1, 8)
@@ -103,7 +334,7 @@ xgb = XGBRegressor(n_estimators=200, objective='reg:squarederror')
 
 
 folds = 5
-param_comb = 1000
+param_comb = 100
 
 kf = KFold(n_splits=folds, shuffle = True, random_state = 1024)
 
@@ -124,7 +355,7 @@ print('\n Best hyperparameters:')
 print(random_search.best_params_)
 best_params = random_search.best_params_
 results = pd.DataFrame(random_search.cv_results_)
-results.to_csv(path + 'xgb-random-grid-search-results-00.csv', index=False)
+results.to_csv(path + 'xgb-random-grid-search-results-01.csv', index=False)
 
 
 
