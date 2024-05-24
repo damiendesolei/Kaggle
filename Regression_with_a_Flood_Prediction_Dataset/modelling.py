@@ -39,20 +39,22 @@ from sklearn.linear_model import Ridge, LinearRegression
 
 from xgboost import XGBRegressor
 from xgboost import plot_importance
+import catboost
+import lightgbm
 
 
 
-#path = 'G:\kaggle\Regression_with_a_Flood_Prediction_Dataset\\'
-path = r'C:\Users\damie\Downloads\playground-series-s4e5\\'
+path = 'G:\kaggle\Regression_with_a_Flood_Prediction_Dataset\\'
+#path = r'C:\Users\damie\Downloads\playground-series-s4e5\\'
 
 train = pd.read_csv(path + 'train.csv', index_col='id', low_memory=True)
 test = pd.read_csv(path + 'test.csv', index_col='id', low_memory=True)
 
+initial_features = list(test.columns)
+
 
 
 #EDA
-initial_features = list(test.columns)
-
 #target distribution
 train['FloodProbability'].describe()
 plt.hist(train['FloodProbability'], bins=np.linspace(0.2825, 0.7275, 90), density=True)
@@ -286,15 +288,97 @@ xgb_params = {'grow_policy': 'depthwise'
 model = XGBRegressor(**xgb_params)
 cross_validate(model, 'XGBoost')
 
+
+
+#catboost
+model = catboost.CatBoostRegressor(verbose=False)
+cross_validate(model, 'CatBoost')
+
+
+#lgb
+model = lightgbm.LGBMRegressor(verbose=-1)
+cross_validate(model, 'LightGBM')
+
+
+
+#look at the sum of each rows, and summaize by the sum vs probability
+temp = train.FloodProbability.groupby(train[initial_features].sum(axis=1)).mean()
+plt.scatter(temp.index, temp, s=1, c=(temp.index.isin(np.arange(72, 76))), cmap='coolwarm')
+plt.xlabel('sum of twenty initial features')
+plt.ylabel('mean flood probability')
+plt.show()
+
+# Add the special1 and fsum features
+for df in [train, test]:
+    df['fsum'] = df[initial_features].sum(axis=1) # for tree models
+    df['special1'] = df['fsum'].isin(np.arange(72, 76)) # for linear models
+
+
+#refit the models 
+#linear regression
+model = make_pipeline(StandardScaler(),
+                      LinearRegression())
+cross_validate(model, 'LinearRegression_special1', features=initial_features+['special1'])
+
+#polynomial - ridge
+model = make_pipeline(StandardScaler(),
+                      PolynomialFeatures(degree=2),
+                      Ridge())
+cross_validate(model, 'Poly-Ridge_special1', features=initial_features+['special1'])
+
+#splie - ridge
+model = make_pipeline(StandardScaler(),
+                      SplineTransformer(),
+                      Ridge())
+cross_validate(model, 'Spline-Ridge_special1', features=initial_features+['special1'])
+
+#ridge - onehot factor sum
+model = make_pipeline(OneHotEncoder(categories=[np.unique(train.fsum)],
+                                    drop='first', sparse_output=False),
+                      StandardScaler(),
+                      Ridge())
+cross_validate(model, 'Ridge one-hot fsum', features=['fsum'])
+
+#catboost factor sum
+model = catboost.CatBoostRegressor(verbose=False)
+cross_validate(model, 'CatBoost_fsum', features=initial_features+['fsum'])
+
+
+#Evaluation model results
+result_list = []
+for label in oof.keys():
+    mask = np.isfinite(oof[label])
+    score = r2_score(train.FloodProbability[mask], oof[label][mask])
+    result_list.append((label, score))
+result_df = pd.DataFrame(result_list, columns=['label', 'score'])
+result_df.sort_values('score', inplace=True, ascending=False)
+
+plt.figure(figsize=(12, len(result_df) * 0.4 + 0.4))
+bars = plt.barh(np.arange(len(result_df)), result_df.score, color='lightgreen')
+plt.annotate('Best model without feature engineering', 
+             (0.850, list(result_df.label).index('CatBoost')),
+             xytext=(0.855, list(result_df.label).index('CatBoost')+2),
+             arrowprops={'width': 2, 'color': 'darkgreen'},
+             color='darkgreen')
+plt.gca().bar_label(bars, fmt='%.5f')
+plt.yticks(np.arange(len(result_df)), result_df.label)
+plt.gca().invert_yaxis()
+plt.xlim(0.835, 0.875)
+plt.xlabel(f'{"fold 0" if SINGLE_FOLD else "5-fold cv"} r2 score (higher is better)')
+plt.show()
+
+
+#submission 
 submission = pd.DataFrame(test_pred)
-submission['FloodProbability'] = (submission['LinearRegression']
-                                  +submission['Poly-Ridge']
-                                  +submission['Spline-Ridge']
-                                  +submission['XGBoost'])/4
+submission['FloodProbability'] = (submission['CatBoost_fsum']
+                                  +submission['Ridge one-hot fsum']
+                                  +submission['Poly-Ridge_special1']
+                                  +submission['Spline-Ridge_special1']
+                                  +submission['LinearRegression_special1'])/5
 submission['id'] = test.index
 submission = submission[['id','FloodProbability']]
 #create submission file
-submission.to_csv(path+'submission_20240523_2.csv', index=False)
+submission.to_csv(path+'submission_20240525_1.csv', index=False)
 
 
 
