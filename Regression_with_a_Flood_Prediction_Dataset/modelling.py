@@ -22,7 +22,8 @@ from sklearn.base import clone
 from sklearn.metrics import r2_score
 from sklearn.metrics import make_scorer
 
-from sklearn.preprocessing import StandardScaler, PolynomialFeatures, SplineTransformer, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import StandardScaler, RobustScaler, PolynomialFeatures, SplineTransformer, OneHotEncoder
 from sklearn.kernel_approximation import Nystroem
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import RandomizedSearchCV, GridSearchCV
@@ -36,7 +37,7 @@ import scipy.stats
 
 import pickle
 
-from sklearn.linear_model import Ridge, LinearRegression
+from sklearn.linear_model import Ridge, Lasso, LinearRegression
 
 from xgboost import XGBRegressor
 from xgboost import plot_importance
@@ -78,12 +79,9 @@ plt.show()
 
 
 #correlation matrix
-corr_features = initial_features + ['FloodProbability']
-cc = np.corrcoef(train[corr_features], rowvar=False)
-#plt.figure(figsize=(15, 15))
-sns.heatmap(cc, center=0, cmap='coolwarm', annot=True, fmt='.1f',
-            xticklabels=corr_features, yticklabels=corr_features)
-plt.title('Correlation matrix')
+plt.figure(figsize=(10, 10))
+plt.title('Correlation Matrix\n')
+sns.heatmap(train.corr(), vmin=-1, vmax=1, annot=True, fmt='.2f', cmap='viridis', center=0)
 plt.show()
 
 
@@ -276,7 +274,7 @@ res.summary()
 
 # XGBoost
 xgb_params = {'grow_policy': 'depthwise'
-              ,'n_estimators': 100
+              ,'n_estimators': 500
               ,'learning_rate': 0.2639887908316703
               ,'max_depth': 10
               ,'reg_lambda': 62.46661785864016
@@ -480,6 +478,72 @@ cross_validate(model, 'Xgb descriptive', features=descriptive_features)
 model = lightgbm.LGBMRegressor(verbose=-1)
 cross_validate(model, 'LightGBM descriptive', features=descriptive_features)
 
+#ridge one-hot fsum + descriptive stats of row
+col_transformer = ColumnTransformer(
+    [('one_hot_encoder', OneHotEncoder(categories=[np.unique(train.fsum)],
+                                        drop='first', sparse_output=False), ['fsum'])],   
+    remainder='passthrough'                                         
+)
+model = make_pipeline(col_transformer,
+                      StandardScaler(),
+                      Ridge(alpha=0.002))
+cross_validate(model, 'Ridge one-hot fsum + descriptive', features=['fsum']+descriptive_features)
+
+#ridge one-hot fsum + special_1 + special_2
+col_transformer = ColumnTransformer(
+    [('one_hot_encoder', OneHotEncoder(categories=[np.unique(train.fsum)],
+                                        drop='first', sparse_output=False), ['fsum'])],   
+    remainder='passthrough'                                         
+)
+model = make_pipeline(col_transformer,
+                      StandardScaler(),
+                      Ridge(alpha=0.002))
+cross_validate(model, 'Ridge one-hot fsum_special1_2', features=['fsum']+['special1','special2'])
+
+#ridge one-hot fsum + sorted rows + descriptive stats of row
+col_transformer = ColumnTransformer(
+    [('one_hot_encoder', OneHotEncoder(categories=[np.unique(train.fsum)],
+                                        drop='first', sparse_output=False), ['fsum'])],   
+    remainder='passthrough'                                         
+)
+model = make_pipeline(col_transformer,
+                      StandardScaler(),
+                      Ridge(alpha=0.002))
+cross_validate(model, 'Ridge one-hot fsum + sorted + descriptive', features=['fsum']+sorted_features+descriptive_features)
+
+#linear regression one-hot fsum + descriptive stats of row
+col_transformer = ColumnTransformer(
+    [('one_hot_encoder', OneHotEncoder(categories=[np.unique(train.fsum)],
+                                        drop='first', sparse_output=False), ['fsum'])],   
+    remainder='passthrough'                                         
+)
+model = make_pipeline(col_transformer,
+                      StandardScaler(),
+                      LinearRegression())
+cross_validate(model, 'LinearRegression one-hot fsum + descriptive', features=['fsum']+descriptive_features)
+
+#linear regression one-hot fsum + sorted + descriptive stats of row
+col_transformer = ColumnTransformer(
+    [('one_hot_encoder', OneHotEncoder(categories=[np.unique(train.fsum)],
+                                        drop='first', sparse_output=False), ['fsum'])],   
+    remainder='passthrough'                                         
+)
+model = make_pipeline(col_transformer,
+                      StandardScaler(),
+                      LinearRegression())
+cross_validate(model, 'LinearRegression one-hot fsum + descriptive', features=['fsum']+sorted_features+descriptive_features)
+
+
+#poly-ridge one-hot fsum + special_1 + special_2
+col_transformer = ColumnTransformer(
+    [('one_hot_encoder', OneHotEncoder(categories=[np.unique(train.fsum)],
+                                        drop='first', sparse_output=False), ['fsum'])],   
+    remainder='passthrough'                                         
+)
+model = make_pipeline(col_transformer,
+                      PolynomialFeatures(degree=2),
+                      Ridge(alpha=0.002))
+cross_validate(model, 'Poly-Ridge one-hot fsum_special1_2', features=['fsum']+['special1','special2'])
 
 
 #Evaluation model results
@@ -508,15 +572,58 @@ plt.show()
 
 #submission 
 submission = pd.DataFrame(test_pred)
-submission['FloodProbability'] = (submission['CatBoost sorted + descriptive']
-                                  +submission['Xgb sorted + descriptive']
-                                  +submission['LightGBM sorted + descriptive'])/3
+submission['FloodProbability'] = (submission['CatBoost sorted']
+                                  +submission['Ridge one-hot fsum + sorted + descriptive'])/2
                                   
 submission['id'] = test.index
 submission = submission[['id','FloodProbability']]
 #create submission file
-submission.to_csv(path+'submission_20240526_1.csv', index=False)
+submission.to_csv(path+'submission_20240527_1.csv', index=False)
 
+
+
+
+#hyper-parameter tuning for rigde
+#ridge - onehot factor sum - we will do target encoding for this later
+# Define the pipeline
+#feature list for tuning
+#col = descriptive_features + ['fsum']
+col = ['fsum'] + ['special1','special2']
+
+y = train['FloodProbability']
+X_train, X_val, y_train, y_val = train_test_split(train[col], y, test_size=0.4, random_state = 1024)
+
+col_transformer = ColumnTransformer(
+    [('one_hot_encoder', OneHotEncoder(categories=[np.unique(train.fsum)],
+                                        drop='first', sparse_output=False), ['fsum'])],   
+    remainder='passthrough'                                         
+)
+# Perform grid search for Lasso
+for i in np.arange(0.000002, 0.00002, 0.000001): #0.000002
+    pipeline = make_pipeline(col_transformer,
+                             StandardScaler(),
+                             Lasso(alpha=i))
+    pipeline.fit(X_train, y_train)
+    print('alpha is ' + str(i))
+    print(r2_score(pipeline.predict(X_val),y_val))
+    
+    
+# Perform grid search for Ridge  
+for i in np.arange(0.0, 0.01, 0.002): #0.002
+    pipeline = make_pipeline(col_transformer,
+                             StandardScaler(),
+                             Ridge(alpha=i))
+    pipeline.fit(X_train, y_train)
+    print('alpha is ' + str(i))
+    print(r2_score(pipeline.predict(X_val),y_val))
+
+
+#check linear regression -> Lasso is worse than Linear regression
+pipeline = make_pipeline(col_transformer,
+                         StandardScaler(),
+                         LinearRegression())
+pipeline.fit(X_train, y_train)
+print(r2_score(pipeline.predict(X_val),y_val))
 
 #hyper-parameter tuning for xgb
 np.random.seed(24)
