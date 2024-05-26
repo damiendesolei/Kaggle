@@ -573,12 +573,14 @@ plt.show()
 #submission 
 submission = pd.DataFrame(test_pred)
 submission['FloodProbability'] = (submission['CatBoost sorted']
-                                  +submission['Ridge one-hot fsum + sorted + descriptive'])/2
+                                  +submission['LightGBM sorted + descriptive']
+                                  +submission['Xgb sorted + descriptive']
+                                  +submission['Ridge one-hot fsum + sorted + descriptive'])/4
                                   
 submission['id'] = test.index
 submission = submission[['id','FloodProbability']]
 #create submission file
-submission.to_csv(path+'submission_20240527_1.csv', index=False)
+submission.to_csv(path+'submission_20240527_2.csv', index=False)
 
 
 
