@@ -32,6 +32,7 @@ from sklearn.manifold import TSNE
 
 from scipy.stats import randint as sp_randint
 from scipy.stats import uniform as sp_uniform
+import scipy.stats
 
 import pickle
 
@@ -362,18 +363,22 @@ model = make_pipeline(OneHotEncoder(categories=[np.unique(train.fsum)],
                       Ridge())
 cross_validate(model, 'Ridge one-hot fsum', features=['fsum'])
 
+
+#ridge - 
+model = make_pipeline(StandardScaler(),
+                      Ridge())
+cross_validate(model, 'Ridge fsum + special1_2', features=['fsum']+['special1','special2'])
+
 #catboost factor sum
 model = catboost.CatBoostRegressor(verbose=False)
 cross_validate(model, 'CatBoost_fsum', features=initial_features+['fsum'])
 
 
-
-
-#sort the features
+#sort the features - new features
 sorted_features = [f"sort_{i}" for i in np.arange(len(initial_features))]
 for df in [train, test]:
     df[sorted_features] = np.sort(df[initial_features], axis=1)
-train
+#train
 
 #catboost on sorted rows
 model = catboost.CatBoostRegressor(verbose=False)
@@ -381,11 +386,100 @@ cross_validate(model, 'CatBoost sorted', features=sorted_features+['fsum'])
 
 #xgb on sorted rows
 model = XGBRegressor()
-cross_validate(model, 'Xgb sorted', features=sorted_features+['fsum'])
+cross_validate(model, 'Xgb sorted', features=sorted_features+['fsum']) #0.8690275247408661
 
 #lgb on sorted rows
 model = lightgbm.LGBMRegressor(verbose=-1)
-cross_validate(model, 'LightGBM sorted', features=sorted_features+['fsum'])
+cross_validate(model, 'LightGBM sorted', features=sorted_features+['fsum']) #0.8688767568775901
+
+
+
+#try using descriptive stats as new factors
+def descriptive_stat(df, feature):
+    #features = df.columns.tolist()
+    features = feature
+    df['mean_features'] = df[features].mean(axis=1)
+    df['std_features'] = df[features].std(axis=1)
+    df['max_features'] = df[features].max(axis=1)
+    df['min_features'] = df[features].min(axis=1)
+    df['median_features'] = df[features].median(axis=1)
+    df['range_features'] = df['max_features'] - df['min_features']
+    df['90percentile_features'] = np.percentile(df[features], 90, axis=1)
+    df['75percentile_features'] = np.percentile(df[features], 75, axis=1)
+    df['25percentile_features'] = np.percentile(df[features], 25, axis=1)
+    df['10percentile_features'] = np.percentile(df[features], 10, axis=1)
+    df['kurtosis_features'] = scipy.stats.kurtosis(df[features], axis=1)
+    df['skew_features'] = scipy.stats.skew(df[features], axis=1)
+    
+    mean_abs_dev = (df[features] - df[features].mean(axis=1).values.reshape(-1, 1)).abs().mean(axis=1)
+    median_abs_dev = (df[features] - df[features].median(axis=1).values.reshape(-1, 1)).abs().mean(axis=1)
+    range_abs_diff = (df[features] - df[features].median(axis=1).values.reshape(-1, 1)).abs().max(axis=1) - (df[features] - df[features].median(axis=1).values.reshape(-1, 1)).abs().min(axis=1)
+    geometric_mean = np.exp(np.log(df[features].replace(0, 1)).mean(axis=1))
+    harmonic_mean = len(features) / (1 / df[features].replace(0, 1)).sum(axis=1)
+    coeff_variation = df['std_features'] / df['mean_features']
+    df['mean_absolute_deviation'] = mean_abs_dev
+    df['median_absolute_deviation'] = median_abs_dev
+    df['range_abs_diff'] = range_abs_diff
+    df['geometric_mean'] = geometric_mean
+    df['harmonic_mean'] = harmonic_mean
+    df['coeff_variation'] = coeff_variation
+    # just keep the descriptive statistics
+    #dataset = df.drop(features, axis=1)
+    
+    return df
+
+train = descriptive_stat(train, initial_features)
+test = descriptive_stat(test, initial_features)
+
+#find all the new statistical features
+#new_features = list(set(train.columns) - set(initial_features) - set(sorted_features))  
+descriptive_features = [
+                 'mean_features',
+                 'std_features',
+                 'max_features',
+                 'min_features',
+                 'median_features',
+                 'range_features',
+                 '90percentile_features',
+                 '75percentile_features',
+                 '25percentile_features',
+                 '10percentile_features',
+                 'kurtosis_features',
+                 'skew_features',
+                 'mean_absolute_deviation',
+                 'median_absolute_deviation',
+                 'range_abs_diff',
+                 'geometric_mean',
+                 'harmonic_mean',
+                 'coeff_variation',
+                 #'fsum'
+]
+
+#catboost on sorted rows + descriptive stats of rows
+model = catboost.CatBoostRegressor(verbose=False)
+cross_validate(model, 'CatBoost sorted + descriptive', features=sorted_features+descriptive_features)
+
+#xgb on sorted rows + descriptive stats of rows
+model = XGBRegressor()
+cross_validate(model, 'Xgb sorted + descriptive', features=sorted_features+descriptive_features) #0.8690275247408661
+
+#lgb on sorted rows + descriptive stats of rows
+model = lightgbm.LGBMRegressor(verbose=-1)
+cross_validate(model, 'LightGBM sorted + descriptive', features=sorted_features+descriptive_features) #0.8688767568775901
+
+
+#catboost on sorted rows + descriptive stats of rows
+model = catboost.CatBoostRegressor(verbose=False)
+cross_validate(model, 'CatBoost descriptive', features=descriptive_features)
+
+#xgb on sorted rows + descriptive stats of rows
+model = XGBRegressor()
+cross_validate(model, 'Xgb descriptive', features=descriptive_features) 
+
+#lgb on sorted rows + descriptive stats of rows
+model = lightgbm.LGBMRegressor(verbose=-1)
+cross_validate(model, 'LightGBM descriptive', features=descriptive_features)
+
 
 
 #Evaluation model results
@@ -414,28 +508,30 @@ plt.show()
 
 #submission 
 submission = pd.DataFrame(test_pred)
-submission['FloodProbability'] = (submission['CatBoost sorted']
-                                  +submission['Xgb sorted']
-                                  +submission['LightGBM sorted']
-                                  +submission['Poly-Ridge_special1_2']
-                                  +submission['Spline-Ridge_special1_2']\
-                                  +submission['Ridge one-hot fsum'])/6
+submission['FloodProbability'] = (submission['CatBoost sorted + descriptive']
+                                  +submission['Xgb sorted + descriptive']
+                                  +submission['LightGBM sorted + descriptive'])/3
+                                  
 submission['id'] = test.index
 submission = submission[['id','FloodProbability']]
 #create submission file
-submission.to_csv(path+'submission_20240525_2.csv', index=False)
+submission.to_csv(path+'submission_20240526_1.csv', index=False)
 
 
-
+#hyper-parameter tuning for xgb
+np.random.seed(24)
+train['random'] = np.random.rand(train.shape[0])
 
 #train test split
 y = train['FloodProbability']
 #drop unwanted columns
 train.drop(['FloodProbability'], axis=1, inplace=True)
 
+#feature list for tuning
+col = sorted_features + descriptive_features + ['random']
+col = ['mean_features','sort_19','range_abs_diff','std_features','skew_features'] #+ ['random']
 
-
-X_train, X_val, y_train, y_val = train_test_split(train, y, test_size=0.2, random_state = 24)
+X_train, X_val, y_train, y_val = train_test_split(train[col], y, test_size=0.3, random_state = 1024)
 
 
 #setup metrics 
@@ -453,22 +549,22 @@ params = {
         'gamma': sp_uniform(loc=0, scale=20.0),
         'alpha' : sp_uniform(loc=0.0, scale=100.0),
         'lambda': sp_uniform(loc=0.0, scale=100.0),
-        'subsample': [0.6,0.8,1],
-        'colsample_bytree': [0.6,0.8,1],
+        'subsample': [1],
+        'colsample_bytree': [1],
         'max_depth': sp_randint(1, 8)
         }
 
-#xgb = XGBRegressor(device="cuda", n_estimators=200, objective='reg:squarederror')
-xgb = XGBRegressor(n_estimators=200, objective='reg:squarederror')
+xgb = XGBRegressor(device="cuda", n_estimators=200, objective='reg:squarederror')
+#xgb = XGBRegressor(n_estimators=200, objective='reg:squarederror')
 
 
-folds = 5
-param_comb = 100
+folds = 3
+param_comb = 1000
 
 kf = KFold(n_splits=folds, shuffle = True, random_state = 1024)
 
-random_search = RandomizedSearchCV(xgb, param_distributions=params, n_iter=param_comb, scoring=r2_score_cv, n_jobs=4, 
-                                   cv=kf.split(X_train,y_train), verbose=3, random_state=1024)
+random_search = RandomizedSearchCV(xgb, param_distributions=params, n_iter=param_comb, scoring=r2_score_cv, n_jobs=3, 
+                                   cv=kf.split(X_train,y_train), verbose=0, random_state=1024)
 
 
 random_search.fit(X_train, y_train)
@@ -489,21 +585,24 @@ results.to_csv(path + 'xgb-random-grid-search-results-01.csv', index=False)
 
 
 #fit the model
-xgb_model = XGBRegressor(n_estimators=200
-                         ,objective='reg:squarederror'
-                         ,learning_rate=0.3
-                         ,max_depth=2
-                         ,min_child_weight=1
-                         ,gamma=1
-                         ,subsample=0.8
-                         ,colsample_bytree=0.8
-                         ,random_state=1024)
+# xgb_model = XGBRegressor(n_estimators=200
+#                          ,objective='reg:squarederror'
+#                          ,learning_rate=1.8283045393203663
+#                          ,max_depth=4
+#                          ,min_child_weight=16.978613241631045
+#                          ,gamma=0.09789013134640534
+#                          ,reg_alpha = 1.8016124055144744
+#                          ,reg_lambda = 33.88382357431248
+#                          ,subsample = 1
+#                          ,colsample_bytree = 1
+#                          ,random_state=1024)
+xgb_model = XGBRegressor()
 xgb_model.fit(X_train, y_train, 
              eval_set=[(X_val, y_val)], 
              verbose=False)
 
 y_pred = xgb_model.predict(X_val)
-r2_score(y_val, y_pred) #0.8051867396014364
+r2_score(y_val, y_pred) #0.8691848446982149
 
 plot_importance(xgb_model, max_num_features=25, importance_type='weight', xlabel='weight')
 plot_importance(xgb_model, max_num_features=25, importance_type='gain', xlabel='gain')
