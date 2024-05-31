@@ -54,6 +54,8 @@ test = pd.read_csv(path + 'test.csv', index_col='id', low_memory=True)
 
 initial_features = list(test.columns)
 
+#set aside holdout sets for fitting ensemble weight
+train, holdout = train_test_split(train, test_size=0.1, random_state = 24)
 
 
 #EDA
@@ -232,13 +234,32 @@ def cross_validate(model, label, features=initial_features, n_repeats=1):
         y_pred /= n_repeats
         test_pred[label] = y_pred
 
+    if COMPUTE_HOLDOUT_PRED:
+        # Retrain n_repeats times with the whole dataset and average
+        y_pred = np.zeros(len(holdout), dtype=float)
+        X_tr = train[features]
+        y_tr = train.FloodProbability
+        for i in range(n_repeats):
+            m = clone(model)
+            if n_repeats > 1:
+                mm = m
+                if isinstance(mm, Pipeline):
+                    mm = mm[-1]
+                if isinstance(mm, TransformedTargetRegressor):
+                    mm = mm.regressor
+                mm.set_params(random_state=i)
+            m.fit(X_tr, y_tr)
+            y_pred += m.predict(holdout[features])
+        y_pred /= n_repeats
+        holdout_pred[label] = y_pred
 
 
 # want to see the cross-validation results)
 COMPUTE_TEST_PRED = True
+COMPUTE_HOLDOUT_PRED = True
 
 # Containers for results
-oof, test_pred = {}, {}
+oof, test_pred, holdout_pred = {}, {}, {}
 
 #linear models
 model = make_pipeline(StandardScaler(),
@@ -264,12 +285,6 @@ cross_validate(model, 'Spline-Ridge')
 #                       Ridge())
 # cross_validate(model, 'Nystroem-Ridge')
 
-
-#stats model - linear regression
-import statsmodels.api as sm
-X = sm.add_constant(train[initial_features])
-res = sm.OLS(train.FloodProbability, X, missing='error').fit()
-res.summary()
 
 
 # XGBoost
@@ -309,7 +324,7 @@ plt.show()
 
 # Sum of factors as a new feature
 # Above and below linear trend as new features
-for df in [train, test]:
+for df in [train, test, holdout]:
     df['fsum'] = df[initial_features].sum(axis=1) # fsum is correlated with other f, not suitable for linear model
     df['special1'] = 0  
     df.loc[df['fsum'].isin([72, 73, 74, 75]), 'special1'] = 1
@@ -374,7 +389,7 @@ cross_validate(model, 'CatBoost_fsum', features=initial_features+['fsum'])
 
 #sort the features - new features
 sorted_features = [f"sort_{i}" for i in np.arange(len(initial_features))]
-for df in [train, test]:
+for df in [train, test, holdout]:
     df[sorted_features] = np.sort(df[initial_features], axis=1)
 #train
 
@@ -428,6 +443,7 @@ def descriptive_stat(df, feature):
 
 train = descriptive_stat(train, initial_features)
 test = descriptive_stat(test, initial_features)
+holdout = descriptive_stat(holdout, initial_features)
 
 #find all the new statistical features
 #new_features = list(set(train.columns) - set(initial_features) - set(sorted_features))  
@@ -546,6 +562,23 @@ model = make_pipeline(col_transformer,
 cross_validate(model, 'Poly-Ridge one-hot fsum_special1_2', features=['fsum']+['special1','special2'])
 
 
+#xgb on sorted rows + descriptive stats of rows
+xgb_params1 = {'alpha': 0.19975984156679072, 'colsample_bytree': 0.8, 'eta': 0.16290300648543954, 'gamma': 0.004199326838163486, 'lambda': 0.4652963814414852, 'max_depth': 6, 'min_child_weight': 73.52458239480482, 'subsample': 0.8}
+model = XGBRegressor(**xgb_params1)
+cross_validate(model, 'Xgb all', features=train.columns.drop('FloodProbability')) 
+
+#xgb on sorted rows + fsum
+xgb_params2 = {'alpha': 0.4801034078557035, 'colsample_bytree': 0.8, 'eta': 0.9087466988992239, 'gamma': 7.877921672383437e-05, 'lambda': 0.7303187465921268, 'max_depth': 4, 'min_child_weight': 78.71345077660864, 'subsample': 0.8}
+model = XGBRegressor(**xgb_params2)
+cross_validate(model, 'Xgb sorted + fsum', features=sorted_features+['fsum']) 
+
+
+#lgb on all 
+lgb_params1 = {'colsample_bytree': 0.8, 'learning_rate': 0.1346710501588595, 'max_depth': 6, 'min_child_weight': 30.081027606442845, 'reg_alpha': 0.4962336477549778, 'reg_lambda': 0.4721232929109571, 'subsample': 0.8, 'verbose': -1}
+model = lightgbm.LGBMRegressor(**lgb_params1)
+cross_validate(model, 'LightGBM all', features=train.columns.drop('FloodProbability')) 
+
+
 #Evaluation model results
 result_list = []
 for label in oof.keys():
@@ -570,18 +603,44 @@ plt.xlabel(f'{"fold 0" if SINGLE_FOLD else "5-fold cv"} r2 score (higher is bett
 plt.show()
 
 
-#submission 
+#model ensemble
+#1 highest of different models: 'CatBoost sorted' + 'Xgb sorted' + 'LightGBM all'
+holdout_results = pd.DataFrame(holdout_pred)
+import statsmodels.api as sm
+#X = sm.add_constant(holdout_results)
+X = holdout_results
+y = list(holdout.FloodProbability)
+res = sm.OLS(y, X, missing='error').fit()
+res.summary()
+
+#submission 1
 submission = pd.DataFrame(test_pred)
-submission['FloodProbability'] = (submission['CatBoost sorted']
-                                  +submission['LightGBM sorted + descriptive']
-                                  +submission['Xgb sorted + descriptive']
-                                  +submission['Ridge one-hot fsum + sorted + descriptive'])/4
-                                  
+submission['FloodProbability'] = submission['CatBoost sorted']*0.5542+submission['Xgb sorted']*0.2562+submission['LightGBM all']*0.1896
+
 submission['id'] = test.index
 submission = submission[['id','FloodProbability']]
 #create submission file
-submission.to_csv(path+'submission_20240527_2.csv', index=False)
+submission.to_csv(path+'submission_20240531_1.csv', index=False)
 
+
+#2 highest of top 5 models: 'CatBoost sorted' + 'CatBoost sorted + descriptive' + 'Xgb sorted' + 'CatBoost descriptive' + 'LightGBM all'
+holdout_results = pd.DataFrame(holdout_pred)
+import statsmodels.api as sm
+#X = sm.add_constant(holdout_results)
+X = holdout_results
+y = list(holdout.FloodProbability)
+res = sm.OLS(y, X, missing='error').fit()
+res.summary()
+
+#submission 2
+submission = pd.DataFrame(test_pred)
+submission['FloodProbability'] = submission['CatBoost sorted']*0.3410 + submission['CatBoost sorted + descriptive']*0.3181 + \
+    submission['Xgb sorted']*0.2174 + submission['LightGBM all']*0.0796 + submission['CatBoost descriptive']*0.0439
+
+submission['id'] = test.index
+submission = submission[['id','FloodProbability']]
+#create submission file
+submission.to_csv(path+'submission_20240531_2.csv', index=False)
 
 
 
@@ -637,8 +696,9 @@ y = train['FloodProbability']
 train.drop(['FloodProbability'], axis=1, inplace=True)
 
 #feature list for tuning
-col = sorted_features + descriptive_features + ['random']
-col = ['mean_features','sort_19','range_abs_diff','std_features','skew_features'] #+ ['random']
+#col = sorted_features + descriptive_features + ['random']
+#col = ['mean_features','sort_19','range_abs_diff','std_features','skew_features'] #+ ['random']
+col = train.columns
 
 X_train, X_val, y_train, y_val = train_test_split(train[col], y, test_size=0.3, random_state = 1024)
 
@@ -653,14 +713,14 @@ r2_score_cv = make_scorer(r2_score, greater_is_better=True)
 
 #xgb hyper parameter tuning
 params = {
-        'eta': sp_uniform(loc=0.0, scale=3.0),
+        'eta': sp_uniform(loc=0.0, scale=2.0),
         'min_child_weight':  sp_uniform(loc=0, scale=100),
-        'gamma': sp_uniform(loc=0, scale=20.0),
-        'alpha' : sp_uniform(loc=0.0, scale=100.0),
-        'lambda': sp_uniform(loc=0.0, scale=100.0),
-        'subsample': [1],
-        'colsample_bytree': [1],
-        'max_depth': sp_randint(1, 8)
+        'gamma': sp_uniform(loc=0, scale=2.0),
+        'alpha' : sp_uniform(loc=0.0, scale=1.0),
+        'lambda': sp_uniform(loc=0.0, scale=1.0),
+        'subsample': [0.8],
+        'colsample_bytree': [0.8],
+        'max_depth': sp_randint(2, 7)
         }
 
 xgb = XGBRegressor(device="cuda", n_estimators=200, objective='reg:squarederror')
@@ -668,7 +728,7 @@ xgb = XGBRegressor(device="cuda", n_estimators=200, objective='reg:squarederror'
 
 
 folds = 3
-param_comb = 1000
+param_comb = 10000
 
 kf = KFold(n_splits=folds, shuffle = True, random_state = 1024)
 
@@ -689,7 +749,7 @@ print('\n Best hyperparameters:')
 print(random_search.best_params_)
 best_params = random_search.best_params_
 results = pd.DataFrame(random_search.cv_results_)
-results.to_csv(path + 'xgb-random-grid-search-results-01.csv', index=False)
+results.to_csv(path + 'xgb-random-grid-search-results-02.csv', index=False)
 
 
 
@@ -718,18 +778,41 @@ plot_importance(xgb_model, max_num_features=25, importance_type='gain', xlabel='
 
 
 
-#validation_0-rmsle:0.15438
-#LB top: 0.14482
+#lgb hyper parameter tuning
+params = {
+        'learning_rate': sp_uniform(loc=0.0, scale=2.0),
+        'min_child_weight':  sp_uniform(loc=0, scale=100),
+        #'gamma': sp_uniform(loc=0, scale=2.0),
+        'reg_alpha' : sp_uniform(loc=0.0, scale=1.0),
+        'reg_lambda': sp_uniform(loc=0.0, scale=1.0),
+        'subsample': [0.8],
+        'colsample_bytree': [0.8],
+        'max_depth': sp_randint(2, 7)
+        }
+
+#lgb = lightgbm.LGBMRegressor(device="cuda", n_estimators=200, objective='regression')
+lgb = lightgbm.LGBMRegressor(n_estimators=200, objective='regression')
+
+folds = 3
+param_comb = 1000
+
+kf = KFold(n_splits=folds, shuffle = True, random_state = 1024)
+
+random_search = RandomizedSearchCV(lgb, param_distributions=params, n_iter=param_comb, scoring=r2_score_cv, n_jobs=6, 
+                                   cv=kf.split(X_train,y_train), verbose=0, random_state=1024)
 
 
-
-#predict the test set
-X_test = test.drop(['id'], axis=1)
-y_test = xgb_model.predict(X_test)
+random_search.fit(X_train, y_train)
 
 
-submission = pd.DataFrame(test['id'])
-submission['FloodProbability'] = y_test
-
-#create submission file
-submission.to_csv(path+'submission_20240520_1.csv', index=False)
+print('\n All results:')
+print(random_search.cv_results_)
+print('\n Best estimator:')
+print(random_search.best_estimator_)
+print('\n Best R2 for %d-fold search with %d parameter combinations:' % (folds, param_comb))
+print(random_search.best_score_ * 2 - 1)
+print('\n Best hyperparameters:')
+print(random_search.best_params_)
+best_params = random_search.best_params_
+results = pd.DataFrame(random_search.cv_results_)
+results.to_csv(path + 'lgb-random-grid-search-results-01.csv', index=False)
