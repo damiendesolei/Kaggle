@@ -33,6 +33,11 @@ import xgboost
 import catboost
 import lightgbm
 
+from scipy.stats import randint as sp_randint
+from scipy.stats import uniform as sp_uniform
+import scipy.stats
+
+
 path = 'G:\kaggle\Classification_with_an_Academic_Success_Dataset\\'
 
 
@@ -41,12 +46,16 @@ test = pd.read_csv(path + 'test.csv', index_col='id', low_memory=True)
 
 
 
-#features
+#assigne correct type to columns from the organizer
 initial_features = list(test.columns)
 cat_features = ['Marital status', 'Application mode', 'Course',
                 'Previous qualification', 'Nacionality', "Mother's qualification", 
                 "Father's qualification", "Mother's occupation",
                 "Father's occupation"]
+num_features = [f for f in train._get_numeric_data() if (f not in ['Target']) and (f not in cat_features)]
+print(f'Numeric cols: {len(num_feature)}')
+print(f'Categorical cols: {len(cat_features)}')
+
 for feature in cat_features:
     for df in [train, test]:
         df[feature] = df[feature].astype('category')
@@ -57,7 +66,13 @@ targets = label_encoder.fit_transform(train.Target)
 mapping = {index: label for index, label in enumerate(label_encoder.classes_)}
 for label, index in mapping.items():
     print(f"{label}: {index}")
+    
+    
+    
+    
+    
 
+###############################################################################
 #feature exploration
 dt = DecisionTreeClassifier(max_depth=5)
 dt.fit(train[initial_features], train.Target);
@@ -79,24 +94,80 @@ plt.gca().invert_yaxis()
 plt.show()
 
 
-#plot top6 feature
-top_features = importance_df.head(6)['feature']
+#plot categorical features
+def plot_cat(limit_unique=100):
+    selectcols = train[cat_features].nunique()<=limit_unique
+    cols_ = selectcols[selectcols].index.to_list()
+    n_cols = len(cols_)
+    fig, ax = plt.subplots(n_cols, 2, figsize=(12, 4 * n_cols))
+    for i, coluna in enumerate(cols_):    
+        sns.countplot(x=train[coluna], ax=ax[i, 0])
+        ax[i, 0].set_title(f'{coluna}')
+        ax[i, 0].set_ylabel('Count')
+        ax[i, 0].set_xlabel(coluna)
+        ax[i, 0].tick_params(axis='x', labelrotation=45)
 
-plt.figure(figsize=(20, 24))
-plotnumber = 1
+        for container in ax[i, 0].containers:
+            ax[i, 0].bar_label(container, fmt='%d', label_type='center')
 
-# Loop through each column
-for col in top_features:
-    if plotnumber <= len(top_features) and train[col].dtype != 'float64':
-        plt.subplot(4, 3, plotnumber)
-        ax = sns.countplot(x=train[col], hue=train['Target'], palette='bright')
-        
-    plotnumber += 1
+        s1 = train[coluna].value_counts()        
 
-plt.suptitle('Distribution of Categorical Variables by Target', fontsize=40, y=1)
-plt.tight_layout()
-plt.show()
+        textprops = {
+            'size':8, 
+            'weight': 'bold', 
+            'color':'white'
+        }
 
+        ax[i, 1].pie(s1,
+            autopct='%1.f%%',
+            pctdistance=0.8, 
+            textprops=textprops,
+            labels=train[coluna].value_counts().index
+        )    
+        ax[i, 1].set_title(f'% {coluna}')
+
+    plt.tight_layout()
+    plt.show()
+    
+plot_cat()
+
+
+#plot numeric features
+def plot_numerical():
+    #num = train.select_dtypes(include=['int64','float64']).columns
+
+    df = pd.concat([train[num_features].assign(Source = 'Train'), 
+                    test[num_features].assign(Source = 'Test')], ignore_index = True)
+
+    # Use of more advanced artistic matplotlib interface (see the axes)
+    fig, axes = plt.subplots(len(num_features), 3 ,figsize = (16, len(num_features) * 4), 
+                             gridspec_kw = {'hspace': 0.35, 'wspace': 0.3, 
+                                            'width_ratios': [0.80, 0.20, 0.20]})
+
+    for i,col in enumerate(num_features):
+        ax = axes[i,0]
+        sns.kdeplot(data = df[[col, 'Source']], x = col, hue = 'Source', palette=['#456cf0', '#ed7647'], linewidth = 2.1, warn_singular=False, ax = ax) # Use of seaborn with artistic interface
+        ax.set_title(f"\n{col}",fontsize = 9)
+        ax.grid(visible=True, which = 'both', linestyle = '--', color='lightgrey', linewidth = 0.75)
+        ax.set(xlabel = '', ylabel = '')
+
+        ax = axes[i,1]
+        sns.boxplot(data = df.loc[df.Source == 'Train', [col]], y = col, width = 0.25, linewidth = 0.90, fliersize= 2.25, color = '#456cf0', ax = ax)
+        ax.set(xlabel = '', ylabel = '')
+        ax.set_title("Train", fontsize = 9)
+
+        ax = axes[i,2]
+        sns.boxplot(data = df.loc[df.Source == 'Test', [col]], y = col, width = 0.25, linewidth = 0.90, fliersize= 2.25, color = '#ed7647', ax = ax)
+        ax.set(xlabel = '', ylabel = '')
+        ax.set_title("Test", fontsize = 9)
+
+    plt.suptitle(f'\nDistribution analysis - numerical features',fontsize = 12, y = 0.89, x = 0.57, fontweight='bold')
+    plt.show()
+
+plot_numerical()
+
+
+###############################################################################
 
 #integer encode: Target column
 # encode_target = {
@@ -205,9 +276,15 @@ oof, test_pred, holdout_pred = {}, {}, {}
 
 
 
-#xgboost
+#xgb
 model = xgboost.XGBClassifier(enable_categorical=True)
 cross_validate(model, 'Xgboost untuned', features=initial_features)
+
+
+#lgb
+model = lightgbm.LGBMClassifier(verbose=-1)
+cross_validate(model, 'Lightboost untuned', features=initial_features)
+
 
 #catboost
 model = catboost.CatBoostClassifier(cat_features=cat_features,verbose=False)
@@ -253,6 +330,50 @@ submission['id'] = test.index
 submission = submission[['id','Target']]
 #create submission file
 submission.to_csv(path+'submission_20240602_1.csv', index=False)
+
+
+
+
+
+#xgb hyper parameter tuning
+params = {
+        'eta': sp_uniform(loc=0.0, scale=2.0),
+        'min_child_weight':  sp_uniform(loc=0, scale=100),
+        'gamma': sp_uniform(loc=0, scale=2.0),
+        'alpha' : sp_uniform(loc=0.0, scale=1.0),
+        'lambda': sp_uniform(loc=0.0, scale=1.0),
+        'subsample': [0.8],
+        'colsample_bytree': [0.8],
+        'max_depth': sp_randint(2, 7)
+        }
+
+xgb = xgboost.XGBClassifier(device="cuda", n_estimators=200)
+
+
+folds = 3
+param_comb = 10000
+
+kf = KFold(n_splits=folds, shuffle = True, random_state = 1024)
+
+random_search = RandomizedSearchCV(xgb, param_distributions=params, n_iter=param_comb, scoring=r2_score_cv, n_jobs=3, 
+                                   cv=kf.split(X_train,y_train), verbose=0, random_state=1024)
+
+
+random_search.fit(X_train, y_train)
+
+
+print('\n All results:')
+print(random_search.cv_results_)
+print('\n Best estimator:')
+print(random_search.best_estimator_)
+print('\n Best R2 for %d-fold search with %d parameter combinations:' % (folds, param_comb))
+print(random_search.best_score_ * 2 - 1)
+print('\n Best hyperparameters:')
+print(random_search.best_params_)
+best_params = random_search.best_params_
+results = pd.DataFrame(random_search.cv_results_)
+results.to_csv(path + 'xgb-random-grid-search-results-02.csv', index=False)
+
 
 
 
