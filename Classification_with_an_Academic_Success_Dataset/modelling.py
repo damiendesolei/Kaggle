@@ -15,6 +15,7 @@ import numpy as np
 
 import matplotlib.pyplot as plt
 import seaborn as sns
+import plotly.express as px
 from matplotlib.ticker import MaxNLocator
 
 from sklearn.base import clone
@@ -38,12 +39,14 @@ from scipy.stats import uniform as sp_uniform
 import scipy.stats
 
 
-path = 'G:\kaggle\Classification_with_an_Academic_Success_Dataset\\'
-
+#path = 'G:\kaggle\Classification_with_an_Academic_Success_Dataset\\'
+path = r'C:\Users\damie\Downloads\playground-series-s4e6\\'
 
 train = pd.read_csv(path + 'train.csv', index_col='id', low_memory=True)
 test = pd.read_csv(path + 'test.csv', index_col='id', low_memory=True)
 
+#set aside holdout sets for fitting ensemble weight
+train, holdout = train_test_split(train, test_size=0.1, stratify=train.Target , random_state = 24)
 
 
 #assigne correct type to columns from the organizer
@@ -53,19 +56,26 @@ cat_features = ['Marital status', 'Application mode', 'Course',
                 "Father's qualification", "Mother's occupation",
                 "Father's occupation"]
 num_features = [f for f in train._get_numeric_data() if (f not in ['Target']) and (f not in cat_features)]
-print(f'Numeric cols: {len(num_feature)}')
+print(f'Numeric cols: {len(num_features)}')
 print(f'Categorical cols: {len(cat_features)}')
 
 for feature in cat_features:
-    for df in [train, test]:
+    for df in [train, test, holdout]:
         df[feature] = df[feature].astype('category')
+
 
 #lable encode the target
 label_encoder = LabelEncoder()
-targets = label_encoder.fit_transform(train.Target)
+label_encoder.fit(train.Target)
+#show fited encoder
 mapping = {index: label for index, label in enumerate(label_encoder.classes_)}
 for label, index in mapping.items():
     print(f"{label}: {index}")
+#encode
+train_targets = label_encoder.transform(train.Target)
+holdout_targets = label_encoder.transform(holdout.Target)
+
+
     
     
     
@@ -74,7 +84,7 @@ for label, index in mapping.items():
 
 ###############################################################################
 #feature exploration
-dt = DecisionTreeClassifier(max_depth=5)
+dt = DecisionTreeClassifier(max_depth=3)
 dt.fit(train[initial_features], train.Target);
 
 
@@ -177,8 +187,7 @@ plot_numerical()
 # }
 # train['Target'] = train['Target'].map(encode_target)
 
-#set aside holdout sets for fitting ensemble weight
-train, holdout = train_test_split(train, test_size=0.1, stratify=train.Target , random_state = 24)
+
 
 
 #target distribution
@@ -224,13 +233,13 @@ def cross_validate(model, label, features=initial_features):
     """
     start_time = datetime.datetime.now()
     scores = []
-    oof_preds = np.full_like(targets, np.nan, dtype=int)
+    oof_preds = np.full_like(train_targets, np.nan, dtype=int)
     #for fold, (idx_tr, idx_va) in enumerate(kf.split(train)):
     for fold, (idx_tr, idx_va) in enumerate(kf.split(train, train.Target)):    
         X_tr = train.iloc[idx_tr][features]
         X_va = train.iloc[idx_va][features]
-        y_tr = targets[idx_tr]
-        y_va = targets[idx_va]
+        y_tr = train_targets[idx_tr]
+        y_va = train_targets[idx_va]
         
         model.fit(X_tr, y_tr)
         y_pred = model.predict_proba(X_va)
@@ -240,32 +249,35 @@ def cross_validate(model, label, features=initial_features):
         print(f"# Fold {fold}: accuracy={score:.5f}")
         scores.append(score)
         oof_preds[idx_va] = y_predicted #each iteration will fill in 1/5 of the index
-        
+            
     elapsed_time = datetime.datetime.now() - start_time
     print(f"{Fore.GREEN}# Overall: {np.array(scores).mean():.5f} {label}"
           f"   {int(np.round(elapsed_time.total_seconds() / 60))} min{Style.RESET_ALL}")
+    print(f"Fitting started from {start_time}")
     oof[label] = oof_preds
-    
+
     if COMPUTE_TEST_PRED:
         X_tr = train[features]
-        y_tr = targets
+        y_tr = train_targets
         model.fit(X_tr, y_tr)
         y_pred = model.predict_proba(test[features])
         y_predicted = np.argmax(y_pred, axis=1)
         test_pred[label] = y_predicted
+        #return test_pred
     
     if COMPUTE_HOLDOUT_PRED:
         X_tr = train[features]
-        y_tr = targets
+        y_tr = train_targets
         model.fit(X_tr, y_tr)
         y_pred = model.predict_proba(holdout[features])
         y_predicted = np.argmax(y_pred, axis=1)
         holdout_pred[label] = y_predicted
-
+        #return holdout_pred
+ 
 
 # want to see the cross-validation results)
 COMPUTE_TEST_PRED = True
-COMPUTE_HOLDOUT_PRED = False
+COMPUTE_HOLDOUT_PRED = True
 
 # Containers for results
 oof, test_pred, holdout_pred = {}, {}, {}
@@ -274,11 +286,13 @@ oof, test_pred, holdout_pred = {}, {}, {}
 
 
 
-
-
 #xgb
-model = xgboost.XGBClassifier(enable_categorical=True)
-cross_validate(model, 'Xgboost untuned', features=initial_features)
+xgb_model = xgboost.XGBClassifier(enable_categorical=True)
+cross_validate(xgb_model, 'Xgboost untuned', features=initial_features)
+
+feat_importances = pd.Series(xgb_model.feature_importances_, index=initial_features)
+feat_importances.nlargest(20).plot(kind='barh').invert_yaxis()
+
 
 
 #lgb
