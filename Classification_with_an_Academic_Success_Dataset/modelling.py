@@ -44,6 +44,7 @@ path = r'C:\Users\damie\Downloads\playground-series-s4e6\\'
 
 train = pd.read_csv(path + 'train.csv', index_col='id', low_memory=True)
 test = pd.read_csv(path + 'test.csv', index_col='id', low_memory=True)
+train.info()
 
 #set aside holdout sets for fitting ensemble weight
 train, holdout = train_test_split(train, test_size=0.1, stratify=train.Target , random_state = 24)
@@ -70,7 +71,7 @@ label_encoder.fit(train.Target)
 #show fited encoder
 mapping = {index: label for index, label in enumerate(label_encoder.classes_)}
 for label, index in mapping.items():
-    print(f"{label}: {index}")
+    print(f"{index} -> {label}")
 #encode
 train_targets = label_encoder.transform(train.Target)
 holdout_targets = label_encoder.transform(holdout.Target)
@@ -105,76 +106,42 @@ plt.show()
 
 
 #plot categorical features
-def plot_cat(limit_unique=100):
-    selectcols = train[cat_features].nunique()<=limit_unique
-    cols_ = selectcols[selectcols].index.to_list()
-    n_cols = len(cols_)
-    fig, ax = plt.subplots(n_cols, 2, figsize=(12, 4 * n_cols))
-    for i, coluna in enumerate(cols_):    
-        sns.countplot(x=train[coluna], ax=ax[i, 0])
-        ax[i, 0].set_title(f'{coluna}')
-        ax[i, 0].set_ylabel('Count')
-        ax[i, 0].set_xlabel(coluna)
-        ax[i, 0].tick_params(axis='x', labelrotation=45)
+plt.figure(figsize=(18, 24))
+plotnumber = 1
 
-        for container in ax[i, 0].containers:
-            ax[i, 0].bar_label(container, fmt='%d', label_type='center')
+# Loop through each column
+for col in cat_features:
+    if plotnumber <= len(cat_features):
+        plt.subplot(4, 2, plotnumber)
+        ax = sns.countplot(x=train[col], hue=train['Target'], palette='bright')
+        
+    plotnumber += 1
 
-        s1 = train[coluna].value_counts()        
-
-        textprops = {
-            'size':8, 
-            'weight': 'bold', 
-            'color':'white'
-        }
-
-        ax[i, 1].pie(s1,
-            autopct='%1.f%%',
-            pctdistance=0.8, 
-            textprops=textprops,
-            labels=train[coluna].value_counts().index
-        )    
-        ax[i, 1].set_title(f'% {coluna}')
-
-    plt.tight_layout()
-    plt.show()
-    
-plot_cat()
+plt.suptitle('Distribution of Categorical Variables by Target', fontsize=40, y=1)
+#plt.tight_layout()
+plt.show()
 
 
+
+plt.figure(figsize=(18, 24))
+plotnumber = 1
 #plot numeric features
-def plot_numerical():
-    #num = train.select_dtypes(include=['int64','float64']).columns
+for column in num_features:
+    if plotnumber <= len(num_features):
+        ax = plt.subplot(11, 2, plotnumber)
+        sns.kdeplot(train[column], color='deepskyblue', fill=True)
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_color('black')
+            spine.set_linewidth(0.5)
+        plt.xlabel(column)
+        ax.grid(False)
+        
+    plotnumber += 1
 
-    df = pd.concat([train[num_features].assign(Source = 'Train'), 
-                    test[num_features].assign(Source = 'Test')], ignore_index = True)
-
-    # Use of more advanced artistic matplotlib interface (see the axes)
-    fig, axes = plt.subplots(len(num_features), 3 ,figsize = (16, len(num_features) * 4), 
-                             gridspec_kw = {'hspace': 0.35, 'wspace': 0.3, 
-                                            'width_ratios': [0.80, 0.20, 0.20]})
-
-    for i,col in enumerate(num_features):
-        ax = axes[i,0]
-        sns.kdeplot(data = df[[col, 'Source']], x = col, hue = 'Source', palette=['#456cf0', '#ed7647'], linewidth = 2.1, warn_singular=False, ax = ax) # Use of seaborn with artistic interface
-        ax.set_title(f"\n{col}",fontsize = 9)
-        ax.grid(visible=True, which = 'both', linestyle = '--', color='lightgrey', linewidth = 0.75)
-        ax.set(xlabel = '', ylabel = '')
-
-        ax = axes[i,1]
-        sns.boxplot(data = df.loc[df.Source == 'Train', [col]], y = col, width = 0.25, linewidth = 0.90, fliersize= 2.25, color = '#456cf0', ax = ax)
-        ax.set(xlabel = '', ylabel = '')
-        ax.set_title("Train", fontsize = 9)
-
-        ax = axes[i,2]
-        sns.boxplot(data = df.loc[df.Source == 'Test', [col]], y = col, width = 0.25, linewidth = 0.90, fliersize= 2.25, color = '#ed7647', ax = ax)
-        ax.set(xlabel = '', ylabel = '')
-        ax.set_title("Test", fontsize = 9)
-
-    plt.suptitle(f'\nDistribution analysis - numerical features',fontsize = 12, y = 0.89, x = 0.57, fontweight='bold')
-    plt.show()
-
-plot_numerical()
+plt.suptitle('Distribution of Numeric Variables', fontsize=40, y=1)
+plt.tight_layout()
+plt.show()
 
 
 ###############################################################################
@@ -233,7 +200,7 @@ def cross_validate(model, label, features=initial_features):
     """
     start_time = datetime.datetime.now()
     scores = []
-    oof_preds = np.full_like(train_targets, np.nan, dtype=int)
+    oof_preds = np.full_like(train_targets, np.nan, dtype=np.float64)
     #for fold, (idx_tr, idx_va) in enumerate(kf.split(train)):
     for fold, (idx_tr, idx_va) in enumerate(kf.split(train, train.Target)):    
         X_tr = train.iloc[idx_tr][features]
