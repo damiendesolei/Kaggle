@@ -199,7 +199,8 @@ def cross_validate(model, label, features=initial_features):
     If n_repeats > 1, the model is trained several times with different seeds.
     """
     start_time = datetime.datetime.now()
-    scores = []
+    tr_scores = []
+    va_scores = []
     oof_preds = np.full_like(train_targets, np.nan, dtype=np.float64)
     #for fold, (idx_tr, idx_va) in enumerate(kf.split(train)):
     for fold, (idx_tr, idx_va) in enumerate(kf.split(train, train.Target)):    
@@ -212,15 +213,19 @@ def cross_validate(model, label, features=initial_features):
         y_pred = model.predict_proba(X_va)
         y_predicted = np.argmax(y_pred, axis=1) #find the highest probability row array position 
         
-        score = accuracy_score(y_va, y_predicted)
-        print(f"# Fold {fold}: accuracy={score:.5f}")
-        scores.append(score)
+
+        va_score = accuracy_score(y_va, y_predicted)
+        tr_score = accuracy_score(y_tr, np.argmax(model.predict_proba(X_tr), axis=1))
+        print(f"# Fold {fold}: tr_accuracy={tr_score:.5f}, val_accuracy={va_score:.5f}")
+
+        va_scores.append(va_score)
+        tr_scores.append(tr_score)
         oof_preds[idx_va] = y_predicted #each iteration will fill in 1/5 of the index
             
     elapsed_time = datetime.datetime.now() - start_time
-    print(f"{Fore.GREEN}# Overall: {np.array(scores).mean():.5f} {label}"
+    print(f"{Fore.RED}# Overall val={np.array(va_scores).mean():.5f} {label}"
           f"   {int(np.round(elapsed_time.total_seconds() / 60))} min{Style.RESET_ALL}")
-    print(f"Fitting started from {start_time}")
+    print(f"{Fore.RED}# {label} Fitting started from {start_time}")
     oof[label] = oof_preds
 
     if COMPUTE_TEST_PRED:
