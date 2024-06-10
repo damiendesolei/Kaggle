@@ -108,7 +108,6 @@ plt.show()
 #plot categorical features
 plt.figure(figsize=(18, 24))
 plotnumber = 1
-
 # Loop through each column
 for col in cat_features:
     if plotnumber <= len(cat_features):
@@ -123,12 +122,13 @@ plt.show()
 
 
 
-plt.figure(figsize=(18, 24))
-plotnumber = 1
+
 #plot numeric features
+plt.figure(figsize=(18, 44))
+plotnumber = 1
 for column in num_features:
     if plotnumber <= len(num_features):
-        ax = plt.subplot(11, 2, plotnumber)
+        ax = plt.subplot(11, 3, plotnumber)
         sns.kdeplot(train[column], color='deepskyblue', fill=True)
         for spine in ax.spines.values():
             spine.set_visible(True)
@@ -154,6 +154,20 @@ plt.show()
 # }
 # train['Target'] = train['Target'].map(encode_target)
 
+###############################################################################
+
+#plot categorical features vs target
+cat_cols = [f for f in train.columns if (train[f].dtype != 'O' and train[f].nunique() <100) or (train[f].dtype == 'O' and f not in ['Target']) ]
+custom_palette = (0.2, 0.9, 0.6), 'crimson', (0.8, 0.5, 0.3)
+for col in cat_cols:
+    contingency_table = pd.crosstab(train[col], train['Target'], normalize='index')
+    sns.set(style="whitegrid")
+    contingency_table.plot(kind="bar", stacked=True, color=custom_palette,figsize=(20, 8))
+    plt.title(f"Percentage Distribution of Target across {col}")
+    plt.xlabel(col)
+    plt.ylabel("Percentage")
+    plt.legend(title="Target Class")
+    plt.show()
 
 
 
@@ -263,7 +277,8 @@ xgb_model = xgboost.XGBClassifier(enable_categorical=True)
 cross_validate(xgb_model, 'Xgboost untuned', features=initial_features)
 
 feat_importances = pd.Series(xgb_model.feature_importances_, index=initial_features)
-feat_importances.nlargest(20).plot(kind='barh').invert_yaxis()
+plt.figure(figsize=(7, 8))  # Set the figure size (width, height)
+feat_importances.nlargest(50).plot(kind='barh').invert_yaxis()
 
 
 
