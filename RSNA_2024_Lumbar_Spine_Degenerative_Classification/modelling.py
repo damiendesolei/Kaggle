@@ -24,3 +24,16 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import plotly.graph_objects as go
 import random
 from glob import glob
+
+
+path = 'G:\\kaggle\\rsna-2024-lumbar-spine-degenerative-classification\\'
+
+label_coordinates_df = pd.read_csv( path + 'train_label_coordinates.csv')
+train_series = pd.read_csv( path + 'train_series_descriptions.csv')
+df_train = pd.read_csv( path + 'train.csv')
+df_sub = pd.read_csv( path + 'sample_submission.csv')
+test_series = pd.read_csv( path + 'test_series_descriptions.csv')
+
+
+folder_path = 'G:\\kaggle\\rsna-2024-lumbar-spine-degenerative-classification\\train_images\\100206310\\1012284084\\'
+dicom_files = [f for f in os.listdir(folder_path) if f.endswith('.dcm')]
