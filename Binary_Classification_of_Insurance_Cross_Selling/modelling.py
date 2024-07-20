@@ -74,3 +74,12 @@ train[['Vehicle_Damage','Vehicle_Damage_encoded']].drop_duplicates() #show encod
 
 ##############################################
 ######### drop certain columns ###############
+drop_list = ['Gender', 'Vehicle_Age', 'Vehicle_Damage']
+for col in drop_list:
+    try:
+        train.drop([col], axis=1, inplace=True)
+        print(f'{col} is dropped')
+    except:
+        print(f'{col} does not exist')
+##############################################
+######### finish dropping columns ############
