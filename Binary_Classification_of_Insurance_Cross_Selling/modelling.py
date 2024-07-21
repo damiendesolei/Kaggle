@@ -16,9 +16,12 @@ import catboost
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import KFold, StratifiedKFold
+from sklearn.pipeline import make_pipeline, Pipeline
 
 import datetime
 from colorama import Fore, Style
+
+
 
 ##############################################
 ######### read in data #######################
@@ -26,8 +29,38 @@ PATH = r'G:\\kaggle\Binary_Classification_of_Insurance_Cross_Selling\\'
 
 train = pd.read_csv(PATH + 'train.csv', index_col='id', low_memory=True)
 test = pd.read_csv(PATH + 'test.csv', index_col='id', low_memory=True)
-######### finish reading in data# ############
+######### finish reading in data #############
 ##############################################
+
+
+
+
+##############################################
+######### glimpse of data ####################
+
+#check dimensions
+print(f'train dataFrame size: {train.shape}')
+print(f'test dataFrame size: {test.shape}')
+
+#check na
+print(f'Number of missing values in train:\n{train.isna().sum()}')
+print(f'Number of missing values in test:\n{test.isna().sum()}')
+
+#check categoricals
+categorical_columns = train.select_dtypes(include=['object']).columns
+unique_counts = train[categorical_columns].nunique()
+print(unique_counts)
+
+#categorical feature distribution
+train.info()
+train.describe().T
+train.Gender.value_counts(normalize=True)
+train.Vehicle_Damage.value_counts(normalize=True)
+train.Vehicle_Age.value_counts(normalize=True)
+######### finish glimpse pf data #############
+##############################################
+
+
 
 
 
@@ -84,6 +117,33 @@ test[['Vehicle_Damage','Vehicle_Damage_encoded']].drop_duplicates() #show encodi
 ##############################################
 
 
+# def encoder(df):
+#     gender_map = {
+#         'Female': 0,
+#         'Male': 1
+#     }
+
+#     vehicle_age_map = {
+#         '< 1 Year': 0,
+#         '1-2 Year': 1,
+#         '> 2 Years': 2
+#     }
+
+#     vehicle_damage_map = {
+#         'No': 0,
+#         'Yes': 1
+#     }
+
+#     df['Gender'] = df['Gender'].map(gender_map).astype(np.int8)
+#     df['Driving_License'] = df['Driving_License'].astype(np.int8)
+#     df['Previously_Insured'] = df['Previously_Insured'].astype(np.int8)
+#     df['Vehicle_Age'] = df['Vehicle_Age'].map(vehicle_age_map).astype(np.int8)
+#     df['Vehicle_Damage'] = df['Vehicle_Damage'].map(vehicle_damage_map).astype(np.int8)
+    
+#     return df
+
+
+
 
 
 ##############################################
@@ -107,6 +167,8 @@ if "Response" in initial_features:
     initial_features.remove("Response")
 ##############################################
 ######### finish dropping columns ############
+
+
 
 
 
@@ -179,8 +241,9 @@ COMPUTE_TEST_PRED = True
 
 # Containers for results
 oof, test_pred, holdout_pred = {}, {}, {}
-######### finish modeling setup ##############
+######### finish modelling setup ##############
 ##############################################
+
 
 
 
@@ -188,15 +251,22 @@ oof, test_pred, holdout_pred = {}, {}, {}
 
 ##############################################
 ######### initial modelling ##################
-#xgb
-xgb_model = xgboost.XGBRegressor(enable_categorical=True)
+#xgb ~ 3m
+xgb_model = xgboost.XGBRegressor(enable_categorical=True, eval_metric='auc', device="cuda")
 cross_validate(xgb_model, 'Xgboost untuned', features=initial_features)
 
-#lgb
-model = lightgbm.LGBMRegressor(verbose=-1)
-cross_validate(lgb_model, 'LightGBM untuned')
+#lgb ~ 3m
+lgb_model = lightgbm.LGBMRegressor(verbose=-1, eval_metric='auc', device='gpu')
+cross_validate(lgb_model, 'LightGBM untuned', features=initial_features)
 
-#catboost
-model = catboost.CatBoostRegressor(verbose=False)
-cross_validate(catboost_model, 'CatBoost untuned')
+#catboost ~ 37m
+catboost_model = catboost.CatBoostRegressor(verbose=False, eval_metric='AUC')#, task_type='GPU')
+cross_validate(catboost_model, 'CatBoost untuned', features=initial_features)
+
+#logistic regressions
+model = make_pipeline(StandardScaler(),
+                      LinearRegression())
+cross_validate(model, 'LinearRegression')
+######### finish intial models ###############
+##############################################
 
