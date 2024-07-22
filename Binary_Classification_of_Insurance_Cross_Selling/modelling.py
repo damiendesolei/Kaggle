@@ -15,9 +15,18 @@ import catboost
 
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
-from sklearn.model_selection import KFold, StratifiedKFold
+from sklearn.model_selection import KFold, StratifiedKFold, RepeatedKFold
 from sklearn.pipeline import make_pipeline, Pipeline
+from sklearn.preprocessing import StandardScaler, PolynomialFeatures
+from sklearn.linear_model import Ridge, LogisticRegression, LassoCV
+from sklearn.tree import DecisionTreeClassifier, plot_tree
 
+
+import statsmodels.api as sm
+import statsmodels.formula.api as smf
+
+
+import matplotlib.pyplot as plt
 import datetime
 from colorama import Fore, Style
 
@@ -251,9 +260,10 @@ oof, test_pred, holdout_pred = {}, {}, {}
 
 ##############################################
 ######### initial modelling ##################
-#xgb ~ 3m
+#xgb ~ 4m
 xgb_model = xgboost.XGBRegressor(enable_categorical=True, eval_metric='auc', device="cuda")
-cross_validate(xgb_model, 'Xgboost untuned', features=initial_features)
+cross_validate(xgb_model, 'Xgboost untuned', features=initial_features) 
+#0.87601
 
 #lgb ~ 3m
 lgb_model = lightgbm.LGBMRegressor(verbose=-1, eval_metric='auc', device='gpu')
@@ -263,10 +273,113 @@ cross_validate(lgb_model, 'LightGBM untuned', features=initial_features)
 catboost_model = catboost.CatBoostRegressor(verbose=False, eval_metric='AUC')#, task_type='GPU')
 cross_validate(catboost_model, 'CatBoost untuned', features=initial_features)
 
-#logistic regressions
-model = make_pipeline(StandardScaler(),
-                      LinearRegression())
-cross_validate(model, 'LinearRegression')
+#logistic regression
+logistic_model = make_pipeline(StandardScaler(),
+                      LogisticRegression(penalty='l2', C=0.1, solver='lbfgs'))
+cross_validate(logistic_model, 'LogisticRegression', features=['Vehicle_Damage_encoded','Previously_Insured'])
+
+#polynomial - ridge
+polyridge_model = make_pipeline(StandardScaler(),
+                      PolynomialFeatures(degree=2),
+                      Ridge())
+cross_validate(polyridge_model, 'Poly-Ridge untuned', features=initial_features) 
+#0.84586
+
+
+#glm_1
+X = StandardScaler().fit_transform(train[initial_features])
+X = pd.DataFrame(X, columns=train[initial_features].columns)
+X_train, X_test, y_train, y_test = train_test_split(X, train.Response, test_size=0.3, random_state=24)
+X_train['Response'] = pd.DataFrame(y_train)
+glm_1 = smf.glm(formula = "Response ~ Age + Driving_License + Region_Code + Previously_Insured + Annual_Premium + \
+                     Policy_Sales_Channel + Vintage + Gender_encoded + Vehicle_Age_encoded + Vehicle_Damage_encoded", 
+                data=X_train,
+                family = sm.families.Binomial())
+result = glm_1.fit()
+print(result.summary())
+print(roc_auc_score(y_test, result.predict(X_test))) #0.8365207358593787
+
+#glm_2
+#X = StandardScaler().fit_transform(train[initial_features])
+#X = pd.DataFrame(X, columns=train[initial_features].columns)
+X_train, X_test, y_train, y_test = train_test_split(train, train.Response, test_size=0.3, random_state=24)
+X_train['Response'] = pd.DataFrame(y_train)
+glm_2 = smf.glm(formula = "Response ~ Age + Driving_License + Previously_Insured + Annual_Premium + \
+                Vehicle_Age_encoded + Vehicle_Damage_encoded", 
+                data=X_train,
+                family = sm.families.Binomial())
+result = glm_2.fit()
+print(result.summary())
+print(roc_auc_score(y_test, result.predict(X_test))) #0.8346020582920359
+
+#glm_3
+#X = StandardScaler().fit_transform(train[initial_features])
+#X = pd.DataFrame(X, columns=train[initial_features].columns)
+X_train, X_test, y_train, y_test = train_test_split(train, train.Response, test_size=0.3, random_state=24)
+X_train['Response'] = pd.DataFrame(y_train)
+glm_3 = smf.glm(formula = "Response ~ Age + Previously_Insured + Vehicle_Damage_encoded + \
+                Policy_Sales_Channel + Vehicle_Age_encoded", 
+                data=X_train,
+                family = sm.families.Binomial())
+result = glm_3.fit()
+print(result.summary())
+print(roc_auc_score(y_test, result.predict(X_test))) #0.8352272864307876
+
+#glm_lasso
+X = StandardScaler().fit_transform(train[initial_features])
+X = pd.DataFrame(X, columns=train[initial_features].columns)
+X_train, X_test, y_train, y_test = train_test_split(X, train.Response, test_size=0.3, random_state=24)
+for alpha in np.arange(0.01, 1.01, 0.01):
+    lasso_model = LogisticRegression(C=alpha, penalty='l1', solver='saga', n_jobs=4)
+    lasso_model.fit(X_train, y_train)
+    #print('L1 alpha: %f' % lasso_model.C, end='\n')
+    score = roc_auc_score(y_test, lasso_model.predict(X_test))
+    print('L1 alpha: %f' % alpha + ' and AUC is: %f' % score)
 ######### finish intial models ###############
 ##############################################
 
+
+
+##############################################
+######### feature probing ####################
+shallow_tree = DecisionTreeClassifier(max_depth=3)
+shallow_tree.fit(train[initial_features], train.Response);
+
+plt.figure(figsize=(16, 6))
+plot_tree(shallow_tree, feature_names=initial_features, #class_names=label_encoder.classes_, 
+          fontsize=7, impurity=True, filled=True, ax=plt.gca())
+plt.show()
+#1.Vehicle_Damage_encoded
+#2.Age
+#3.Previously_Insured
+
+train['random'] = np.random.rand(len(train))
+full_tree = DecisionTreeClassifier(max_depth=len(train.columns))
+full_tree.fit(train[initial_features+['random']], train.Response)
+importance_df = pd.DataFrame({'feature': initial_features+['random'], 
+                              'importance': full_tree.feature_importances_})
+importance_df = importance_df.sort_values(by='importance', ascending=False)
+plt.figure(figsize=(10, 6))
+plt.barh(importance_df['feature'], importance_df['importance'], color='skyblue')
+plt.xlabel('Feature Importance')
+plt.ylabel('Feature')
+plt.title('Feature Importance in Decision Tree')
+plt.gca().invert_yaxis()
+plt.show()
+#4.Policy_Sales_Channel
+#5.Vintage
+#6.Vehicle_Age_encoded
+#7.Annual_Premium
+#8.Region_Code
+#9.Gender_encoded
+#10.random
+#11.Driving_License
+
+######### end of feature probing #############
+##############################################
+
+
+
+
+##############################################
+######### feature probing - EDA ##############
