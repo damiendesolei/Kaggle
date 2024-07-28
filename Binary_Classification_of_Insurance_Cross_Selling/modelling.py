@@ -730,6 +730,17 @@ xgb_params_2 = {'n_estimators': 1556,
 #xgboost_2 ~ 12m
 xgboost_model_2 = xgboost.XGBClassifier(**xgb_params_2, eval_metric='auc', device='cuda')
 cross_validate(xgboost_model_2, 'Xgboost_TargetEncoded_Tuned_2', features=initial_features)
-#0.88738  #0.9123850795500784
+#0.88738  #0.9011550368896718
+
+#submission 20240728
+submission = pd.read_csv(PATH + 'test.csv', usecols=['id'], low_memory=True)
+submission_pred = pd.DataFrame(test_pred)
+submission['Response'] =submission_pred['Xgboost_TargetEncoded_Tuned_1']
+submission.to_csv(PATH + 'submission_20240728.csv', index=False)
 
 
+#submission 20240728_2
+submission = pd.read_csv(PATH + 'test.csv', usecols=['id'], low_memory=True)
+submission_pred = pd.DataFrame(test_pred)
+submission['Response'] =submission_pred['Xgboost_TargetEncoded_Tuned_2']
+submission.to_csv(PATH + 'submission_20240728_2.csv', index=False)
