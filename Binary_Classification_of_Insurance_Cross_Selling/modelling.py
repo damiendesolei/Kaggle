@@ -254,6 +254,8 @@ if "Response" in initial_features:
 
 #set aside holdout sets for fitting ensemble weight
 train, holdout = train_test_split(train, test_size=0.2, stratify=train.Response , random_state = 24)
+train = train.reset_index(drop=True)
+holdout = holdout.reset_index(drop=True)
 
 ##############################################
 ######### finish dropping columns ############
@@ -285,20 +287,22 @@ def cross_validate(model, label, features=initial_features):
         y_va = train.Response[idx_va]
         
         model.fit(X_tr, y_tr)
-        y_pred = model.predict(X_va)
-        #y_pred = model.predict_proba(X_va)
+        #y_pred = model.predict(X_va)
+        y_pred = model.predict_proba(X_va)
         #y_predicted = np.argmax(y_pred, axis=1) #find the highest probability row array position 
+        y_predicted = y_pred[:,1] #find the probability of being 1
         
 
-        va_score = roc_auc_score(y_va, y_pred)
-        tr_score = roc_auc_score(y_tr, model.predict(X_tr))
-        #tr_score = roc_auc_score(y_tr, np.argmax(model.predict(X_tr), axis=1))
+        va_score = roc_auc_score(y_va, y_predicted)
+        #tr_score = roc_auc_score(y_tr, model.predict(X_tr))
+        #tr_score = roc_auc_score(y_tr, np.argmax(model.predict_proba(X_tr), axis=1))
+        tr_score = roc_auc_score(y_tr, model.predict_proba(X_tr)[:,1])
         print(f"# Fold {fold}: tr_auc={tr_score:.5f}, val_auc={va_score:.5f}")
 
         va_scores.append(va_score)
         tr_scores.append(tr_score)
-        #oof_preds[idx_va] = y_predicted #each iteration will fill in 1/5 of the index
-        oof_preds[idx_va] = y_pred
+        oof_preds[idx_va] = y_predicted #each iteration will fill in 1/5 of the index
+        #oof_preds[idx_va] = y_pred
             
     elapsed_time = datetime.datetime.now() - start_time
     print(f"{Fore.RED}# Overall val={np.array(va_scores).mean():.5f} {label}"
@@ -306,28 +310,30 @@ def cross_validate(model, label, features=initial_features):
     print(f"{Fore.RED}# {label} Fitting started from {start_time}")
     oof[label] = oof_preds
 
+    if COMPUTE_HOLDOUT_PRED:
+        X_ho = holdout[features]
+        y_ho = holdout.Response
+        model.fit(X_ho, y_ho)
+        y_pred = model.predict_proba(holdout[features])
+        #y_predicted = np.argmax(y_pred, axis=1)
+        y_predicted = y_pred[:,1]
+        #holdout_pred[label] = y_predicted
+        ho_score = roc_auc_score(holdout.Response, y_predicted)
+        print('# Holdout score is: ' + str(ho_score))
+ 
     if COMPUTE_TEST_PRED:
         X_tr = train[features]
         y_tr = train.Response
         model.fit(X_tr, y_tr)
-        y_pred = model.predict(test[features])
+        y_pred = model.predict_proba(test[features])
         #y_predicted = np.argmax(y_pred, axis=1)
-        test_pred[label] = y_pred
-        #return test_pred
+        y_predicted = y_pred[:,1]
+        test_pred[label] = y_predicted
+        return test_pred
     
-    # if COMPUTE_HOLDOUT_PRED:
-    #     X_tr = train[features]
-    #     y_tr = train.Response
-    #     model.fit(X_tr, y_tr)
-    #     y_pred = model.predict_proba(holdout[features])
-    #     #y_predicted = np.argmax(y_pred, axis=1)
-    #     holdout_pred[label] = y_pred
-    #     #return holdout_pred
- 
-
 # want to see the cross-validation results)
-COMPUTE_TEST_PRED = False
-#COMPUTE_HOLDOUT_PRED = True
+COMPUTE_TEST_PRED = True
+COMPUTE_HOLDOUT_PRED = True
 
 # Containers for results
 oof, test_pred, holdout_pred = {}, {}, {}
@@ -341,26 +347,26 @@ oof, test_pred, holdout_pred = {}, {}, {}
 
 ##############################################
 ######### initial modelling ##################
-#xgb ~ 4m
-xgb_model = xgboost.XGBRegressor(enable_categorical=True, eval_metric='auc', device="cuda")
-cross_validate(xgb_model, 'Xgboost untuned', features=initial_features) 
-#0.87834
+#xgb ~ 1m
+xgb_model = xgboost.XGBClassifier(enable_categorical=True, eval_metric='auc', device="cuda")
+cross_validate(xgb_model, 'Xgboost_TargetEncoded_Untuned', features=initial_features) 
+#0.87968  #0.8823514306751534
 
-#lgb ~ 3m
-lgb_model = lightgbm.LGBMRegressor(verbose=-1, eval_metric='auc', device='gpu')
-cross_validate(lgb_model, 'LightGBM untuned', features=initial_features)
-#0.87724
+#lgb ~ 2m
+lgb_model = lightgbm.LGBMClassifier(verbose=-1, eval_metric='auc', device='gpu')
+cross_validate(lgb_model, 'LightGBM_TargetEncoded_Untuned', features=initial_features)
+#0.87777  #0.8779690873551864
 
 #catboost ~ 3m
-catboost_model = catboost.CatBoostRegressor(verbose=False, eval_metric='AUC', task_type='GPU')
-cross_validate(catboost_model, 'CatBoost untuned', features=initial_features)
-#0.87832
+catboost_model = catboost.CatBoostClassifier(verbose=False, eval_metric='AUC', task_type='GPU')
+cross_validate(catboost_model, 'CatBoost_TargetEncoded_Untuned', features=initial_features)
+#0.87712  #0.8777496957149025
 
-#logistic regression
+#logistic regression ~ 1m
 logistic_model = make_pipeline(StandardScaler(),
                       LogisticRegression(penalty='l2', C=0.1, solver='lbfgs'))
 cross_validate(logistic_model, 'LogisticRegression', features=initial_features)
-#0.53290
+#0.86317  #0.863323136866984
 
 #polynomial - ridge
 polyridge_model = make_pipeline(StandardScaler(),
@@ -591,13 +597,17 @@ def objective(trial):
 
     param = {
              "objective": trial.suggest_categorical("objective", ["Logloss", "CrossEntropy"]),
-             "iterations": trial.suggest_int("iterations", 100, 1000),
-             "learning_rate": trial.suggest_float("learning_rate", 1e-3, 0.2, log=True),
+             #"objective": "CrossEntropy",
+             "iterations": trial.suggest_int("iterations", 800, 2000),
+             "learning_rate": trial.suggest_float("learning_rate", 1e-3, 0.5, log=True),
              "colsample_bylevel": trial.suggest_float("colsample_bylevel", 0.01, 0.1),
-             "depth": trial.suggest_int("depth", 3, 10),
-             "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 1000, 100000),
+             #"depth": trial.suggest_int("depth", 3, 10),
+             "depth": trial.suggest_int("depth", 7, 10),
+             "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 90000, 200000),
              "boosting_type": trial.suggest_categorical("boosting_type", ["Ordered", "Plain"]),
+             #"boosting_type": "Plain",
              "bootstrap_type": trial.suggest_categorical("bootstrap_type", ["Bayesian", "Bernoulli", "MVS"]),
+             #"bootstrap_type": "MVS",
              "used_ram_limit": "48gb",
              "eval_metric": 'AUC',
              "task_type": 'CPU'
@@ -612,13 +622,14 @@ def objective(trial):
 
     gbm.fit(X_train, y_train, eval_set=[(X_valid, y_valid)], verbose=1, early_stopping_rounds=200)
 
-    y_preds = gbm.predict(X_valid)
+    #y_preds = gbm.predict(X_valid)
+    y_preds = gbm.predict_proba(X_valid)[:,1]
     #pred_labels = np.rint(preds)
     score = roc_auc_score(y_valid, y_preds)
     return score
 study = optuna.create_study(direction="maximize")
-study.optimize(objective, n_trials=10000, timeout=None)
-study_summaries = optuna.study.get_all_study_summaries(storage=PATH + 'cat_hyper_results.csv')
+study.optimize(objective, n_trials=100, timeout=3600)
+#study_summaries = optuna.study.get_all_study_summaries()
 #0.8757030169
 
 
@@ -632,6 +643,93 @@ print("  Value: {}".format(trial.value))
 print("  Params: ")
 for key, value in trial.params.items():
     print("    {}: {}".format(key, value))
-    
-#bestTest = 0.8759223023    
-#Trial 146 finished with value: 0.545068176185356 and parameters: {'objective': 'CrossEntropy', 'iterations': 864, 'learning_rate': 0.13905939037870624, 'colsample_bylevel': 0.08783240818160615, 'depth': 8, 'min_data_in_leaf': 96672, 'boosting_type': 'Plain', 'bootstrap_type': 'MVS'}. Best is trial 114 with value: 0.5483346677754657.
+
+cat_param_1 = {'objective': 'CrossEntropy',
+               'iterations': 885,
+               'learning_rate': 0.1955587373934623,
+               'colsample_bylevel': 0.09351884473074819,
+               'depth': 8,
+               'min_data_in_leaf': 97678,
+               'boosting_type': 'Plain',
+               'bootstrap_type': 'MVS'
+               }
+
+#catboost_1 ~ 11m
+catboost_model_1 = catboost.CatBoostClassifier(**cat_param_1, verbose=False, eval_metric='AUC', task_type='CPU')
+cross_validate(catboost_model_1, 'CatBoost_TargetEncoded_Tuned_1', features=initial_features)
+#0.87679  #0.8775406252537157
+
+# #catboost_2 ~ 11m
+# cat_param_2 = {'objective': 'Logloss',
+#                'iterations': 1082,
+#                'learning_rate': 0.36463881055623176,
+#                'colsample_bylevel': 0.06598974581457834,
+#                'depth': 8,
+#                'min_data_in_leaf': 120840,
+#                'boosting_type': 'Ordered',
+#                'bootstrap_type': 'Bayesian',
+#                'bagging_temperature': 0.06701905564983957
+#                }
+# catboost_model_2 = catboost.CatBoostClassifier(**cat_param_2, verbose=False, eval_metric='AUC', task_type='CPU')
+# cross_validate(catboost_model_2, 'CatBoost_TargetEncoded_Tuned_2', features=initial_features)
+# #0.87679  #0.8775406252537157
+
+
+#2.xgboost
+def objective(trial):
+    X_train, X_valid, y_train, y_valid = train_test_split(train[initial_features], train.Response, test_size=0.3)
+
+    param = {
+             "objective": "binary:logistic",
+             "n_estimators": trial.suggest_int("n_estimators", 500, 4000),
+             "learning_rate": trial.suggest_float("learning_rate", 1e-3, 0.5, log=True),
+             "max_depth": trial.suggest_int("max_depth", 9, 15),
+             "min_child_weight": trial.suggest_float('min_child_weight', 1e-10, 1000, log=True),
+             'min_split_loss': trial.suggest_float('min_split_loss', 1e-10, 10000, log=True),
+             'subsample': trial.suggest_float('subsample', 0, 1),
+             'colsample_bytree': trial.suggest_float('colsample_bytree', 0, 1),
+             'max_bin': trial.suggest_int("max_bin", 1024, 65536),
+             "eval_metric": 'auc',
+             'device': "cuda"
+            }
+
+    gbm = xgboost.XGBClassifier(**param)
+
+    gbm.fit(X_train, y_train, eval_set=[(X_valid, y_valid)], verbose=1)
+
+    #y_preds = gbm.predict(X_valid)
+    y_preds = gbm.predict_proba(X_valid)[:,1]
+    #pred_labels = np.rint(preds)
+    score = roc_auc_score(y_valid, y_preds)
+    return score
+study = optuna.create_study(direction="maximize")
+study.optimize(objective, n_trials=10000, timeout=18000)
+
+
+
+xgb_params_1 = {'max_depth': 13, 
+                'min_child_weight': 5,
+                'learning_rate': 0.02,
+                'colsample_bytree': 0.6,         
+                'max_bin': 3000, 
+                'n_estimators': 1500}
+#xgboost_1 ~ 6m
+xgboost_model_1 = xgboost.XGBClassifier(**xgb_params_1, eval_metric='auc', device='cuda')
+cross_validate(xgboost_model_1, 'Xgboost_TargetEncoded_Tuned_1', features=initial_features)
+#0.88520  #0.9123850795500784
+
+
+xgb_params_2 = {'n_estimators': 1556,
+                'learning_rate': 0.03878492771098787,
+                'max_depth': 13,
+                'min_child_weight': 1.3380655776726657e-07,
+                'min_split_loss': 0.00043944185672855084,
+                'subsample': 0.595602072224943,
+                'colsample_bytree': 0.2964563512323981,
+                'max_bin': 14519}
+#xgboost_2 ~ 12m
+xgboost_model_2 = xgboost.XGBClassifier(**xgb_params_2, eval_metric='auc', device='cuda')
+cross_validate(xgboost_model_2, 'Xgboost_TargetEncoded_Tuned_2', features=initial_features)
+#0.88738  #0.9123850795500784
+
+
