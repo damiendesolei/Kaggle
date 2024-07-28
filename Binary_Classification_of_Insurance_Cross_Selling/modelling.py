@@ -20,10 +20,10 @@ from sklearn.pipeline import make_pipeline, Pipeline
 from sklearn.preprocessing import StandardScaler, PolynomialFeatures
 from sklearn.linear_model import Ridge, LogisticRegression, LassoCV
 from sklearn.tree import DecisionTreeClassifier, plot_tree
+import optuna
 
-
-import statsmodels.api as sm
-import statsmodels.formula.api as smf
+#import statsmodels.api as sm
+#import statsmodels.formula.api as smf
 
 
 import matplotlib.pyplot as plt
@@ -31,7 +31,63 @@ import datetime
 from colorama import Fore, Style
 
 
-import seaborn as sns
+#import seaborn as sns
+
+
+
+
+##############################################
+######### mean encoding function  ############
+def add_noise(series, noise_level):
+    return series * (1 + noise_level * np.random.randn(len(series)))
+
+def target_encode(trn_series=None, 
+                  tst_series=None, 
+                  target=None, 
+                  min_samples_leaf=1, 
+                  smoothing=1,
+                  noise_level=0):
+    """
+    Smoothing is computed like in the following paper by Daniele Micci-Barreca
+    https://kaggle2.blob.core.windows.net/forum-message-attachments/225952/7441/high%20cardinality%20categoricals.pdf
+    trn_series : training categorical feature as a pd.Series
+    tst_series : test categorical feature as a pd.Series
+    target : target data as a pd.Series
+    min_samples_leaf (int) : minimum samples to take category average into account
+    smoothing (int) : smoothing effect to balance categorical average vs prior  
+    """ 
+    assert len(trn_series) == len(target)
+    assert trn_series.name == tst_series.name
+    temp = pd.concat([trn_series, target], axis=1)
+    # Compute target mean 
+    averages = temp.groupby(by=trn_series.name)[target.name].agg(["mean", "count"])
+    # Compute smoothing - sigmoid funttion
+    smoothing = 1 / (1 + np.exp(-(averages["count"] - min_samples_leaf) / smoothing))
+    # Apply average function to all target data
+    prior = target.mean()
+    # The bigger the count the less full_avg is taken into account
+    averages[target.name] = prior * (1 - smoothing) + averages["mean"] * smoothing
+    averages.drop(["mean", "count"], axis=1, inplace=True)
+    # Apply averages to trn and tst series
+    ft_trn_series = pd.merge(
+        trn_series.to_frame(trn_series.name),
+        averages.reset_index().rename(columns={'index': target.name, target.name: 'average'}),
+        on=trn_series.name,
+        how='left')['average'].rename(trn_series.name + '_mean').fillna(prior)
+    # pd.merge does not keep the index so restore it
+    ft_trn_series.index = trn_series.index 
+    ft_tst_series = pd.merge(
+        tst_series.to_frame(tst_series.name),
+        averages.reset_index().rename(columns={'index': target.name, target.name: 'average'}),
+        on=tst_series.name,
+        how='left')['average'].rename(trn_series.name + '_mean').fillna(prior)
+    # pd.merge does not keep the index so restore it
+    ft_tst_series.index = tst_series.index
+    return add_noise(ft_trn_series, noise_level), add_noise(ft_tst_series, noise_level)
+######### end of encoding function ###########
+##############################################
+
+
 
 
 ##############################################
@@ -62,7 +118,7 @@ categorical_columns = train.select_dtypes(include=['object']).columns
 unique_counts = train[categorical_columns].nunique()
 print(unique_counts)
 
-#categorical feature distribution
+#feature distribution
 train.info()
 train.describe().T
 train.Gender.value_counts(normalize=True)
@@ -85,12 +141,10 @@ def int_encode_gender(col):
         return 1
     else:
         return 9999
-    
 #train.groupby('Gender').count()
-train['Gender_encoded'] = train['Gender'].apply(int_encode_gender)
-test['Gender_encoded'] = test['Gender'].apply(int_encode_gender)
-test[['Gender','Gender_encoded']].drop_duplicates() #show encoding
-
+train['Gender_IntEncoded'] = train['Gender'].apply(int_encode_gender)
+test['Gender_IntEncoded'] = test['Gender'].apply(int_encode_gender)
+test[['Gender','Gender_IntEncoded']].drop_duplicates() #show encoding
 
 
 #integer encode the Vehicle_Age
@@ -103,12 +157,10 @@ def int_encode_vehicle_age(col):
         return 2  
     else:
         return 9999
-    
 #train.groupby('Gender').count()
-train['Vehicle_Age_encoded'] = train['Vehicle_Age'].apply(int_encode_vehicle_age)
-test['Vehicle_Age_encoded'] = test['Vehicle_Age'].apply(int_encode_vehicle_age)
-test[['Vehicle_Age','Vehicle_Age_encoded']].drop_duplicates() #show encoding
-
+train['Vehicle_Age_IntEncoded'] = train['Vehicle_Age'].apply(int_encode_vehicle_age)
+test['Vehicle_Age_IntEncoded'] = test['Vehicle_Age'].apply(int_encode_vehicle_age)
+test[['Vehicle_Age','Vehicle_Age_IntEncoded']].drop_duplicates() #show encoding
 
 
 #integer encode the Vehicle_Damage
@@ -118,12 +170,35 @@ def int_encode_vehicle_damage(col):
     elif col == 'Yes':
         return 1
     else:
-        return 9999
-    
+        return 9999   
 #train.groupby('Gender').count()
-train['Vehicle_Damage_encoded'] = train['Vehicle_Damage'].apply(int_encode_vehicle_damage)
-test['Vehicle_Damage_encoded'] = test['Vehicle_Damage'].apply(int_encode_vehicle_damage)
-test[['Vehicle_Damage','Vehicle_Damage_encoded']].drop_duplicates() #show encoding
+train['Vehicle_Damage_IntEncoded'] = train['Vehicle_Damage'].apply(int_encode_vehicle_damage)
+test['Vehicle_Damage_IntEncoded'] = test['Vehicle_Damage'].apply(int_encode_vehicle_damage)
+test[['Vehicle_Damage','Vehicle_Damage_IntEncoded']].drop_duplicates() #show encoding
+
+
+#mean encode Policy_Sales_Channel
+trn_, tst_ = target_encode(train['Policy_Sales_Channel'], 
+                           test['Policy_Sales_Channel'], 
+                           target=train.Response, 
+                           min_samples_leaf=330000,
+                           smoothing=80000,
+                           noise_level=0)
+train['Policy_Sales_Channel_TargetEncoded'] = trn_
+test['Policy_Sales_Channel_TargetEncoded'] = tst_
+train[['Policy_Sales_Channel','Policy_Sales_Channel_TargetEncoded']].head(10)
+
+
+#mean encode Vintage
+trn_, tst_ = target_encode(train['Vintage'], 
+                           test['Vintage'], 
+                           target=train.Response, 
+                           min_samples_leaf=330000,
+                           smoothing=950000,
+                           noise_level=0)
+train['Vintage_TargetEncoded'] = trn_
+test['Vintage_TargetEncoded'] = tst_
+train[['Vintage','Vintage_TargetEncoded']].head(10)
 ######### finish encoding columns ############
 ##############################################
 
@@ -159,7 +234,7 @@ test[['Vehicle_Damage','Vehicle_Damage_encoded']].drop_duplicates() #show encodi
 
 ##############################################
 ######### drop certain columns ###############
-drop_list = ['Gender', 'Vehicle_Age', 'Vehicle_Damage']
+drop_list = ['Gender', 'Vehicle_Age', 'Vehicle_Damage', 'Policy_Sales_Channel', 'Vintage']
 
 def drop_columns(df, drop_list):
     for col in drop_list:
@@ -176,6 +251,10 @@ drop_columns(test, drop_list)
 initial_features = list(train.columns)
 if "Response" in initial_features:
     initial_features.remove("Response")
+
+#set aside holdout sets for fitting ensemble weight
+train, holdout = train_test_split(train, test_size=0.2, stratify=train.Response , random_state = 24)
+
 ##############################################
 ######### finish dropping columns ############
 
@@ -186,7 +265,7 @@ if "Response" in initial_features:
 
 ##############################################
 ######### modelling setup  ###################
-kf = StratifiedKFold(n_splits=5, shuffle=True, random_state=24)
+kf = StratifiedKFold(n_splits=3, shuffle=True, random_state=24)
 
 def cross_validate(model, label, features=initial_features):
     """Compute out-of-fold and test predictions for a given model.
@@ -247,7 +326,7 @@ def cross_validate(model, label, features=initial_features):
  
 
 # want to see the cross-validation results)
-COMPUTE_TEST_PRED = True
+COMPUTE_TEST_PRED = False
 #COMPUTE_HOLDOUT_PRED = True
 
 # Containers for results
@@ -265,27 +344,30 @@ oof, test_pred, holdout_pred = {}, {}, {}
 #xgb ~ 4m
 xgb_model = xgboost.XGBRegressor(enable_categorical=True, eval_metric='auc', device="cuda")
 cross_validate(xgb_model, 'Xgboost untuned', features=initial_features) 
-#0.87601
+#0.87834
 
 #lgb ~ 3m
 lgb_model = lightgbm.LGBMRegressor(verbose=-1, eval_metric='auc', device='gpu')
 cross_validate(lgb_model, 'LightGBM untuned', features=initial_features)
+#0.87724
 
-#catboost ~ 37m
-catboost_model = catboost.CatBoostRegressor(verbose=False, eval_metric='AUC')#, task_type='GPU')
+#catboost ~ 3m
+catboost_model = catboost.CatBoostRegressor(verbose=False, eval_metric='AUC', task_type='GPU')
 cross_validate(catboost_model, 'CatBoost untuned', features=initial_features)
+#0.87832
 
 #logistic regression
 logistic_model = make_pipeline(StandardScaler(),
                       LogisticRegression(penalty='l2', C=0.1, solver='lbfgs'))
-cross_validate(logistic_model, 'LogisticRegression', features=['Vehicle_Damage_encoded','Previously_Insured'])
+cross_validate(logistic_model, 'LogisticRegression', features=initial_features)
+#0.53290
 
 #polynomial - ridge
 polyridge_model = make_pipeline(StandardScaler(),
                       PolynomialFeatures(degree=2),
                       Ridge())
 cross_validate(polyridge_model, 'Poly-Ridge untuned', features=initial_features) 
-#0.84586
+#0.86528
 
 
 #glm_1
@@ -398,7 +480,12 @@ sns.kdeplot(data=train, x='Policy_Sales_Channel', hue='Response');
 sns.countplot(data=train, x='Response', hue='Policy_Sales_Channel')
 
 sns.kdeplot(data=train, x='Vintage', hue='Response');
+sns.countplot(data=train, x='Response', hue='Vintage')
+
 sns.kdeplot(data=train, x='Vehicle_Age_encoded', hue='Response');
+sns.countplot(data=train, x='Response', hue='Vehicle_Age_encoded')
+
+
 sns.kdeplot(data=train, x='Annual_Premium', hue='Response');
 sns.kdeplot(data=train, x='Region_Code', hue='Response');
 
@@ -414,52 +501,137 @@ sns.kdeplot(data=train, x='random', hue='Response');
 
 
 ##############################################
-######### target encoding features ###########
-def add_noise(series, noise_level):
-    return series * (1 + noise_level * np.random.randn(len(series)))
+######### target encoding tuning #############
+#split the data for mean encodings
+trn, tst = train_test_split(train, test_size=0.3, stratify=train.Response , random_state = 8)
 
-def target_encode(trn_series=None, 
-                  tst_series=None, 
-                  target=None, 
-                  min_samples_leaf=1, 
-                  smoothing=1,
-                  noise_level=0):
-    """
-    Smoothing is computed like in the following paper by Daniele Micci-Barreca
-    https://kaggle2.blob.core.windows.net/forum-message-attachments/225952/7441/high%20cardinality%20categoricals.pdf
-    trn_series : training categorical feature as a pd.Series
-    tst_series : test categorical feature as a pd.Series
-    target : target data as a pd.Series
-    min_samples_leaf (int) : minimum samples to take category average into account
-    smoothing (int) : smoothing effect to balance categorical average vs prior  
-    """ 
-    assert len(trn_series) == len(target)
-    assert trn_series.name == tst_series.name
-    temp = pd.concat([trn_series, target], axis=1)
-    # Compute target mean 
-    averages = temp.groupby(by=trn_series.name)[target.name].agg(["mean", "count"])
-    # Compute smoothing
-    smoothing = 1 / (1 + np.exp(-(averages["count"] - min_samples_leaf) / smoothing))
-    # Apply average function to all target data
-    prior = target.mean()
-    # The bigger the count the less full_avg is taken into account
-    averages[target.name] = prior * (1 - smoothing) + averages["mean"] * smoothing
-    averages.drop(["mean", "count"], axis=1, inplace=True)
-    # Apply averages to trn and tst series
-    ft_trn_series = pd.merge(
-        trn_series.to_frame(trn_series.name),
-        averages.reset_index().rename(columns={'index': target.name, target.name: 'average'}),
-        on=trn_series.name,
-        how='left')['average'].rename(trn_series.name + '_mean').fillna(prior)
-    # pd.merge does not keep the index so restore it
-    ft_trn_series.index = trn_series.index 
-    ft_tst_series = pd.merge(
-        tst_series.to_frame(tst_series.name),
-        averages.reset_index().rename(columns={'index': target.name, target.name: 'average'}),
-        on=tst_series.name,
-        how='left')['average'].rename(trn_series.name + '_mean').fillna(prior)
-    # pd.merge does not keep the index so restore it
-    ft_tst_series.index = tst_series.index
-    return add_noise(ft_trn_series, noise_level), add_noise(ft_tst_series, noise_level)
 
-#1.Age
+#1.Policy_Sales_Channel
+smooth_values = []
+score_values = []
+for smooth in range(80000, 90001, 1000): #80000 #0.8756888949274835
+    trn_, tst_ = target_encode(trn['Policy_Sales_Channel'], 
+                               tst['Policy_Sales_Channel'], 
+                               target=trn.Response, 
+                               min_samples_leaf=round(len(trn)*0.05),
+                               smoothing=smooth,
+                               noise_level=0)
+    trn['Policy_Sales_Channel_TargetEncoded'] = trn_
+    tst['Policy_Sales_Channel_TargetEncoded'] = tst_
+    
+    model = xgboost.XGBRegressor(enable_categorical=True, eval_metric='auc', device="cuda")
+    features = ['Age',
+     'Driving_License',
+     'Region_Code',
+     'Previously_Insured',
+     'Annual_Premium',
+     'Policy_Sales_Channel_TargetEncoded',
+     'Vintage',
+     'Gender_encoded',
+     'Vehicle_Age_encoded',
+     'Vehicle_Damage_encoded']
+    X_train, X_val, y_train, y_val = train_test_split(trn[features], trn.Response, test_size=0.3, random_state = 64)
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_val)
+    score = roc_auc_score(y_val, y_pred)
+    
+    smooth_values.append(smooth)
+    score_values.append(score)
+    print('Smooth factor is ' + str(smooth) + ' and AUC is: ' + str(score))
+    
+smooth_Policy_Sales_Channel = pd.DataFrame({'smoothing': smooth_values, 'auc_score': score_values})
+
+
+#2.Vintage
+smooth_values = []
+score_values = []
+for smooth in range(850000, 1250001, 500): #950000  #0.878571
+    trn_, tst_ = target_encode(trn['Vintage'], 
+                               tst['Vintage'], 
+                               target=trn.Response, 
+                               min_samples_leaf=round(len(trn)*0.05),
+                               smoothing=smooth,
+                               noise_level=0)
+    trn['Vintage_TargetEncoded'] = trn_
+    tst['Vintage_TargetEncoded'] = tst_
+    
+    model = xgboost.XGBRegressor(enable_categorical=True, eval_metric='auc', device="cuda")
+    features = ['Age',
+     'Driving_License',
+     'Region_Code',
+     'Previously_Insured',
+     'Annual_Premium',
+     'Policy_Sales_Channel',
+     'Vintage_TargetEncoded',
+     'Gender_encoded',
+     'Vehicle_Age_encoded',
+     'Vehicle_Damage_encoded']
+    X_train, X_val, y_train, y_val = train_test_split(trn[features], trn.Response, test_size=0.3, random_state = 24)
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_val)
+    score = roc_auc_score(y_val, y_pred)
+    
+    smooth_values.append(smooth)
+    score_values.append(score)
+    print('Smooth factor is ' + str(smooth) + ' and AUC is: ' + str(score))
+    
+smooth_Vintage_TargetEncoded = pd.DataFrame({'smoothing': smooth_values, 'auc_score': score_values})
+######### end of target hyper tuning #########
+##############################################
+
+
+
+
+##############################################
+######### hyper parameter tuning #############
+
+#1.catboost
+def objective(trial):
+    X_train, X_valid, y_train, y_valid = train_test_split(train[initial_features], train.Response, test_size=0.3)
+
+    param = {
+             "objective": trial.suggest_categorical("objective", ["Logloss", "CrossEntropy"]),
+             "iterations": trial.suggest_int("iterations", 100, 1000),
+             "learning_rate": trial.suggest_float("learning_rate", 1e-3, 0.2, log=True),
+             "colsample_bylevel": trial.suggest_float("colsample_bylevel", 0.01, 0.1),
+             "depth": trial.suggest_int("depth", 3, 10),
+             "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 1000, 100000),
+             "boosting_type": trial.suggest_categorical("boosting_type", ["Ordered", "Plain"]),
+             "bootstrap_type": trial.suggest_categorical("bootstrap_type", ["Bayesian", "Bernoulli", "MVS"]),
+             "used_ram_limit": "48gb",
+             "eval_metric": 'AUC',
+             "task_type": 'CPU'
+            }
+
+    if param["bootstrap_type"] == "Bayesian":
+        param["bagging_temperature"] = trial.suggest_float("bagging_temperature", 0, 10)
+    elif param["bootstrap_type"] == "Bernoulli":
+        param["subsample"] = trial.suggest_float("subsample", 0.5, 1)
+
+    gbm = catboost.CatBoostClassifier(**param)
+
+    gbm.fit(X_train, y_train, eval_set=[(X_valid, y_valid)], verbose=1, early_stopping_rounds=200)
+
+    y_preds = gbm.predict(X_valid)
+    #pred_labels = np.rint(preds)
+    score = roc_auc_score(y_valid, y_preds)
+    return score
+study = optuna.create_study(direction="maximize")
+study.optimize(objective, n_trials=10000, timeout=None)
+study_summaries = optuna.study.get_all_study_summaries(storage=PATH + 'cat_hyper_results.csv')
+#0.8757030169
+
+
+print("Number of finished trials: {}".format(len(study.trials)))
+
+print("Best trial:")
+trial = study.best_trial
+
+print("  Value: {}".format(trial.value))
+
+print("  Params: ")
+for key, value in trial.params.items():
+    print("    {}: {}".format(key, value))
+    
+#bestTest = 0.8759223023    
+#Trial 146 finished with value: 0.545068176185356 and parameters: {'objective': 'CrossEntropy', 'iterations': 864, 'learning_rate': 0.13905939037870624, 'colsample_bylevel': 0.08783240818160615, 'depth': 8, 'min_data_in_leaf': 96672, 'boosting_type': 'Plain', 'bootstrap_type': 'MVS'}. Best is trial 114 with value: 0.5483346677754657.
