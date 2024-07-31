@@ -681,14 +681,16 @@ def objective(trial):
 
     param = {
              "objective": "binary:logistic",
-             "n_estimators": trial.suggest_int("n_estimators", 500, 4000),
+             "n_estimators": trial.suggest_int("n_estimators", 3000, 6000),
              "learning_rate": trial.suggest_float("learning_rate", 1e-3, 0.5, log=True),
              "max_depth": trial.suggest_int("max_depth", 9, 15),
-             "min_child_weight": trial.suggest_float('min_child_weight', 1e-10, 1000, log=True),
-             'min_split_loss': trial.suggest_float('min_split_loss', 1e-10, 10000, log=True),
+             "min_child_weight": trial.suggest_float('min_child_weight', 1e-10, 1),
+             'min_split_loss': trial.suggest_float('min_split_loss', 1e-10, 1),
              'subsample': trial.suggest_float('subsample', 0, 1),
              'colsample_bytree': trial.suggest_float('colsample_bytree', 0, 1),
-             'max_bin': trial.suggest_int("max_bin", 1024, 65536),
+             'max_bin': trial.suggest_int("max_bin", 8000, 200000),
+             'reg_lambda': trial.suggest_float('reg_lambda', 1e-10, 20, log=True),
+             'reg_alpha': trial.suggest_float('reg_alpha', 1e-10, 20, log=True),
              "eval_metric": 'auc',
              'device': "cuda"
             }
@@ -703,7 +705,7 @@ def objective(trial):
     score = roc_auc_score(y_valid, y_preds)
     return score
 study = optuna.create_study(direction="maximize")
-study.optimize(objective, n_trials=10000, timeout=18000)
+study.optimize(objective, n_trials=500, timeout=61200)
 
 
 
@@ -744,3 +746,96 @@ submission = pd.read_csv(PATH + 'test.csv', usecols=['id'], low_memory=True)
 submission_pred = pd.DataFrame(test_pred)
 submission['Response'] =submission_pred['Xgboost_TargetEncoded_Tuned_2']
 submission.to_csv(PATH + 'submission_20240728_2.csv', index=False)
+
+
+
+xgb_params_3 = {'n_estimators': 3603,
+                'learning_rate': 0.05664233120171913,
+                'max_depth': 9,
+                'min_child_weight': 0.0406919595069881,
+                'min_split_loss': 1.484490261454949e-06,
+                'subsample': 0.9469542877464555,
+                'colsample_bytree': 0.698703457676245,
+                'max_bin': 24304}
+#xgboost_3 ~ 12m
+xgboost_model_3 = xgboost.XGBClassifier(**xgb_params_3, eval_metric='auc', device='cuda')
+cross_validate(xgboost_model_3, 'Xgboost_TargetEncoded_Tuned_3', features=initial_features)
+#0.8897845740752558 
+#0.88945  #0.9364030880073674
+
+#submission 20240729
+submission = pd.read_csv(PATH + 'test.csv', usecols=['id'], low_memory=True)
+submission_pred = pd.DataFrame(test_pred)
+submission['Response'] =submission_pred['Xgboost_TargetEncoded_Tuned_3']
+submission.to_csv(PATH + 'submission_20240729.csv', index=False)
+
+
+
+xgb_params_4 = {'n_estimators': 3716,
+                'learning_rate': 0.016212187334641272,
+                'max_depth': 13,
+                'min_child_weight': 0.6925362602376556,
+                'min_split_loss': 0.4558670187001378,
+                'subsample': 0.525977467611952,
+                'colsample_bytree': 0.8184666009355643,
+                'max_bin': 57997,
+                'reg_lambda': 2.4954516410034784e-09,
+                'reg_alpha': 5.35865863209386e-07}
+#xgboost_4 ~ 98m
+xgboost_model_4 = xgboost.XGBClassifier(**xgb_params_4, eval_metric='auc', device='cuda')
+cross_validate(xgboost_model_4, 'Xgboost_TargetEncoded_Tuned_4', features=initial_features)
+#0.8884115452445205 
+#0.88807  #0.9648342207140327
+#submission 20240730
+submission = pd.read_csv(PATH + 'test.csv', usecols=['id'], low_memory=True)
+submission_pred = pd.DataFrame(test_pred)
+submission['Response'] =submission_pred['Xgboost_TargetEncoded_Tuned_4']
+submission.to_csv(PATH + 'submission_20240730.csv', index=False)
+
+
+
+
+xgb_params_5 = {'n_estimators': 3786,
+                'learning_rate': 0.15229807492563446,
+                'max_depth': 12,
+                'min_child_weight': 0.2929123800411826,
+                'min_split_loss': 0.20236130409170772,
+                'subsample': 0.7992664369559487,
+                'colsample_bytree': 0.25949470128344276,
+                'max_bin': 99267,
+                'reg_lambda': 0.3130571403582587,
+                'reg_alpha': 7.549289564003567}
+#xgboost_4 ~ 98m
+xgboost_model_5 = xgboost.XGBClassifier(**xgb_params_5, eval_metric='auc', device='cuda')
+cross_validate(xgboost_model_5, 'Xgboost_TargetEncoded_Tuned_5', features=initial_features)
+#0.8909694008131368
+#0.89073  #0.9045092221531015
+#submission 20240730_2
+submission = pd.read_csv(PATH + 'test.csv', usecols=['id'], low_memory=True)
+submission_pred = pd.DataFrame(test_pred)
+submission['Response'] =submission_pred['Xgboost_TargetEncoded_Tuned_5']
+submission.to_csv(PATH + 'submission_20240730_2.csv', index=False)
+
+
+
+
+xgb_params_6 = {'n_estimators': 4640,
+                'learning_rate': 0.08099796374135765,
+                'max_depth': 12,
+                'min_child_weight': 0.6959511305968566,
+                'min_split_loss': 0.828547727815766,
+                'subsample': 0.7141205018669328,
+                'colsample_bytree': 0.2660993806159094,
+                'max_bin': 136177,
+                'reg_lambda': 1.6995973140689254e-08,
+                'reg_alpha': 0.0012712047683807526}
+#xgboost_6 ~ 98m
+xgboost_model_6 = xgboost.XGBClassifier(**xgb_params_6, eval_metric='auc', device='cuda')
+cross_validate(xgboost_model_6, 'Xgboost_TargetEncoded_Tuned_6', features=initial_features)
+#0.8914660026395331
+#0.89137  #0.915640549142773
+#submission 20240731
+submission = pd.read_csv(PATH + 'test.csv', usecols=['id'], low_memory=True)
+submission_pred = pd.DataFrame(test_pred)
+submission['Response'] =submission_pred['Xgboost_TargetEncoded_Tuned_6']
+submission.to_csv(PATH + 'submission_20240731.csv', index=False)
