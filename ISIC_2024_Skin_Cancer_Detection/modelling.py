@@ -7,6 +7,7 @@ Created on Sat Aug  3 14:52:43 2024
 
 import numpy as np
 import pandas as pd
+pd.set_option('display.max_columns', None)
 #import pandas.api.types
 
 import matplotlib.pyplot as plt
@@ -149,6 +150,7 @@ train['sex_IntEncoded'] = train['sex'].apply(int_encode_sex)
 test['sex_IntEncoded'] = test['sex'].apply(int_encode_sex)
 test[['sex','sex_IntEncoded']].drop_duplicates() #show encoding
 
+
 #integer encode the tbp_tile_type
 def int_encode_tbp_tile_type(col):
     if col == '3D: XP':
@@ -162,13 +164,14 @@ train['tbp_tile_type_IntEncoded'] = train['tbp_tile_type'].apply(int_encode_tbp_
 test['tbp_tile_type_IntEncoded'] = test['tbp_tile_type'].apply(int_encode_tbp_tile_type)
 test[['tbp_tile_type','tbp_tile_type_IntEncoded']].drop_duplicates() #show encoding
 
-#integer encode the tbp_lv_location
+
+#extract location from tbp_lv_location
 def extract_location(row):
-    match1 = re.search(r'(Top|top)', str(row['tbp_lv_location']))   
-    match2 = re.search(r'(Middle|middle)', str(row['tbp_lv_location']))
-    match3 = re.search(r'(Bottom|bottom)', str(row['tbp_lv_location']))
-    match4 = re.search(r'(Upper|upper)', str(row['tbp_lv_location']))
-    match5 = re.search(r'(Lower|lower)', str(row['tbp_lv_location']))
+    match1 = re.search(r'(Top|top)', str(row['tbp_lv_location']).lower())   
+    match2 = re.search(r'(Middle|middle)', str(row['tbp_lv_location']).lower())
+    match3 = re.search(r'(Bottom|bottom)', str(row['tbp_lv_location']).lower())
+    match4 = re.search(r'(Upper|upper)', str(row['tbp_lv_location']).lower())
+    match5 = re.search(r'(Lower|lower)', str(row['tbp_lv_location']).lower())
     if match1:
         return 'top'
     elif match2:
@@ -181,9 +184,89 @@ def extract_location(row):
         return 'lower'    
     else:
         return 'other'    
-train['location'] = train.apply(extract_location, axis=1)       
+train['location'] = train.apply(extract_location, axis=1)
+test['location'] = test.apply(extract_location, axis=1)   
 train[['tbp_lv_location','location']].drop_duplicates() #show mapping
+#integer encode location
+def int_encode_location(col):
+    if col == 'top':
+        return 0
+    elif col == 'upper':
+        return 1
+    elif col == 'lower':
+        return 2
+    elif col == 'middle':
+        return 3
+    elif col == 'bottom':
+        return 4
+    elif col == 'other':
+        return 5
+    else:
+        return -1
+#train.groupby('Gender').count()
+train['location_IntEncoded'] = train['location'].apply(int_encode_location)
+test['location_IntEncoded'] = test['location'].apply(int_encode_location)
+train[['location','location_IntEncoded']].drop_duplicates() #show encoding
 
+
+#integer encode tbp_lv_location_simple
+def int_encode_tbp_lv_location_simple(col):
+    if col == 'Head & Neck':
+        return 0
+    elif col == 'Torso Back':
+        return 1
+    elif col == 'Torso Front':
+        return 2
+    elif col == 'Left Leg':
+        return 3
+    elif col == 'Right Leg':
+        return 4
+    elif col == 'Left Arm':
+        return 5
+    elif col == 'Right Arm':
+        return 6
+    elif col == 'Unknown':
+        return 7
+    else:
+        return -1
+#train.groupby('Gender').count()
+train['tbp_lv_location_simple_IntEncoded'] = train['tbp_lv_location_simple'].apply(int_encode_tbp_lv_location_simple)
+test['tbp_lv_location_simple_IntEncoded'] = test['tbp_lv_location_simple'].apply(int_encode_tbp_lv_location_simple)
+train[['tbp_lv_location_simple','tbp_lv_location_simple_IntEncoded']].drop_duplicates() #show encoding
+
+
+# extract position from combined_anatomical_site
+def extract_position(row):
+    match1 = re.search(r'(Extremity|extremity)', str(row['combined_anatomical_site']).lower())   
+    match2 = re.search(r'(Posterior|posterior)', str(row['combined_anatomical_site']).lower())
+    match3 = re.search(r'(Anterior|anterior)', str(row['combined_anatomical_site']).lower())
+    if match1:
+        return 'extremity'
+    elif match2:
+        return 'posterior'
+    elif match3:
+        return 'anterior' 
+    else:
+        return 'other'    
+train['position'] = train.apply(extract_position, axis=1)
+test['position'] = test.apply(extract_position, axis=1)   
+train[['combined_anatomical_site','position']].drop_duplicates() #show mapping
+#integer encode position
+def int_encode_position(col):
+    if col == 'extremity':
+        return 0
+    elif col == 'posterior':
+        return 1
+    elif col == 'anterior':
+        return 2
+    elif col == 'other':
+        return 3
+    else:
+        return -1
+#train.groupby('Gender').count()
+train['position_IntEncoded'] = train['position'].apply(int_encode_position)
+test['position_IntEncoded'] = test['position'].apply(int_encode_position)
+train[['position','position_IntEncoded']].drop_duplicates() #show encoding
 
 
 ##############################################
@@ -196,27 +279,15 @@ sns.kdeplot(data=train, x='tbp_tile_type_IntEncoded', hue='target')
 sns.countplot(data=train, x='target', hue='tbp_tile_type')
 sns.countplot(data=train[train.target==0], x='target', hue='tbp_tile_type') #For target==0, '3D: XP' has a higher number
 
-sns.kdeplot(data=train, x='Previously_Insured', hue='Response');
+#sns.kdeplot(data=train, x='tbp_lv_location_Intencoded', hue='Response');
 sns.countplot(data=train, x='target', hue='tbp_lv_location')
 sns.countplot(data=train[train.target==1], x='target', hue='tbp_lv_location')
 
-sns.kdeplot(data=train, x='Policy_Sales_Channel', hue='Response');
+sns.kdeplot(data=train, x='location_Intencoded', hue='target');
 sns.countplot(data=train, x='target', hue='location')
 
-sns.kdeplot(data=train, x='Vintage', hue='Response');
-sns.countplot(data=train, x='Response', hue='Vintage')
+sns.kdeplot(data=train, x='position_IntEncoded', hue='target');
+sns.countplot(data=train, x='target', hue='position')
 
-sns.kdeplot(data=train, x='Vehicle_Age_encoded', hue='Response');
-sns.countplot(data=train, x='Response', hue='Vehicle_Age_encoded')
-
-
-sns.kdeplot(data=train, x='Annual_Premium', hue='Response');
-sns.kdeplot(data=train, x='Region_Code', hue='Response');
-
-sns.kdeplot(data=train, x='Gender_encoded', hue='Response');
-sns.countplot(data=train, x='Response', hue='Gender_encoded')
-
-sns.kdeplot(data=train, x='Driving_License', hue='Response');
-sns.kdeplot(data=train, x='random', hue='Response');
 ######### End of feature probing EDA #########
 ##############################################
