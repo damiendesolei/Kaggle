@@ -26,6 +26,9 @@ from sklearn.model_selection import KFold, StratifiedKFold, RepeatedKFold
 import lightgbm as lgb
 import xgboost
 import optuna
+from optuna.visualization import plot_param_importances
+from optuna.visualization import plot_optimization_history
+
 
 
 import re
@@ -407,8 +410,7 @@ oof, test_pred, holdout_pred = {}, {}, {}
 ##############################################
 ######### baseline model #####################
 
-initial_features = num_cols + ['sex_IntEncoded', 'tbp_tile_type_IntEncoded', 'location_IntEncoded', 
-     'tbp_lv_location_simple_IntEncoded', 'position_IntEncoded']
+initial_features = num_cols + ['sex_IntEncoded', 'tbp_tile_type_IntEncoded', 'location_IntEncoded', 'tbp_lv_location_simple_IntEncoded', 'position_IntEncoded']
 
 
 #lgb ~ 1m
@@ -425,41 +427,45 @@ cross_validate(lgb_model, 'LightGBM_Untuned', features=initial_features)
 
 #1.lgb
 def objective(trial):
-    X_train, X_valid, y_train, y_valid = train_test_split(train[initial_features], train.Response, test_size=0.3)
+    X_train, X_valid, y_train, y_valid = train_test_split(train[initial_features], train.target, test_size=0.3)
 
     param = {
-             "objective": trial.suggest_categorical("objective", ["Logloss", "CrossEntropy"]),
              #"objective": "CrossEntropy",
              "iterations": trial.suggest_int("iterations", 800, 2000),
              "learning_rate": trial.suggest_float("learning_rate", 1e-3, 0.5, log=True),
              "colsample_bylevel": trial.suggest_float("colsample_bylevel", 0.01, 0.1),
-             #"depth": trial.suggest_int("depth", 3, 10),
-             "depth": trial.suggest_int("depth", 7, 10),
-             "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 9000, 200000),
-             "boosting_type": trial.suggest_categorical("boosting_type", ["Ordered", "Plain"]),
-             #"boosting_type": "Plain",
-             "bootstrap_type": trial.suggest_categorical("bootstrap_type", ["Bayesian", "Bernoulli", "MVS"]),
-             #"bootstrap_type": "MVS",
-             "used_ram_limit": "48gb",
+             "depth": trial.suggest_int("depth", 5, 25),
+             "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 1000, 20000),
+             'subsample': trial.suggest_float('subsample', 0, 1),
+             'colsample_bytree': trial.suggest_float('colsample_bytree', 0, 1),
+             'max_bin': trial.suggest_int("max_bin", 8000, 200000),
+             'reg_lambda': trial.suggest_float('reg_lambda', 1e-10, 20, log=True),
+             'reg_alpha': trial.suggest_float('reg_alpha', 1e-10, 20, log=True),
+             'pos_bagging_fraction': trial.suggest_float('pos_bagging_fraction', 0, 1),
+             'neg_bagging_fraction': trial.suggest_float('neg_bagging_fraction', 0, 1),
+             #used_ram_limit": "48gb",
              "eval_metric": 'custom_score',
-             "task_type": 'CPU'
+             "device": 'cpu'
             }
 
-    if param["bootstrap_type"] == "Bayesian":
-        param["bagging_temperature"] = trial.suggest_float("bagging_temperature", 0, 10)
-    elif param["bootstrap_type"] == "Bernoulli":
-        param["subsample"] = trial.suggest_float("subsample", 0.5, 1)
 
     gbm = lgb.LGBMClassifier(**param)
 
-    gbm.fit(X_train, y_train, eval_set=[(X_valid, y_valid)], verbose=1, early_stopping_rounds=200)
+    gbm.fit(X_train, y_train, eval_set=[(X_valid, y_valid)])
 
     #y_preds = gbm.predict(X_valid)
     y_preds = gbm.predict_proba(X_valid)[:,1]
     #pred_labels = np.rint(preds)
-    score = roc_auc_score(y_valid, y_preds)
+    #score = comp_score(y_valid, y_preds)
+    score = comp_score(y_valid, pd.DataFrame(y_preds), "")
     return score
 study = optuna.create_study(direction="maximize")
-study.optimize(objective, n_trials=100, timeout=3600)
+study.optimize(objective, n_trials=200, timeout=3600)
 #study_summaries = optuna.study.get_all_study_summaries()
-#0.8757030169
+# Trial 0 finished with value: 0.17058399728141566 and parameters: {'iterations': 1564, 'learning_rate': 0.021861424132643192, 'colsample_bylevel': 0.09839000386075163, 'depth': 15, 'min_data_in_leaf': 4169, 'subsample': 0.24265885764272066, 'colsample_bytree': 0.40469534371300453, 'max_bin': 15603, 'reg_lambda': 1.6371338817060606e-05, 'reg_alpha': 4.4221534988928415, 'pos_bagging_fraction': 0.5623107344062629, 'neg_bagging_fraction': 0.7514980166710389}. Best is trial 0 with value: 0.17058399728141566.
+#Trial 21 finished with value: 0.1715800231544985 and parameters: {'iterations': 1401, 'learning_rate': 0.05032974645541588, 'colsample_bylevel': 0.02898675577640679, 'depth': 18, 'min_data_in_leaf': 17839, 'subsample': 0.8920051990627909, 'colsample_bytree': 0.6202745141075666, 'max_bin': 125990, 'reg_lambda': 0.002175710371681295, 'reg_alpha': 2.504363052953543e-05, 'pos_bagging_fraction': 0.14508814884263116, 'neg_bagging_fraction': 0.4948871177523545}. Best is trial 21 with value: 0.1715800231544985. 
+plotly_config = {"staticPlot": True}
+fig = plot_optimization_history(study)
+fig.show(config=plotly_config)
+fig = plot_param_importances(study)
+fig.show(config=plotly_config)
