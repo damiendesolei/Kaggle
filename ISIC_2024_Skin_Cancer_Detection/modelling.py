@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 pd.set_option('display.max_columns', None)
 #import pandas.api.types
+import datetime
 
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -17,11 +18,18 @@ import seaborn as sns
 from sklearn.preprocessing import OrdinalEncoder
 from sklearn.metrics import roc_curve, auc, roc_auc_score
 from sklearn.model_selection import GroupKFold, StratifiedGroupKFold
+from sklearn.metrics import roc_auc_score
+from sklearn.metrics import make_scorer
+from sklearn.model_selection import train_test_split
+from sklearn.model_selection import KFold, StratifiedKFold, RepeatedKFold
 
 import lightgbm as lgb
+import xgboost
+import optuna
+
 
 import re
-
+from colorama import Fore, Style
 
 
 
@@ -279,7 +287,7 @@ sns.kdeplot(data=train, x='tbp_tile_type_IntEncoded', hue='target')
 sns.countplot(data=train, x='target', hue='tbp_tile_type')
 sns.countplot(data=train[train.target==0], x='target', hue='tbp_tile_type') #For target==0, '3D: XP' has a higher number
 
-#sns.kdeplot(data=train, x='tbp_lv_location_Intencoded', hue='Response');
+#sns.kdeplot(data=train, x='tbp_lv_location_Intencoded', hue='target');
 sns.countplot(data=train, x='target', hue='tbp_lv_location')
 sns.countplot(data=train[train.target==1], x='target', hue='tbp_lv_location')
 
@@ -293,10 +301,20 @@ sns.countplot(data=train, x='target', hue='position')
 ##############################################
 
 
+
+
 ##############################################
-########### Fit the GBM  #####################
-train_cols = num_cols + new_num_cols + ['sex_IntEncoded', 'tbp_tile_type_IntEncoded', 'location_IntEncoded', 
-     'tbp_lv_location_simple_IntEncoded', 'position_IntEncoded']
+######### modelling setup  ###################
+
+def custom_loss_func(y_actual_, y_predicted_):
+    v_gt = abs(np.asarray(y_actual_)-1)
+    v_pred = np.array([1.0 - x for x in y_predicted_])
+    max_fpr = abs(1-0.80)
+    partial_auc_scaled = roc_auc_score(v_gt, v_pred, max_fpr=max_fpr)
+    return 0.5 * max_fpr**2 + (max_fpr - 0.5 * max_fpr**2) / (1.0 - 0.5) * (partial_auc_scaled - 0.5)
+
+custom_score = make_scorer(custom_loss_func, greater_is_better=True)
+
 
 # https://www.kaggle.com/code/snnclsr/lgbm-baseline-with-new-features
 def comp_score(solution: pd.DataFrame, submission: pd.DataFrame, row_id_column_name: str, min_tpr: float=0.80):
@@ -304,7 +322,144 @@ def comp_score(solution: pd.DataFrame, submission: pd.DataFrame, row_id_column_n
     v_pred = np.array([1.0 - x for x in submission.values])
     max_fpr = abs(1-min_tpr)
     partial_auc_scaled = roc_auc_score(v_gt, v_pred, max_fpr=max_fpr)
-    # change scale from [0.5, 1.0] to [0.5 * max_fpr**2, max_fpr]
     # https://math.stackexchange.com/questions/914823/shift-numbers-into-a-different-range
     partial_auc = 0.5 * max_fpr**2 + (max_fpr - 0.5 * max_fpr**2) / (1.0 - 0.5) * (partial_auc_scaled - 0.5)
     return partial_auc
+
+kf = StratifiedKFold(n_splits=5, shuffle=True, random_state=24)
+
+def cross_validate(model, label, features=initial_features):
+    """Compute out-of-fold and test predictions for a given model.
+    
+    Out-of-fold and test predictions are stored in the global variables
+    oof and test_pred, respectively. 
+    """
+    start_time = datetime.datetime.now()
+    tr_scores = []
+    va_scores = []
+    oof_preds = np.full_like(train.target, np.nan, dtype=np.float64)
+    #for fold, (idx_tr, idx_va) in enumerate(kf.split(train)):
+    for fold, (idx_tr, idx_va) in enumerate(kf.split(train, train.target)):    
+        X_tr = train.iloc[idx_tr][features]
+        X_va = train.iloc[idx_va][features]
+        y_tr = train.target[idx_tr]
+        y_va = train.target[idx_va]
+        
+        model.fit(X_tr, y_tr)
+        #y_pred = model.predict(X_va)
+        y_pred = model.predict_proba(X_va)
+        #y_predicted = np.argmax(y_pred, axis=1) #find the highest probability row array position 
+        y_predicted = y_pred[:,1] #find the probability of being 1
+        
+
+        #va_score = partial_auc(y_va, y_predicted)
+        va_score = comp_score(y_va, pd.DataFrame(y_predicted), "")
+        #tr_score = roc_auc_score(y_tr, model.predict(X_tr))
+        #tr_score = roc_auc_score(y_tr, np.argmax(model.predict_proba(X_tr), axis=1))
+        #tr_score = roc_auc_score(y_tr, model.predict_proba(X_tr)[:,1])
+        
+        tr_score = comp_score(y_tr, pd.DataFrame(model.predict_proba(X_tr)[:,1]), "")
+        print(f"# Fold {fold}: tr_auc={tr_score:.5f}, val_auc={va_score:.5f}")
+        va_scores.append(va_score)
+        tr_scores.append(tr_score)
+        oof_preds[idx_va] = y_predicted #each iteration will fill in 1/5 of the index
+        #oof_preds[idx_va] = y_pred
+            
+    elapsed_time = datetime.datetime.now() - start_time
+    print(f"{Fore.RED}# Overall val={np.array(va_scores).mean():.5f} {label}"
+          f"   {int(np.round(elapsed_time.total_seconds() / 60))} min{Style.RESET_ALL}")
+    print(f"{Fore.RED}# {label} Fitting started from {start_time}")
+    oof[label] = oof_preds
+
+    if COMPUTE_HOLDOUT_PRED:
+        X_ho = holdout[features]
+        y_ho = holdout.target
+        model.fit(X_ho, y_ho)
+        y_pred = model.predict_proba(holdout[features])
+        #y_predicted = np.argmax(y_pred, axis=1)
+        y_predicted = y_pred[:,1]
+        #holdout_pred[label] = y_predicted
+        #ho_score = roc_auc_score(holdout.Response, y_predicted)
+        ho_score = comp_score(holdout.target, pd.DataFrame(y_predicted), "")
+        print('# Holdout score is: ' + str(ho_score))
+ 
+    if COMPUTE_TEST_PRED:
+        X_tr = train[features]
+        y_tr = train.target
+        model.fit(X_tr, y_tr)
+        y_pred = model.predict_proba(test[features])
+        #y_predicted = np.argmax(y_pred, axis=1)
+        y_predicted = y_pred[:,1]
+        test_pred[label] = y_predicted
+        return test_pred
+    
+# want to see the cross-validation results)
+COMPUTE_TEST_PRED = True
+COMPUTE_HOLDOUT_PRED = False
+
+# Containers for results
+oof, test_pred, holdout_pred = {}, {}, {}
+######### finish modelling setup ##############
+###############################################
+
+
+
+##############################################
+######### baseline model #####################
+
+initial_features = num_cols + ['sex_IntEncoded', 'tbp_tile_type_IntEncoded', 'location_IntEncoded', 
+     'tbp_lv_location_simple_IntEncoded', 'position_IntEncoded']
+
+
+#lgb ~ 1m
+lgb_model = lgb.LGBMClassifier(verbose=-1, eval_metric='custom_score', device='cpu')
+cross_validate(lgb_model, 'LightGBM_Untuned', features=initial_features)
+# Fold 0: tr_auc=0.01967, val_auc=0.01787
+# Fold 1: tr_auc=0.02095, val_auc=0.02046
+# Fold 2: tr_auc=0.03968, val_auc=0.02996
+# Fold 3: tr_auc=0.02669, val_auc=0.02944
+# Fold 4: tr_auc=0.02709, val_auc=0.02500
+# Overall val=0.02455 LightGBM_Untuned   0 min
+# LightGBM_Untuned Fitting started from 2024-08-20 14:41:16.252451
+
+
+#1.lgb
+def objective(trial):
+    X_train, X_valid, y_train, y_valid = train_test_split(train[initial_features], train.Response, test_size=0.3)
+
+    param = {
+             "objective": trial.suggest_categorical("objective", ["Logloss", "CrossEntropy"]),
+             #"objective": "CrossEntropy",
+             "iterations": trial.suggest_int("iterations", 800, 2000),
+             "learning_rate": trial.suggest_float("learning_rate", 1e-3, 0.5, log=True),
+             "colsample_bylevel": trial.suggest_float("colsample_bylevel", 0.01, 0.1),
+             #"depth": trial.suggest_int("depth", 3, 10),
+             "depth": trial.suggest_int("depth", 7, 10),
+             "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 9000, 200000),
+             "boosting_type": trial.suggest_categorical("boosting_type", ["Ordered", "Plain"]),
+             #"boosting_type": "Plain",
+             "bootstrap_type": trial.suggest_categorical("bootstrap_type", ["Bayesian", "Bernoulli", "MVS"]),
+             #"bootstrap_type": "MVS",
+             "used_ram_limit": "48gb",
+             "eval_metric": 'custom_score',
+             "task_type": 'CPU'
+            }
+
+    if param["bootstrap_type"] == "Bayesian":
+        param["bagging_temperature"] = trial.suggest_float("bagging_temperature", 0, 10)
+    elif param["bootstrap_type"] == "Bernoulli":
+        param["subsample"] = trial.suggest_float("subsample", 0.5, 1)
+
+    gbm = lgb.LGBMClassifier(**param)
+
+    gbm.fit(X_train, y_train, eval_set=[(X_valid, y_valid)], verbose=1, early_stopping_rounds=200)
+
+    #y_preds = gbm.predict(X_valid)
+    y_preds = gbm.predict_proba(X_valid)[:,1]
+    #pred_labels = np.rint(preds)
+    score = roc_auc_score(y_valid, y_preds)
+    return score
+study = optuna.create_study(direction="maximize")
+study.optimize(objective, n_trials=100, timeout=3600)
+#study_summaries = optuna.study.get_all_study_summaries()
+#0.8757030169
