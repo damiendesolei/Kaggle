@@ -42,6 +42,7 @@ PATH = r'G:\\kaggle\isic-2024-challenge\\'
 
 train = pd.read_csv(PATH + 'train-metadata.csv', low_memory=False)
 test = pd.read_csv(PATH + 'test-metadata.csv', low_memory=False)
+submission = pd.read_csv(PATH + 'sample_submission.csv', low_memory=False)
 ######### finish reading in data #############
 ##############################################
 
@@ -282,23 +283,23 @@ train[['position','position_IntEncoded']].drop_duplicates() #show encoding
 
 ##############################################
 ######### feature probing - EDA ##############
-sns.kdeplot(data=train, x='sex_IntEncoded', hue='target')
-sns.countplot(data=train, x='target', hue='sex')
-sns.countplot(data=train[train.target==1], x='target', hue='sex') #For target=1, 'male' has a higher number
+# sns.kdeplot(data=train, x='sex_IntEncoded', hue='target')
+# sns.countplot(data=train, x='target', hue='sex')
+# sns.countplot(data=train[train.target==1], x='target', hue='sex') #For target=1, 'male' has a higher number
 
-sns.kdeplot(data=train, x='tbp_tile_type_IntEncoded', hue='target')
-sns.countplot(data=train, x='target', hue='tbp_tile_type')
-sns.countplot(data=train[train.target==0], x='target', hue='tbp_tile_type') #For target==0, '3D: XP' has a higher number
+# sns.kdeplot(data=train, x='tbp_tile_type_IntEncoded', hue='target')
+# sns.countplot(data=train, x='target', hue='tbp_tile_type')
+# sns.countplot(data=train[train.target==0], x='target', hue='tbp_tile_type') #For target==0, '3D: XP' has a higher number
 
-#sns.kdeplot(data=train, x='tbp_lv_location_Intencoded', hue='target');
-sns.countplot(data=train, x='target', hue='tbp_lv_location')
-sns.countplot(data=train[train.target==1], x='target', hue='tbp_lv_location')
+# #sns.kdeplot(data=train, x='tbp_lv_location_Intencoded', hue='target');
+# sns.countplot(data=train, x='target', hue='tbp_lv_location')
+# sns.countplot(data=train[train.target==1], x='target', hue='tbp_lv_location')
 
-sns.kdeplot(data=train, x='location_Intencoded', hue='target');
-sns.countplot(data=train, x='target', hue='location')
+# sns.kdeplot(data=train, x='location_Intencoded', hue='target');
+# sns.countplot(data=train, x='target', hue='location')
 
-sns.kdeplot(data=train, x='position_IntEncoded', hue='target');
-sns.countplot(data=train, x='target', hue='position')
+# sns.kdeplot(data=train, x='position_IntEncoded', hue='target');
+# sns.countplot(data=train, x='target', hue='position')
 
 ######### End of feature probing EDA #########
 ##############################################
@@ -330,6 +331,9 @@ def comp_score(solution: pd.DataFrame, submission: pd.DataFrame, row_id_column_n
     return partial_auc
 
 kf = StratifiedKFold(n_splits=5, shuffle=True, random_state=24)
+
+
+initial_features = num_cols + ['sex_IntEncoded', 'tbp_tile_type_IntEncoded', 'location_IntEncoded', 'tbp_lv_location_simple_IntEncoded', 'position_IntEncoded']
 
 def cross_validate(model, label, features=initial_features):
     """Compute out-of-fold and test predictions for a given model.
@@ -410,22 +414,21 @@ oof, test_pred, holdout_pred = {}, {}, {}
 ##############################################
 ######### baseline model #####################
 
-initial_features = num_cols + ['sex_IntEncoded', 'tbp_tile_type_IntEncoded', 'location_IntEncoded', 'tbp_lv_location_simple_IntEncoded', 'position_IntEncoded']
 
 
 #lgb ~ 1m
 lgb_model = lgb.LGBMClassifier(verbose=-1, eval_metric='custom_score', device='cpu')
 cross_validate(lgb_model, 'LightGBM_Untuned', features=initial_features)
-# Fold 0: tr_auc=0.01967, val_auc=0.01787
+# Fold 0: tr_auc=0.01901, val_auc=0.01650
 # Fold 1: tr_auc=0.02095, val_auc=0.02046
 # Fold 2: tr_auc=0.03968, val_auc=0.02996
 # Fold 3: tr_auc=0.02669, val_auc=0.02944
 # Fold 4: tr_auc=0.02709, val_auc=0.02500
-# Overall val=0.02455 LightGBM_Untuned   0 min
-# LightGBM_Untuned Fitting started from 2024-08-20 14:41:16.252451
+# Overall val=0.02427 LightGBM_Untuned   0 min
+# LightGBM_Untuned Fitting started from 2024-08-22 20:07:46.728607
 
 
-#1.lgb
+#lgb - tuned
 def objective(trial):
     X_train, X_valid, y_train, y_valid = train_test_split(train[initial_features], train.target, test_size=0.3)
 
@@ -459,13 +462,33 @@ def objective(trial):
     #score = comp_score(y_valid, y_preds)
     score = comp_score(y_valid, pd.DataFrame(y_preds), "")
     return score
-study = optuna.create_study(direction="maximize")
-study.optimize(objective, n_trials=200, timeout=3600)
+#study = optuna.create_study(direction="maximize")
+#study.optimize(objective, n_trials=200, timeout=3600)
 #study_summaries = optuna.study.get_all_study_summaries()
 # Trial 0 finished with value: 0.17058399728141566 and parameters: {'iterations': 1564, 'learning_rate': 0.021861424132643192, 'colsample_bylevel': 0.09839000386075163, 'depth': 15, 'min_data_in_leaf': 4169, 'subsample': 0.24265885764272066, 'colsample_bytree': 0.40469534371300453, 'max_bin': 15603, 'reg_lambda': 1.6371338817060606e-05, 'reg_alpha': 4.4221534988928415, 'pos_bagging_fraction': 0.5623107344062629, 'neg_bagging_fraction': 0.7514980166710389}. Best is trial 0 with value: 0.17058399728141566.
 #Trial 21 finished with value: 0.1715800231544985 and parameters: {'iterations': 1401, 'learning_rate': 0.05032974645541588, 'colsample_bylevel': 0.02898675577640679, 'depth': 18, 'min_data_in_leaf': 17839, 'subsample': 0.8920051990627909, 'colsample_bytree': 0.6202745141075666, 'max_bin': 125990, 'reg_lambda': 0.002175710371681295, 'reg_alpha': 2.504363052953543e-05, 'pos_bagging_fraction': 0.14508814884263116, 'neg_bagging_fraction': 0.4948871177523545}. Best is trial 21 with value: 0.1715800231544985. 
-plotly_config = {"staticPlot": True}
-fig = plot_optimization_history(study)
-fig.show(config=plotly_config)
-fig = plot_param_importances(study)
-fig.show(config=plotly_config)
+# plotly_config = {"staticPlot": True}
+# fig = plot_optimization_history(study)
+# fig.show(config=plotly_config)
+# fig = plot_param_importances(study)
+# fig.show(config=plotly_config)
+
+
+#lgb - tuned ~ 2m
+params = {'iterations': 1401, 'learning_rate': 0.05032974645541588, 'colsample_bylevel': 0.02898675577640679, 'depth': 18, 'min_data_in_leaf': 17839, 'subsample': 0.8920051990627909, 'colsample_bytree': 0.6202745141075666, 'max_bin': 125990, 'reg_lambda': 0.002175710371681295, 'reg_alpha': 2.504363052953543e-05, 'pos_bagging_fraction': 0.14508814884263116, 'neg_bagging_fraction': 0.4948871177523545}
+lgb_model = lgb.LGBMClassifier(**params, verbose=-1, eval_metric='custom_score', device='cpu')
+cross_validate(lgb_model, 'LightGBM_Tuned', features=initial_features)
+# Fold 0: tr_auc=0.18532, val_auc=0.16740
+# Fold 1: tr_auc=0.18571, val_auc=0.15080
+# Fold 2: tr_auc=0.18670, val_auc=0.15552
+# Fold 3: tr_auc=0.18603, val_auc=0.16114
+# Fold 4: tr_auc=0.18735, val_auc=0.13777
+# Overall val=0.15453 LightGBM_Tuned   2 min
+# LightGBM_Tuned Fitting started from 2024-08-22 20:12:48.521399
+model = lgb_model
+importances = model.feature_importances_ 
+df_imp = pd.DataFrame({"feature": model.feature_name_, "importance": importances}).sort_values("importance").reset_index(drop=True)
+
+plt.figure(figsize=(16, 12))
+plt.barh(df_imp["feature"], df_imp["importance"])
+plt.show()
