@@ -14,7 +14,6 @@ import datetime
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-
 from sklearn.preprocessing import OrdinalEncoder
 from sklearn.metrics import roc_curve, auc, roc_auc_score
 from sklearn.model_selection import GroupKFold, StratifiedGroupKFold
@@ -29,12 +28,32 @@ import optuna
 from optuna.visualization import plot_param_importances
 from optuna.visualization import plot_optimization_history
 
-
-
 import re
 from colorama import Fore, Style
 
 
+import torch 
+import cv2
+import os, io
+
+import torch.nn.functional as F
+from torch import nn
+from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
+from torch.optim import AdamW
+import timm
+import sys
+from tqdm import tqdm
+
+from PIL import Image
+
+import albumentations as A
+
+import math, random
+import glob
+import h5py
+
+# For descriptive error messages
+os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
 ##############################################
 ######### read in data #######################
@@ -492,3 +511,150 @@ df_imp = pd.DataFrame({"feature": model.feature_name_, "importance": importances
 plt.figure(figsize=(16, 12))
 plt.barh(df_imp["feature"], df_imp["importance"])
 plt.show()
+
+
+
+
+
+##############################################
+################## NN ########################
+# https://www.kaggle.com/code/motono0223/isic-pytorch-training-baseline-image-only
+CONFIG = {
+    "seed": 24,
+    "epochs": 50,
+    "img_size": 384,
+    "model_name": "tf_efficientnet_b0_ns",
+    #"checkpoint_path" : "/kaggle/input/tf-efficientnet/pytorch/tf-efficientnet-b0/1/tf_efficientnet_b0_aa-827b6e33.pth",
+    "checkpoint_path" : PATH + "tf-efficientnet\\pytorch\\tf-efficientnet-b0_1.pth",
+    "train_batch_size": 32,
+    "valid_batch_size": 64,
+    "learning_rate": 1e-4,
+    "scheduler": 'CosineAnnealingLR',
+    "min_lr": 1e-6,
+    "T_max": 500,
+    "weight_decay": 1e-6,
+    "fold" : 0,
+    "n_fold": 5,
+    "n_accumulate": 1,
+    "device": torch.device("cuda:0" if torch.cuda.is_available() else "cpu"),
+}
+
+
+#seet seed for reproductivity
+def set_seed(seed=24):
+    '''Sets the seed of the entire notebook so results are the same every time we run.
+    This is for REPRODUCIBILITY.'''
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    # When running on the CuDNN backend, two further options must be set
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    # Set a fixed value for the hash seed
+    os.environ['PYTHONHASHSEED'] = str(seed)
+      
+set_seed(CONFIG['seed'])
+
+
+
+#ROOT_DIR = "/kaggle/input/isic-2024-challenge"
+TRAIN_DIR = PATH + 'train-image\\image'
+def get_train_file_path(image_id):
+    #return f"{TRAIN_DIR}/{image_id}.jpg"
+    return f"{TRAIN_DIR}\\{image_id}.jpg"
+
+
+
+#read in data
+#train_images = sorted(glob.glob(f"{TRAIN_DIR}/*.jpg"))
+train_images = sorted(glob.glob(f"{TRAIN_DIR}\\*.jpg"))
+
+df = train
+
+df.shape
+df.target.value_counts(normalize=True)
+
+#rebalance data
+df_positive = df[df["target"] == 1].reset_index(drop=True)
+df_negative = df[df["target"] == 0].reset_index(drop=True)
+
+df = pd.concat([df_positive, df_negative.iloc[:df_positive.shape[0]*99, :]])  # positive% is set to 1%
+df.shape
+df.target.value_counts(normalize=True)
+
+df['file_path'] = df['isic_id'].apply(get_train_file_path)
+df = df[df["file_path"].isin(train_images)].reset_index(drop=True)
+df.head()
+
+#set up t max
+CONFIG['T_max'] = df.shape[0] * (CONFIG["n_fold"]-1) * CONFIG['epochs'] // CONFIG['train_batch_size'] // CONFIG["n_fold"]
+CONFIG['T_max']
+
+# create folds
+sgkf = StratifiedGroupKFold(n_splits=CONFIG['n_fold'])
+
+for fold, ( _, val_) in enumerate(sgkf.split(df, df.target,df.patient_id)):
+      df.loc[val_ , "kfold"] = int(fold)
+      
+      
+#dataset classes
+class ISICDataset_for_Train(Dataset):
+    def __init__(self, df, transforms=None):
+        self.df_positive = df[df["target"] == 1].reset_index()
+        self.df_negative = df[df["target"] == 0].reset_index()
+        self.file_names_positive = self.df_positive['file_path'].values
+        self.file_names_negative = self.df_negative['file_path'].values
+        self.targets_positive = self.df_positive['target'].values
+        self.targets_negative = self.df_negative['target'].values
+        self.transforms = transforms
+        
+    def __len__(self):
+        return len(self.df_positive) * 2
+    
+    def __getitem__(self, index):
+        if random.random() >= 0.5:
+            df = self.df_positive
+            file_names = self.file_names_positive
+            targets = self.targets_positive
+        else:
+            df = self.df_negative
+            file_names = self.file_names_negative
+            targets = self.targets_negative
+        index = index % df.shape[0]
+        
+        img_path = file_names[index]
+        img = cv2.imread(img_path)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        target = targets[index]
+        
+        if self.transforms:
+            img = self.transforms(image=img)["image"]
+            
+        return {
+            'image': img,
+            'target': target
+        }
+    
+class ISICDataset(Dataset):
+    def __init__(self, df, transforms=None):
+        self.df = df
+        self.file_names = df['file_path'].values
+        self.targets = df['target'].values
+        self.transforms = transforms
+        
+    def __len__(self):
+        return len(self.df)
+    
+    def __getitem__(self, index):
+        img_path = self.file_names[index]
+        img = cv2.imread(img_path)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        target = self.targets[index]
+        
+        if self.transforms:
+            img = self.transforms(image=img)["image"]
+            
+        return {
+            'image': img,
+            'target': target
+        }    
