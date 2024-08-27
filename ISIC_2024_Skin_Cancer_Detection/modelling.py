@@ -36,12 +36,27 @@ import torch
 import cv2
 import os, io
 
+from collections import defaultdict
 import torch.nn.functional as F
 from torch import nn
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 from torch.optim import AdamW
+from torch.optim import lr_scheduler
+import torch.optim as optim
+from torch.cuda import amp
+import torchvision
+from torcheval.metrics.functional import binary_auroc
+
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
+
 import timm
+
 import sys
+import time
+import math
+import copy
+import gc
 from tqdm import tqdm
 
 from PIL import Image
@@ -518,14 +533,21 @@ plt.show()
 
 ##############################################
 ################## NN ########################
+
+# Create the model without loading pretrained weights and save to a specific location
+model = timm.create_model('efficientnet_b1.ra4_e3600_r240_in1k', pretrained=True)
+SAVE_PATH = r'G:\\kaggle\isic-2024-challenge\efficientnet_b1\pytorch\efficientnet_b1_ra4_e3600_r240_in1k.pth'
+torch.save(model.state_dict(), SAVE_PATH)
+
+
 # https://www.kaggle.com/code/motono0223/isic-pytorch-training-baseline-image-only
 CONFIG = {
     "seed": 24,
     "epochs": 50,
     "img_size": 384,
-    "model_name": "tf_efficientnet_b0_ns",
+    "model_name": "efficientnet_b1.ra4_e3600_r240_in1k",
     #"checkpoint_path" : "/kaggle/input/tf-efficientnet/pytorch/tf-efficientnet-b0/1/tf_efficientnet_b0_aa-827b6e33.pth",
-    "checkpoint_path" : PATH + "tf-efficientnet\\pytorch\\tf-efficientnet-b0_1.pth",
+    "checkpoint_path" : PATH + "efficientnet_b1\\pytorch\\efficientnet_b1_ra4_e3600_r240_in1k.pth",
     "train_batch_size": 32,
     "valid_batch_size": 64,
     "learning_rate": 1e-4,
@@ -538,6 +560,9 @@ CONFIG = {
     "n_accumulate": 1,
     "device": torch.device("cuda:0" if torch.cuda.is_available() else "cpu"),
 }
+
+# Specify the model architecture
+#model = timm.create_model("hf_hub:timm/resnet50d.ra4_e3600_r224_in1k", pretrained=True)
 
 
 #seet seed for reproductivity
@@ -578,7 +603,7 @@ df.target.value_counts(normalize=True)
 df_positive = df[df["target"] == 1].reset_index(drop=True)
 df_negative = df[df["target"] == 0].reset_index(drop=True)
 
-df = pd.concat([df_positive, df_negative.iloc[:df_positive.shape[0]*99, :]])  # positive% is set to 1%
+df = pd.concat([df_positive, df_negative.iloc[:df_positive.shape[0]*49, :]])  # positive% is set to 1%
 df.shape
 df.target.value_counts(normalize=True)
 
@@ -658,3 +683,273 @@ class ISICDataset(Dataset):
             'image': img,
             'target': target
         }    
+    
+    
+
+
+
+#Augmentation
+data_transforms = {
+    "train": A.Compose([
+        A.Resize(CONFIG['img_size'], CONFIG['img_size']),
+        A.RandomRotate90(p=0.5),
+        A.Flip(p=0.5),
+        A.Downscale(p=0.25),
+        A.ShiftScaleRotate(shift_limit=0.1, 
+                           scale_limit=0.15, 
+                           rotate_limit=60, 
+                           p=0.5),
+        A.HueSaturationValue(
+                hue_shift_limit=0.2, 
+                sat_shift_limit=0.2, 
+                val_shift_limit=0.2, 
+                p=0.5
+            ),
+        A.RandomBrightnessContrast(
+                brightness_limit=(-0.1,0.1), 
+                contrast_limit=(-0.1, 0.1), 
+                p=0.5
+            ),
+        A.Normalize(
+                mean=[0.485, 0.456, 0.406], 
+                std=[0.229, 0.224, 0.225], 
+                max_pixel_value=255.0, 
+                p=1.0
+            ),
+        ToTensorV2()], p=1.),
+    
+    "valid": A.Compose([
+        A.Resize(CONFIG['img_size'], CONFIG['img_size']),
+        A.Normalize(
+                mean=[0.485, 0.456, 0.406], 
+                std=[0.229, 0.224, 0.225], 
+                max_pixel_value=255.0, 
+                p=1.0
+            ),
+        ToTensorV2()], p=1.)
+}
+
+
+
+
+
+#GeM pooling
+class GeM(nn.Module):
+    def __init__(self, p=3, eps=1e-6):
+        super(GeM, self).__init__()
+        self.p = nn.Parameter(torch.ones(1)*p)
+        self.eps = eps
+
+    def forward(self, x):
+        return self.gem(x, p=self.p, eps=self.eps)
+        
+    def gem(self, x, p=3, eps=1e-6):
+        return F.avg_pool2d(x.clamp(min=eps).pow(p), (x.size(-2), x.size(-1))).pow(1./p)
+        
+    def __repr__(self):
+        return self.__class__.__name__ + \
+                '(' + 'p=' + '{:.4f}'.format(self.p.data.tolist()[0]) + \
+                ', ' + 'eps=' + str(self.eps) + ')'
+                
+                          
+
+
+#Create the model
+class ISICModel(nn.Module):
+    def __init__(self, model_name, num_classes=1, pretrained=True, checkpoint_path=None):
+        super(ISICModel, self).__init__()
+        self.model = timm.create_model(model_name, pretrained=pretrained, checkpoint_path=checkpoint_path)
+
+        in_features = self.model.classifier.in_features
+        self.model.classifier = nn.Identity()
+        self.model.global_pool = nn.Identity()
+        self.pooling = GeM()
+        self.linear = nn.Linear(in_features, num_classes)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, images):
+        features = self.model(images)
+        pooled_features = self.pooling(features).flatten(1)
+        output = self.sigmoid(self.linear(pooled_features))
+        return output
+
+model = ISICModel(CONFIG['model_name'], checkpoint_path=CONFIG['checkpoint_path'])
+model.to(CONFIG['device']);
+
+
+
+#Loss function
+def criterion(outputs, targets):
+    return nn.BCELoss()(outputs, targets)
+
+
+
+
+#Train the model
+def train_one_epoch(model, optimizer, scheduler, dataloader, device, epoch):
+    model.train()
+    
+    dataset_size = 0
+    running_loss = 0.0
+    running_auroc  = 0.0
+    
+    bar = tqdm(enumerate(dataloader), total=len(dataloader))
+    for step, data in bar:
+        images = data['image'].to(device, dtype=torch.float)
+        targets = data['target'].to(device, dtype=torch.float)
+        
+        batch_size = images.size(0)
+        
+        outputs = model(images).squeeze()
+        loss = criterion(outputs, targets)
+        loss = loss / CONFIG['n_accumulate']
+            
+        loss.backward()
+    
+        if (step + 1) % CONFIG['n_accumulate'] == 0:
+            optimizer.step()
+
+            # zero the parameter gradients
+            optimizer.zero_grad()
+
+            if scheduler is not None:
+                scheduler.step()
+                
+        auroc = binary_auroc(input=outputs.squeeze(), target=targets).item()
+        
+        running_loss += (loss.item() * batch_size)
+        running_auroc  += (auroc * batch_size)
+        dataset_size += batch_size
+        
+        epoch_loss = running_loss / dataset_size
+        epoch_auroc = running_auroc / dataset_size
+        
+        bar.set_postfix(Epoch=epoch, Train_Loss=epoch_loss, Train_Auroc=epoch_auroc,
+                        LR=optimizer.param_groups[0]['lr'])
+    gc.collect()
+    
+    return epoch_loss, epoch_auroc
+
+
+
+#Validation model
+@torch.inference_mode()
+def valid_one_epoch(model, dataloader, device, epoch):
+    model.eval()
+    
+    dataset_size = 0
+    running_loss = 0.0
+    running_auroc = 0.0
+    
+    bar = tqdm(enumerate(dataloader), total=len(dataloader))
+    for step, data in bar:        
+        images = data['image'].to(device, dtype=torch.float)
+        targets = data['target'].to(device, dtype=torch.float)
+        
+        batch_size = images.size(0)
+
+        outputs = model(images).squeeze()
+        loss = criterion(outputs, targets)
+
+        auroc = binary_auroc(input=outputs.squeeze(), target=targets).item()
+        running_loss += (loss.item() * batch_size)
+        running_auroc  += (auroc * batch_size)
+        dataset_size += batch_size
+        
+        epoch_loss = running_loss / dataset_size
+        epoch_auroc = running_auroc / dataset_size
+        
+        bar.set_postfix(Epoch=epoch, Valid_Loss=epoch_loss, Valid_Auroc=epoch_auroc,
+                        LR=optimizer.param_groups[0]['lr'])   
+    
+    gc.collect()
+    
+    return epoch_loss, epoch_auroc
+
+
+
+#Run training
+def run_training(model, optimizer, scheduler, device, num_epochs):
+    if torch.cuda.is_available():
+        print("[INFO] Using GPU: {}\n".format(torch.cuda.get_device_name()))
+    
+    start = time.time()
+    best_model_wts = copy.deepcopy(model.state_dict())
+    best_epoch_auroc = -np.inf
+    history = defaultdict(list)
+    
+    for epoch in range(1, num_epochs + 1): 
+        gc.collect()
+        train_epoch_loss, train_epoch_auroc = train_one_epoch(model, optimizer, scheduler, 
+                                           dataloader=train_loader, 
+                                           device=CONFIG['device'], epoch=epoch)
+        
+        val_epoch_loss, val_epoch_auroc = valid_one_epoch(model, valid_loader, device=CONFIG['device'], 
+                                         epoch=epoch)
+    
+        history['Train Loss'].append(train_epoch_loss)
+        history['Valid Loss'].append(val_epoch_loss)
+        history['Train AUROC'].append(train_epoch_auroc)
+        history['Valid AUROC'].append(val_epoch_auroc)
+        history['lr'].append( scheduler.get_lr()[0] )
+        
+        # deep copy the model
+        if best_epoch_auroc <= val_epoch_auroc:
+            print(f"{b_}Validation AUROC Improved ({best_epoch_auroc} ---> {val_epoch_auroc})")
+            best_epoch_auroc = val_epoch_auroc
+            best_model_wts = copy.deepcopy(model.state_dict())
+            PATH = "AUROC{:.4f}_Loss{:.4f}_epoch{:.0f}.bin".format(val_epoch_auroc, val_epoch_loss, epoch)
+            torch.save(model.state_dict(), PATH)
+            # Save a model file from the current directory
+            print(f"Model Saved{sr_}")
+            
+        print()
+    
+    end = time.time()
+    time_elapsed = end - start
+    print('Training complete in {:.0f}h {:.0f}m {:.0f}s'.format(
+        time_elapsed // 3600, (time_elapsed % 3600) // 60, (time_elapsed % 3600) % 60))
+    print("Best AUROC: {:.4f}".format(best_epoch_auroc))
+    
+    # load best model weights
+    model.load_state_dict(best_model_wts)
+    
+    return model, history
+
+
+def fetch_scheduler(optimizer):
+    if CONFIG['scheduler'] == 'CosineAnnealingLR':
+        scheduler = lr_scheduler.CosineAnnealingLR(optimizer,T_max=CONFIG['T_max'], 
+                                                   eta_min=CONFIG['min_lr'])
+    elif CONFIG['scheduler'] == 'CosineAnnealingWarmRestarts':
+        scheduler = lr_scheduler.CosineAnnealingWarmRestarts(optimizer,T_0=CONFIG['T_0'], 
+                                                             eta_min=CONFIG['min_lr'])
+    elif CONFIG['scheduler'] == None:
+        return None
+        
+    return scheduler
+
+
+def prepare_loaders(df, fold):
+    df_train = df[df.kfold != fold].reset_index(drop=True)
+    df_valid = df[df.kfold == fold].reset_index(drop=True)
+    
+    train_dataset = ISICDataset_for_Train(df_train, transforms=data_transforms["train"])
+    valid_dataset = ISICDataset(df_valid, transforms=data_transforms["valid"])
+
+    train_loader = DataLoader(train_dataset, batch_size=CONFIG['train_batch_size'], 
+                              num_workers=2, shuffle=True, pin_memory=True, drop_last=True)
+    valid_loader = DataLoader(valid_dataset, batch_size=CONFIG['valid_batch_size'], 
+                              num_workers=2, shuffle=False, pin_memory=True)
+    
+    return train_loader, valid_loader
+
+
+train_loader, valid_loader = prepare_loaders(df, fold=CONFIG["fold"])
+
+optimizer = optim.Adam(model.parameters(), lr=CONFIG['learning_rate'], weight_decay=CONFIG['weight_decay'])
+scheduler = fetch_scheduler(optimizer)
+
+model, history = run_training(model, optimizer, scheduler,
+                              device=CONFIG['device'],
+                              num_epochs=CONFIG['epochs'])
