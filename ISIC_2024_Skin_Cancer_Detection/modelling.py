@@ -29,8 +29,10 @@ from optuna.visualization import plot_param_importances
 from optuna.visualization import plot_optimization_history
 
 import re
-from colorama import Fore, Style
 
+from colorama import Fore, Back, Style
+b_ = Fore.BLUE
+sr_ = Style.RESET_ALL
 
 import torch 
 import cv2
@@ -535,7 +537,7 @@ plt.show()
 ################## NN ########################
 
 # Create the model without loading pretrained weights and save to a specific location
-model = timm.create_model('efficientnet_b1.ra4_e3600_r240_in1k', pretrained=True)
+model = timm.create_model("hf_hub:timm/efficientnet_b1.ra4_e3600_r240_in1k", pretrained=True)
 SAVE_PATH = r'G:\\kaggle\isic-2024-challenge\efficientnet_b1\pytorch\efficientnet_b1_ra4_e3600_r240_in1k.pth'
 torch.save(model.state_dict(), SAVE_PATH)
 
@@ -545,7 +547,7 @@ CONFIG = {
     "seed": 24,
     "epochs": 50,
     "img_size": 384,
-    "model_name": "efficientnet_b1.ra4_e3600_r240_in1k",
+    "model_name": "hf_hub:timm/efficientnet_b1.ra4_e3600_r240_in1k",
     #"checkpoint_path" : "/kaggle/input/tf-efficientnet/pytorch/tf-efficientnet-b0/1/tf_efficientnet_b0_aa-827b6e33.pth",
     "checkpoint_path" : PATH + "efficientnet_b1\\pytorch\\efficientnet_b1_ra4_e3600_r240_in1k.pth",
     "train_batch_size": 32,
@@ -938,9 +940,9 @@ def prepare_loaders(df, fold):
     valid_dataset = ISICDataset(df_valid, transforms=data_transforms["valid"])
 
     train_loader = DataLoader(train_dataset, batch_size=CONFIG['train_batch_size'], 
-                              num_workers=2, shuffle=True, pin_memory=True, drop_last=True)
+                              num_workers=0, shuffle=True, pin_memory=True, drop_last=True)
     valid_loader = DataLoader(valid_dataset, batch_size=CONFIG['valid_batch_size'], 
-                              num_workers=2, shuffle=False, pin_memory=True)
+                              num_workers=0, shuffle=False, pin_memory=True)
     
     return train_loader, valid_loader
 
