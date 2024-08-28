@@ -686,7 +686,7 @@ class ISICDataset(Dataset):
             'target': target
         }    
     
-    
+  
 
 
 
@@ -713,25 +713,33 @@ data_transforms = {
                 p=0.5
             ),
         A.Normalize(
-                mean=[0.485, 0.456, 0.406], 
-                std=[0.229, 0.224, 0.225], 
-                max_pixel_value=255.0, 
-                p=1.0
+                mean=[0.5000, 0.5000, 0.5000], 
+                std=[0.5000, 0.5000, 0.5000], 
+                max_pixel_value=128.0, 
+                p=0.9
             ),
         ToTensorV2()], p=1.),
     
     "valid": A.Compose([
         A.Resize(CONFIG['img_size'], CONFIG['img_size']),
         A.Normalize(
-                mean=[0.485, 0.456, 0.406], 
-                std=[0.229, 0.224, 0.225], 
-                max_pixel_value=255.0, 
-                p=1.0
+                mean=[0.5000, 0.5000, 0.5000], 
+                std=[0.5000, 0.5000, 0.5000], 
+                max_pixel_value=128.0, 
+                p=0.9
             ),
         ToTensorV2()], p=1.)
 }
 
 
+# import timm
+# CONFIG['model_name']
+# model = timm.create_model(CONFIG['model_name'], pretrained=False)
+# model.eval();
+# config = timm.data.resolve_model_data_config(model)
+# transforms = timm.data.create_transform(**config, is_training=False)
+# print(config)
+# print(transforms)
 
 
 
@@ -900,8 +908,9 @@ def run_training(model, optimizer, scheduler, device, num_epochs):
             print(f"{b_}Validation AUROC Improved ({best_epoch_auroc} ---> {val_epoch_auroc})")
             best_epoch_auroc = val_epoch_auroc
             best_model_wts = copy.deepcopy(model.state_dict())
-            PATH = "AUROC{:.4f}_Loss{:.4f}_epoch{:.0f}.bin".format(val_epoch_auroc, val_epoch_loss, epoch)
-            torch.save(model.state_dict(), PATH)
+            PATH_ = "AUROC{:.4f}_Loss{:.4f}_epoch{:.0f}.bin".format(val_epoch_auroc, val_epoch_loss, epoch)
+            print("Model is saved to: " + str(PATH_))
+            torch.save(model.state_dict(), PATH_)
             # Save a model file from the current directory
             print(f"Model Saved{sr_}")
             
