@@ -71,6 +71,7 @@ import h5py
 
 # For descriptive error messages
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+os.environ["TORCH_USE_CUDA_DSA"] = "1"
 
 ##############################################
 ######### read in data #######################
@@ -537,22 +538,22 @@ plt.show()
 ################## NN ########################
 
 # Create the model without loading pretrained weights and save to a specific location
-model = timm.create_model("hf_hub:timm/efficientnet_b1.ra4_e3600_r240_in1k", pretrained=True)
-SAVE_PATH = r'G:\\kaggle\isic-2024-challenge\efficientnet_b1\pytorch\efficientnet_b1_ra4_e3600_r240_in1k.pth'
+model = timm.create_model("hf_hub:timm/efficientnet_b3.ra2_in1k", pretrained=True)
+SAVE_PATH = r'G:\\kaggle\isic-2024-challenge\efficientnet_b3\pytorch\efficientnet_b3_ra2_in1k.pth'
 torch.save(model.state_dict(), SAVE_PATH)
 
 
 # https://www.kaggle.com/code/motono0223/isic-pytorch-training-baseline-image-only
 CONFIG = {
     "seed": 24,
-    "epochs": 50,
+    "epochs": 25,
     "img_size": 384,
-    "model_name": "hf_hub:timm/efficientnet_b1.ra4_e3600_r240_in1k",
+    "model_name": "hf_hub:timm/efficientnet_b3.ra2_in1k",
     #"checkpoint_path" : "/kaggle/input/tf-efficientnet/pytorch/tf-efficientnet-b0/1/tf_efficientnet_b0_aa-827b6e33.pth",
-    "checkpoint_path" : PATH + "efficientnet_b1\\pytorch\\efficientnet_b1_ra4_e3600_r240_in1k.pth",
+    "checkpoint_path" : PATH + "efficientnet_b3\\pytorch\\efficientnet_b3_ra2_in1k.pth",
     "train_batch_size": 32,
     "valid_batch_size": 64,
-    "learning_rate": 1e-4,
+    "learning_rate": 1e-3,#1e-4,
     "scheduler": 'CosineAnnealingLR',
     "min_lr": 1e-6,
     "T_max": 500,
@@ -605,7 +606,7 @@ df.target.value_counts(normalize=True)
 df_positive = df[df["target"] == 1].reset_index(drop=True)
 df_negative = df[df["target"] == 0].reset_index(drop=True)
 
-df = pd.concat([df_positive, df_negative.iloc[:df_positive.shape[0]*49, :]])  # positive% is set to 1%
+df = pd.concat([df_positive, df_negative.iloc[:df_positive.shape[0]*19, :]])  # positive% is set to 5%
 df.shape
 df.target.value_counts(normalize=True)
 
@@ -713,20 +714,20 @@ data_transforms = {
                 p=0.5
             ),
         A.Normalize(
-                mean=[0.5000, 0.5000, 0.5000], 
-                std=[0.5000, 0.5000, 0.5000], 
-                max_pixel_value=128.0, 
-                p=0.9
+                mean=[0.485, 0.456, 0.406], 
+                std=[0.229, 0.224, 0.225], 
+                max_pixel_value=255.0, 
+                p=1.0
             ),
         ToTensorV2()], p=1.),
     
     "valid": A.Compose([
         A.Resize(CONFIG['img_size'], CONFIG['img_size']),
         A.Normalize(
-                mean=[0.5000, 0.5000, 0.5000], 
-                std=[0.5000, 0.5000, 0.5000], 
-                max_pixel_value=128.0, 
-                p=0.9
+                mean=[0.485, 0.456, 0.406], 
+                std=[0.229, 0.224, 0.225], 
+                max_pixel_value=255.0, 
+                p=1.0
             ),
         ToTensorV2()], p=1.)
 }
@@ -811,6 +812,7 @@ def train_one_epoch(model, optimizer, scheduler, dataloader, device, epoch):
         batch_size = images.size(0)
         
         outputs = model(images).squeeze()
+        torch.nan_to_num(outputs, nan=0.0, posinf=1.0, neginf=0.0) #avoid error "Assertion `input_val >= zero && input_val <= one` failed."
         loss = criterion(outputs, targets)
         loss = loss / CONFIG['n_accumulate']
             
@@ -859,6 +861,7 @@ def valid_one_epoch(model, dataloader, device, epoch):
         batch_size = images.size(0)
 
         outputs = model(images).squeeze()
+        torch.nan_to_num(outputs, nan=0.0, posinf=1.0, neginf=0.0) #avoid error "Assertion `input_val >= zero && input_val <= one` failed."
         loss = criterion(outputs, targets)
 
         auroc = binary_auroc(input=outputs.squeeze(), target=targets).item()
@@ -881,7 +884,7 @@ def valid_one_epoch(model, dataloader, device, epoch):
 #Run training
 def run_training(model, optimizer, scheduler, device, num_epochs):
     if torch.cuda.is_available():
-        print("[INFO] Using GPU: {}\n".format(torch.cuda.get_device_name()))
+        print("Cuda available - Using GPU: {}\n".format(torch.cuda.get_device_name()))
     
     start = time.time()
     best_model_wts = copy.deepcopy(model.state_dict())
@@ -908,7 +911,10 @@ def run_training(model, optimizer, scheduler, device, num_epochs):
             print(f"{b_}Validation AUROC Improved ({best_epoch_auroc} ---> {val_epoch_auroc})")
             best_epoch_auroc = val_epoch_auroc
             best_model_wts = copy.deepcopy(model.state_dict())
-            PATH_ = "AUROC{:.4f}_Loss{:.4f}_epoch{:.0f}.bin".format(val_epoch_auroc, val_epoch_loss, epoch)
+            #PATH_ = "AUROC{:.4f}_Loss{:.4f}_epoch{:.0f}.bin".format(val_epoch_auroc, val_epoch_loss, epoch)
+            temp = r'G:\\kaggle\isic-2024-challenge\efficientnet_b3\pytorch'
+            PATH = "AUROC{:.4f}_Loss{:.4f}_epoch{:.0f}.bin".format(val_epoch_auroc, val_epoch_loss, epoch)
+            PATH_ = temp + '\\' + PATH
             print("Model is saved to: " + str(PATH_))
             torch.save(model.state_dict(), PATH_)
             # Save a model file from the current directory
@@ -964,3 +970,34 @@ scheduler = fetch_scheduler(optimizer)
 model, history = run_training(model, optimizer, scheduler,
                               device=CONFIG['device'],
                               num_epochs=CONFIG['epochs'])
+
+
+#History
+history = pd.DataFrame.from_dict(history)
+history.to_csv("history.csv", index=False)
+
+#Logs
+plt.plot( range(history.shape[0]), history["Train Loss"].values, label="Train Loss")
+plt.plot( range(history.shape[0]), history["Valid Loss"].values, label="Valid Loss")
+plt.xlabel("epochs")
+plt.ylabel("Loss")
+plt.grid()
+plt.legend()
+plt.show()
+
+#Loss plot 
+plt.plot( range(history.shape[0]), history["Train AUROC"].values, label="Train AUROC")
+plt.plot( range(history.shape[0]), history["Valid AUROC"].values, label="Valid AUROC")
+plt.xlabel("epochs")
+plt.ylabel("AUROC")
+plt.grid()
+plt.legend()
+plt.show()
+
+#Learning rate
+plt.plot( range(history.shape[0]), history["lr"].values, label="lr")
+plt.xlabel("epochs")
+plt.ylabel("lr")
+plt.grid()
+plt.legend()
+plt.show()
