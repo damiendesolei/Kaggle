@@ -37,6 +37,7 @@ sr_ = Style.RESET_ALL
 import torch 
 import cv2
 import os, io
+from io import BytesIO
 
 from collections import defaultdict
 import torch.nn.functional as F
@@ -72,6 +73,8 @@ import h5py
 # For descriptive error messages
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 os.environ["TORCH_USE_CUDA_DSA"] = "1"
+
+
 
 ##############################################
 ######### read in data #######################
@@ -133,6 +136,18 @@ def feature_engineering(df):
     df["comprehensive_lesion_index"] = (df["tbp_lv_area_perim_ratio"] + df["tbp_lv_eccentricity"] + \
                                         df["tbp_lv_norm_color"] + df["tbp_lv_symm_2axis"]) / 4
 
+    # https://www.kaggle.com/code/dschettler8845/isic-detect-skin-cancer-let-s-learn-together
+    df["color_variance_ratio"] = df["tbp_lv_color_std_mean"] / df["tbp_lv_stdLExt"]
+    df["border_color_interaction"] = df["tbp_lv_norm_border"] * df["tbp_lv_norm_color"]
+    df["size_color_contrast_ratio"] = df["clin_size_long_diam_mm"] / df["tbp_lv_deltaLBnorm"]
+    df["age_normalized_nevi_confidence"] = df["tbp_lv_nevi_confidence"] / df["age_approx"]
+    df["color_asymmetry_index"] = df["tbp_lv_radial_color_std_max"] * df["tbp_lv_symm_2axis"]
+    df["3d_volume_approximation"] = df["tbp_lv_areaMM2"] * np.sqrt(df["tbp_lv_x"]**2 + df["tbp_lv_y"]**2 + df["tbp_lv_z"]**2)
+    df["color_range"] = (df["tbp_lv_L"] - df["tbp_lv_Lext"]).abs() + (df["tbp_lv_A"] - df["tbp_lv_Aext"]).abs() + (df["tbp_lv_B"] - df["tbp_lv_Bext"]).abs()
+    df["shape_color_consistency"] = df["tbp_lv_eccentricity"] * df["tbp_lv_color_std_mean"]
+    df["border_length_ratio"] = df["tbp_lv_perimeterMM"] / (2 * np.pi * np.sqrt(df["tbp_lv_areaMM2"] / np.pi))
+    df["age_size_symmetry_index"] = df["age_approx"] * df["clin_size_long_diam_mm"] * df["tbp_lv_symm_2axis"]
+
     new_num_cols = [
         "lesion_size_ratio", "lesion_shape_index", "hue_contrast",
         "luminance_contrast", "lesion_color_difference", "border_complexity",
@@ -144,6 +159,10 @@ def feature_engineering(df):
         "normalized_lesion_size", "mean_hue_difference", "std_dev_contrast",
         "color_shape_composite_index", "3d_lesion_orientation", "overall_color_difference",
         "symmetry_perimeter_interaction", "comprehensive_lesion_index",
+        
+        "color_variance_ratio", "border_color_interaction", "size_color_contrast_ratio",
+        "age_normalized_nevi_confidence", "color_asymmetry_index", "3d_volume_approximation",
+        "color_range", "shape_color_consistency", "border_length_ratio", "age_size_symmetry_index",
     ]
     new_cat_cols = ["combined_anatomical_site"]
     return df, new_num_cols, new_cat_cols
@@ -1001,3 +1020,87 @@ plt.ylabel("lr")
 plt.grid()
 plt.legend()
 plt.show()
+
+################## End of NN #################
+##############################################
+
+
+
+
+##############################################
+################# Predict Test ###############
+
+#Config
+CONFIG = {
+    "seed": 24,
+    "img_size": 384,
+    "model_name": "hf_hub:timm/efficientnet_b3.ra2_in1k",
+    "valid_batch_size": 32,
+    "device": torch.device("cuda:0" if torch.cuda.is_available() else "cpu"),
+}
+
+
+
+#redefine ISICDataset to read from hdf
+class ISICDataset(Dataset):
+    def __init__(self, df, file_hdf, transforms=None):
+        self.df = df
+        self.fp_hdf = h5py.File(file_hdf, mode="r")
+        self.isic_ids = df['isic_id'].values
+        self.targets = df['target'].values
+        self.transforms = transforms
+        
+    def __len__(self):
+        return len(self.isic_ids)
+    
+    def __getitem__(self, index):
+        isic_id = self.isic_ids[index]
+        img = np.array( Image.open(BytesIO(self.fp_hdf[isic_id][()])) )
+        target = self.targets[index]
+        
+        if self.transforms:
+            img = self.transforms(image=img)["image"]
+            
+        return {
+            'image': img,
+            'target': target,
+        }
+    
+ 
+#Create model
+#BEST_WEIGHT = "/kaggle/input/isic-pytorch-training-baseline-image-only/AUROC0.5171_Loss0.3476_epoch35.bin"
+BEST_WEIGHT = r'G:\\kaggle\isic-2024-challenge\efficientnet_b3\pytorch\AUROC0.5180_Loss0.4542_epoch11.bin'
+model = ISICModel(CONFIG['model_name'], pretrained=False)
+model.load_state_dict( torch.load(BEST_WEIGHT) )
+model.to(CONFIG['device']);
+
+
+#redin csv
+test = pd.read_csv(PATH + 'test-metadata.csv', low_memory=False)
+test['target'] = 0
+
+sub =  pd.read_csv(PATH + 'sample_submission.csv', low_memory=False)
+
+#Dataloaders
+TEST_HDF = r'G:\\kaggle\isic-2024-challenge\test-image.hdf5'
+test_dataset = ISICDataset(test, TEST_HDF, transforms=data_transforms["valid"])
+test_loader = DataLoader(test_dataset, batch_size=CONFIG['valid_batch_size'], 
+                          num_workers=0, shuffle=False, pin_memory=True)
+#Predicting
+preds = []
+with torch.no_grad():
+    bar = tqdm(enumerate(test_loader), total=len(test_loader))
+    for step, data in bar:        
+        images = data['image'].to(CONFIG["device"], dtype=torch.float)        
+        batch_size = images.size(0)
+        outputs = model(images)
+        preds.append( outputs.detach().cpu().numpy() )
+preds = np.concatenate(preds).flatten()
+
+
+test["target"] = preds
+#test.to_csv("submission.csv", index=False)
+
+
+##############################################
+################# Predict Train ##############
