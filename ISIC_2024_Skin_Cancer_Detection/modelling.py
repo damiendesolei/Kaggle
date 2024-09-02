@@ -1102,5 +1102,160 @@ test["target"] = preds
 #test.to_csv("submission.csv", index=False)
 
 
+
+
 ##############################################
 ################# Predict Train ##############
+
+#Config
+CONFIG = {
+    "seed": 24,
+    "img_size": 384,
+    "model_name": "hf_hub:timm/efficientnet_b3.ra2_in1k",
+    "train_batch_size": 32,
+    "device": torch.device("cuda:0" if torch.cuda.is_available() else "cpu"),
+}
+
+#redefine ISICDataset to read from hdf
+class ISICDataset(Dataset):
+    def __init__(self, df, file_hdf, transforms=None):
+        self.df = df
+        self.fp_hdf = h5py.File(file_hdf, mode="r")
+        self.isic_ids = df['isic_id'].values
+        self.targets = df['target'].values
+        self.transforms = transforms
+        
+    def __len__(self):
+        return len(self.isic_ids)
+    
+    def __getitem__(self, index):
+        isic_id = self.isic_ids[index]
+        img = np.array( Image.open(BytesIO(self.fp_hdf[isic_id][()])) )
+        target = self.targets[index]
+        
+        if self.transforms:
+            img = self.transforms(image=img)["image"]
+            
+        return {
+            'image': img,
+            'target': target,
+        }
+    
+#Augmentation
+data_transforms = {
+    "train": A.Compose([
+        A.Resize(CONFIG['img_size'], CONFIG['img_size']),
+        A.Normalize(
+                mean=[0.485, 0.456, 0.406], 
+                std=[0.229, 0.224, 0.225], 
+                max_pixel_value=255.0, 
+                p=1.0
+            ),
+        ToTensorV2()], p=1.)
+}
+
+#GeM
+class GeM(nn.Module):
+    def __init__(self, p=3, eps=1e-6):
+        super(GeM, self).__init__()
+        self.p = nn.Parameter(torch.ones(1)*p)
+        self.eps = eps
+
+    def forward(self, x):
+        return self.gem(x, p=self.p, eps=self.eps)
+        
+    def gem(self, x, p=3, eps=1e-6):
+        return F.avg_pool2d(x.clamp(min=eps).pow(p), (x.size(-2), x.size(-1))).pow(1./p)
+        
+    def __repr__(self):
+        return self.__class__.__name__ + \
+                '(' + 'p=' + '{:.4f}'.format(self.p.data.tolist()[0]) + \
+                ', ' + 'eps=' + str(self.eps) + ')'
+
+#Create Model
+class ISICModel(nn.Module):
+    def __init__(self, model_name, num_classes=1, pretrained=True, checkpoint_path=None):
+        super(ISICModel, self).__init__()
+        self.model = timm.create_model(model_name, pretrained=pretrained, checkpoint_path=checkpoint_path)
+
+        in_features = self.model.classifier.in_features
+        self.model.classifier = nn.Identity()
+        self.model.global_pool = nn.Identity()
+        self.pooling = GeM()
+        self.linear = nn.Linear(in_features, num_classes)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, images):
+        features = self.model(images)
+        pooled_features = self.pooling(features).flatten(1)
+        output = self.sigmoid(self.linear(pooled_features))
+        return output
+
+BEST_WEIGHT = r'G:\\kaggle\isic-2024-challenge\efficientnet_b3\pytorch\AUROC0.5180_Loss0.4542_epoch11.bin'    
+model = ISICModel(CONFIG['model_name'], pretrained=False)
+model.load_state_dict( torch.load(BEST_WEIGHT) )
+model.to(CONFIG['device']);
+
+#Data Loader
+TRAIN_HDF = r'G:\\kaggle\isic-2024-challenge\train-image.hdf5'
+train_dataset = ISICDataset(train, TRAIN_HDF, transforms=data_transforms["train"])
+train_loader = DataLoader(train_dataset, batch_size=CONFIG['train_batch_size'], 
+                          num_workers=0, shuffle=False, pin_memory=True)
+
+#Predict Train
+#CONFIG['device'] = 'cpu'
+preds = []
+with torch.no_grad():
+    bar = tqdm(enumerate(train_loader), total=len(train_loader))
+    for step, data in bar:        
+        images = data['image'].to(CONFIG["device"], dtype=torch.float)        
+        batch_size = images.size(0)
+        outputs = model(images)
+        preds.append( outputs.detach().cpu().numpy() )
+preds = np.concatenate(preds).flatten()
+
+train["efficientnet"] = preds
+#train.to_csv(r'G:\\kaggle\isic-2024-challenge\efficientnet_b3\pytorch\train.csv', index=False)
+train = pd.read_csv(r'G:\\kaggle\isic-2024-challenge\efficientnet_b3\pytorch\train.csv', low_memory=False)
+initial_features_nn = initial_features + ['efficientnet']
+
+
+#lgb - tuning with nn preds
+train['random'] = np.random.rand(len(train))
+def objective(trial):
+    X_train, X_valid, y_train, y_valid = train_test_split(train[initial_features_nn + ['random']], train.target, test_size=0.4)
+
+    param = {
+             #"objective": "CrossEntropy",
+             "iterations": trial.suggest_int("iterations", 800, 2000),
+             "learning_rate": trial.suggest_float("learning_rate", 1e-3, 0.5, log=True),
+             "colsample_bylevel": trial.suggest_float("colsample_bylevel", 0.01, 0.1),
+             "depth": trial.suggest_int("depth", 5, 25),
+             "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 1000, 20000),
+             'subsample': trial.suggest_float('subsample', 0, 1),
+             'colsample_bytree': trial.suggest_float('colsample_bytree', 0, 1),
+             'max_bin': trial.suggest_int("max_bin", 2000, 200000),
+             'reg_lambda': trial.suggest_float('reg_lambda', 1e-10, 20, log=True),
+             'reg_alpha': trial.suggest_float('reg_alpha', 1e-10, 20, log=True),
+             'pos_bagging_fraction': trial.suggest_float('pos_bagging_fraction', 0, 1),
+             'neg_bagging_fraction': trial.suggest_float('neg_bagging_fraction', 0, 1),
+             #used_ram_limit": "48gb",
+             "eval_metric": 'custom_score',
+             "device": 'cpu'
+            }
+
+
+    gbm = lgb.LGBMClassifier(**param)
+
+    gbm.fit(X_train, y_train, eval_set=[(X_valid, y_valid)])
+
+    #y_preds = gbm.predict(X_valid)
+    y_preds = gbm.predict_proba(X_valid)[:,1]
+    #pred_labels = np.rint(preds)
+    #score = comp_score(y_valid, y_preds)
+    score = comp_score(y_valid, pd.DataFrame(y_preds), "")
+    return score
+
+study = optuna.create_study(direction="maximize")
+study.optimize(objective, n_trials=200, timeout=3600)
+study_summaries = optuna.study.get_all_study_summaries()
