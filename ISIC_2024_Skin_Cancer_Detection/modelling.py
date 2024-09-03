@@ -1223,7 +1223,7 @@ initial_features_nn = initial_features + ['efficientnet']
 #lgb - tuning with nn preds
 train['random'] = np.random.rand(len(train))
 def objective(trial):
-    X_train, X_valid, y_train, y_valid = train_test_split(train[initial_features_nn + ['random']], train.target, test_size=0.4)
+    X_train, X_valid, y_train, y_valid = train_test_split(train[initial_features_nn+['random']], train.target, test_size=0.4)
 
     param = {
              #"objective": "CrossEntropy",
@@ -1259,3 +1259,100 @@ def objective(trial):
 study = optuna.create_study(direction="maximize")
 study.optimize(objective, n_trials=200, timeout=3600)
 study_summaries = optuna.study.get_all_study_summaries()
+# Trial 172 finished with value: 0.18211149363399506 and parameters: {'iterations': 1816, 'learning_rate': 0.03777587559166017, 'colsample_bylevel': 0.08283998500946863, 'depth': 25, 'min_data_in_leaf': 7710, 'subsample': 0.2305200071514486, 'colsample_bytree': 0.9639158888718116, 'max_bin': 128564, 'reg_lambda': 1.6637012693841842, 'reg_alpha': 2.548622064620891e-09, 'pos_bagging_fraction': 0.12297285583828095, 'neg_bagging_fraction': 0.9013462227899193}. Best is trial 172 with value: 0.18211149363399506.
+
+#lgb - tuned with random ~ 2m
+params = {'iterations': 1816, 'learning_rate': 0.03777587559166017, 'colsample_bylevel': 0.08283998500946863, 'depth': 25, 'min_data_in_leaf': 7710, 'subsample': 0.2305200071514486, 'colsample_bytree': 0.9639158888718116, 'max_bin': 128564, 'reg_lambda': 1.6637012693841842, 'reg_alpha': 2.548622064620891e-09, 'pos_bagging_fraction': 0.12297285583828095, 'neg_bagging_fraction': 0.9013462227899193}
+lgb_model = lgb.LGBMClassifier(**params, verbose=-1, eval_metric='custom_score', device='cpu')
+cross_validate(lgb_model, 'LightGBM_Tuned_with_random', features=initial_features_nn+['random'])
+# Fold 0: tr_auc=0.19117, val_auc=0.18519
+# Fold 1: tr_auc=0.19167, val_auc=0.16573
+# Fold 2: tr_auc=0.19136, val_auc=0.17606
+# Fold 3: tr_auc=0.19138, val_auc=0.18033
+# Fold 4: tr_auc=0.19217, val_auc=0.17170
+# Overall val=0.17580 LightGBM_Tuned_with_random   2 min
+# LightGBM_Tuned_with_random Fitting started from 2024-09-02 23:38:47.539398
+model = lgb_model
+importances = model.feature_importances_ 
+df_imp = pd.DataFrame({"feature": model.feature_name_, "importance": importances}).sort_values("importance").reset_index(drop=True)
+
+plt.figure(figsize=(16, 12))
+plt.barh(df_imp["feature"], df_imp["importance"])
+plt.show()
+
+#features_trimmed = df_imp[df_imp['importance']>16]['feature'].tolist()
+features_trimmed = ['tbp_lv_A', '3d_volume_approximation', 'tbp_lv_deltaB', 'lesion_size_ratio', 'tbp_lv_Lext', 'tbp_lv_areaMM2'
+                    , 'tbp_lv_Aext', 'lesion_severity_index', 'tbp_lv_Hext', 'tbp_lv_Cext', 'lesion_visibility_score'
+                    , 'tbp_lv_radial_color_std_max', 'size_age_interaction', 'tbp_lv_symm_2axis', 'tbp_lv_eccentricity'
+                    , 'tbp_lv_H', 'color_asymmetry_index', 'tbp_lv_L', 'tbp_lv_x', 'color_consistency', 'tbp_lv_minorAxisMM'
+                    , 'hue_contrast', 'tbp_lv_deltaA', 'age_approx', 'age_normalized_nevi_confidence', 'tbp_lv_C'
+                    , 'lesion_color_difference', 'normalized_lesion_size', 'tbp_lv_z', 'perimeter_to_area_ratio'
+                    , 'mean_hue_difference', 'tbp_lv_deltaLBnorm', 'color_uniformity', 'clin_size_long_diam_mm'
+                    , 'tbp_lv_stdLExt', '3d_position_distance', 'tbp_lv_y', 'efficientnet']
+
+
+
+
+#lgb - tuning with nn preds after removing columns
+#train['random'] = np.random.rand(len(train))
+def objective(trial):
+    X_train, X_valid, y_train, y_valid = train_test_split(train[features_trimmed], train.target, test_size=0.4)
+
+    param = {
+             #"objective": "CrossEntropy",
+             "iterations": trial.suggest_int("iterations", 800, 2000),
+             "learning_rate": trial.suggest_float("learning_rate", 1e-3, 0.5, log=True),
+             "colsample_bylevel": trial.suggest_float("colsample_bylevel", 0.01, 0.1),
+             "depth": trial.suggest_int("depth", 12, 25),
+             "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 1000, 20000),
+             'subsample': trial.suggest_float('subsample', 0, 0.5),
+             'colsample_bytree': trial.suggest_float('colsample_bytree', 0, 1),
+             'max_bin': trial.suggest_int("max_bin", 2000, 200000),
+             'reg_lambda': trial.suggest_float('reg_lambda', 1e-10, 2, log=True),
+             'reg_alpha': trial.suggest_float('reg_alpha', 1e-10, 20, log=True),
+             'pos_bagging_fraction': trial.suggest_float('pos_bagging_fraction', 0.5, 1),
+             'neg_bagging_fraction': trial.suggest_float('neg_bagging_fraction', 0.5, 1),
+             #used_ram_limit": "48gb",
+             "eval_metric": 'custom_score',
+             "device": 'cpu'
+            }
+
+
+    gbm = lgb.LGBMClassifier(**param)
+
+    gbm.fit(X_train, y_train, eval_set=[(X_valid, y_valid)])
+
+    #y_preds = gbm.predict(X_valid)
+    y_preds = gbm.predict_proba(X_valid)[:,1]
+    #pred_labels = np.rint(preds)
+    #score = comp_score(y_valid, y_preds)
+    score = comp_score(y_valid, pd.DataFrame(y_preds), "")
+    return score
+
+study = optuna.create_study(direction="maximize")
+study.optimize(objective, n_trials=2000, timeout=10800)
+study_summaries = optuna.study.get_all_study_summaries()
+# Trial 41 finished with value: 0.18786318378606953 and parameters: {'iterations': 968, 'learning_rate': 0.029100477805935054, 'colsample_bylevel': 0.032545922237162045, 'depth': 24, 'min_data_in_leaf': 5603, 'subsample': 0.21700103138259352, 'colsample_bytree': 0.9226147278612709, 'max_bin': 108209, 'reg_lambda': 1.947125240431339e-05, 'reg_alpha': 16.72091452274213, 'pos_bagging_fraction': 0.5610911962327146, 'neg_bagging_fraction': 0.735913105689565}. Best is trial 41 with value: 0.18786318378606953.
+# Trial 467 finished with value: 0.1836821448445609 and parameters: {'iterations': 926, 'learning_rate': 0.059074411932015215, 'colsample_bylevel': 0.022236301967535375, 'depth': 22, 'min_data_in_leaf': 7498, 'subsample': 0.10230070862682852, 'colsample_bytree': 0.43920763188300593, 'max_bin': 188680, 'reg_lambda': 5.043599623942014e-05, 'reg_alpha': 3.2147768202034244, 'pos_bagging_fraction': 0.9626256083939859, 'neg_bagging_fraction': 0.5746297057040088}. Best is trial 467 with value: 0.1836821448445609.
+# Trial 688 finished with value: 0.1847724297826693 and parameters: {'iterations': 1651, 'learning_rate': 0.031116293670668628, 'colsample_bylevel': 0.09395169472535098, 'depth': 19, 'min_data_in_leaf': 4318, 'subsample': 0.03306444250832322, 'colsample_bytree': 0.7919825735556273, 'max_bin': 70251, 'reg_lambda': 0.004414386831447583, 'reg_alpha': 0.3820163487895669, 'pos_bagging_fraction': 0.7237575021143999, 'neg_bagging_fraction': 0.5225086532827025}. Best is trial 688 with value: 0.18477242978266925.
+
+
+#lgb - tuned with weak features removed ~ 1m
+params = {'iterations': 968, 'learning_rate': 0.029100477805935054, 'colsample_bylevel': 0.032545922237162045, 'depth': 24, 'min_data_in_leaf': 5603, 'subsample': 0.21700103138259352, 'colsample_bytree': 0.9226147278612709, 'max_bin': 108209, 'reg_lambda': 1.947125240431339e-05, 'reg_alpha': 16.72091452274213, 'pos_bagging_fraction': 0.5610911962327146, 'neg_bagging_fraction': 0.735913105689565}
+lgb_model = lgb.LGBMClassifier(**params, verbose=-1, eval_metric='custom_score', device='cpu')
+cross_validate(lgb_model, 'LightGBM_Tuned_Trimmed', features=features_trimmed)
+# Fold 0: tr_auc=0.18197, val_auc=0.18322
+# Fold 1: tr_auc=0.18417, val_auc=0.16489
+# Fold 2: tr_auc=0.18424, val_auc=0.17657
+# Fold 3: tr_auc=0.18294, val_auc=0.17984
+# Fold 4: tr_auc=0.18354, val_auc=0.17149
+# Overall val=0.17520 LightGBM_Tuned_Trimmed   1 min
+# LightGBM_Tuned_Trimmed Fitting started from 2024-09-02 23:37:41.041989
+model = lgb_model
+importances = model.feature_importances_ 
+df_imp = pd.DataFrame({"feature": model.feature_name_, "importance": importances}).sort_values("importance").reset_index(drop=True)
+
+plt.figure(figsize=(16, 12))
+plt.barh(df_imp["feature"], df_imp["importance"])
+plt.show()
+
