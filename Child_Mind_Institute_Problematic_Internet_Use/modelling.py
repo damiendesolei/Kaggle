@@ -52,8 +52,8 @@ def load_time_series(dirname) -> pd.DataFrame:
 #PATH = r'C:\Users\damie\Downloads\child-mind-institute-problematic-internet-use\\'
 PATH = r'G:\kaggle\child-mind-institute-problematic-internet-use\\'
 
-train = pd.read_csv(PATH + 'train.csv', index_col='id', low_memory=True)
-test = pd.read_csv(PATH + 'test.csv', index_col='id', low_memory=True)
+train = pd.read_csv(PATH + 'train.csv', low_memory=True)
+test = pd.read_csv(PATH + 'test.csv', low_memory=True)
 data_dict = pd.read_csv(PATH + 'data_dictionary.csv', low_memory=True)
 sample = pd.read_csv(PATH + 'sample_submission.csv')
 
@@ -62,10 +62,21 @@ test_ts = load_time_series(PATH + 'series_test.parquet')
 time_series_cols = train_ts.columns.tolist()
 time_series_cols.remove("id")
 
-
+train = pd.merge(train, train_ts, how="left", on='id')
+test = pd.merge(test, test_ts, how="left", on='id')
 
 
 train.info(memory_usage='deep')
+
+train.drop('id', axis=1, inplace=True)
+test.drop('id', axis=1, inplace=True)
+
+
+col_train = train.columns.to_list()
+col_test = test.columns.to_list()
+col_mutual = list(set(col_test)&set(col_train))
+
+
 
 
 
