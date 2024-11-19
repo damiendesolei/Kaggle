@@ -4,6 +4,7 @@ Created on Tue Nov 19 21:47:59 2024
 
 @author: zrj-desktop
 """
+#https://www.kaggle.com/code/yuanzhezhou/jane-street-baseline-lgb-xgb-and-catboost
 
 import os
 import joblib 
@@ -67,3 +68,178 @@ def reduce_mem_usage(self, float16_as32=True):
     print('Decreased by {:.1f}%'.format(100 * (start_mem - end_mem) / start_mem))
 
     return df
+
+
+
+# Define the path to the input data directory
+# If the local directory exists, use it; otherwise, use the Kaggle input directory
+input_path = './jane-street-real-time-market-data-forecasting/' if os.path.exists('./jane-street-real-time-market-data-forecasting') else r'G:\\kaggle\jane-street-real-time-market-data-forecasting\\'
+
+# Flag to determine if the script is in training mode or not
+TRAINING = False
+
+# Define the feature names based on the number of features (79 in this case)
+feature_names = [f"feature_{i:02d}" for i in range(79)]
+
+# Number of validation dates to use
+num_valid_dates = 100
+
+# Number of dates to skip from the beginning of the dataset
+skip_dates = 500
+
+# Number of folds for cross-validation
+N_fold = 5
+
+# If in training mode, load the training data
+if TRAINING:
+    # Load the training data from a Parquet file
+    #df = pd.read_parquet(f'{input_path}/train.parquet')
+    df = pd.read_parquet(f'{input_path}train.parquet')
+    
+    # Reduce memory usage of the DataFrame (function not provided here)
+    df = reduce_mem_usage(df, False)
+    
+    # Filter the DataFrame to include only dates greater than or equal to skip_dates
+    df = df[df['date_id'] >= skip_dates].reset_index(drop=True)
+    
+    # Get unique dates from the DataFrame
+    dates = df['date_id'].unique()
+    
+    # Define validation dates as the last `num_valid_dates` dates
+    valid_dates = dates[-num_valid_dates:]
+    
+    # Define training dates as all dates except the last `num_valid_dates` dates
+    train_dates = dates[:-num_valid_dates]
+    
+    # Display the last few rows of the DataFrame (for debugging purposes)
+    print(df.tail())
+    
+    
+    
+
+# Create a directory to store the trained models
+os.system('mkdir models')
+
+# Define the path to load pre-trained models (if not in training mode)
+model_path = '/kaggle/input/jsbaselinezyz'
+
+# If in training mode, prepare validation data
+if TRAINING:
+    # Extract features, target, and weights for validation dates
+    X_valid = df[feature_names].loc[df['date_id'].isin(valid_dates)]
+    y_valid = df['responder_6'].loc[df['date_id'].isin(valid_dates)]
+    w_valid = df['weight'].loc[df['date_id'].isin(valid_dates)]
+
+# Initialize a list to store trained models
+models = []
+
+# Function to train a model or load a pre-trained model
+def train(model_dict, model_name='lgb'):
+    if TRAINING:
+        # Select dates for training based on the fold number
+        selected_dates = [date for ii, date in enumerate(train_dates) if ii % N_fold != i]
+        
+        # Get the model from the dictionary
+        model = model_dict[model_name]
+        
+        # Extract features, target, and weights for the selected training dates
+        X_train = df[feature_names].loc[df['date_id'].isin(selected_dates)]
+        y_train = df['responder_6'].loc[df['date_id'].isin(selected_dates)]
+        w_train = df['weight'].loc[df['date_id'].isin(selected_dates)]
+
+        # Train the model based on the type (LightGBM, XGBoost, or CatBoost)
+        if model_name == 'lgb':
+            # Train LightGBM model with early stopping and evaluation logging
+            model.fit(X_train, y_train, w_train,  
+                      eval_metric=[r2_lgb],
+                      eval_set=[(X_valid, y_valid, w_valid)], 
+                      callbacks=[
+                          lgb.early_stopping(100), 
+                          lgb.log_evaluation(10)
+                      ])
+            
+        elif model_name == 'cbt':
+            # Prepare evaluation set for CatBoost
+            evalset = cbt.Pool(X_valid, y_valid, weight=w_valid)
+            
+            # Train CatBoost model with early stopping and verbose logging
+            model.fit(X_train, y_train, sample_weight=w_train, 
+                      eval_set=[evalset], 
+                      verbose=10, 
+                      early_stopping_rounds=100)
+            
+        else:
+            # Train XGBoost model with early stopping and verbose logging
+            model.fit(X_train, y_train, sample_weight=w_train, 
+                      eval_set=[(X_valid, y_valid)], 
+                      sample_weight_eval_set=[w_valid], 
+                      verbose=10, 
+                      early_stopping_rounds=100)
+
+        # Append the trained model to the list
+        models.append(model)
+        
+        # Save the trained model to a file
+        joblib.dump(model, f'./models/{model_name}_{i}.model')
+        
+        # Delete training data to free up memory
+        del X_train
+        del y_train
+        del w_train
+        
+        # Collect garbage to free up memory
+        import gc
+        gc.collect()
+        
+    else:
+        # If not in training mode, load the pre-trained model from the specified path
+        models.append(joblib.load(f'{model_path}/{model_name}_{i}.model'))
+        
+    return 
+
+# Custom R2 metric for XGBoost
+def r2_xgb(y_true, y_pred, sample_weight):
+    r2 = 1 - np.average((y_pred - y_true) ** 2, weights=sample_weight) / (np.average((y_true) ** 2, weights=sample_weight) + 1e-38)
+    return -r2
+
+# Custom R2 metric for LightGBM
+def r2_lgb(y_true, y_pred, sample_weight):
+    r2 = 1 - np.average((y_pred - y_true) ** 2, weights=sample_weight) / (np.average((y_true) ** 2, weights=sample_weight) + 1e-38)
+    return 'r2', r2, True
+
+# Custom R2 metric for CatBoost
+class r2_cbt(object):
+    def get_final_error(self, error, weight):
+        return 1 - error / (weight + 1e-38)
+
+    def is_max_optimal(self):
+        return True
+
+    def evaluate(self, approxes, target, weight):
+        assert len(approxes) == 1
+        assert len(target) == len(approxes[0])
+
+        approx = approxes[0]
+
+        error_sum = 0.0
+        weight_sum = 0.0
+
+        for i in range(len(approx)):
+            w = 1.0 if weight is None else weight[i]
+            weight_sum += w * (target[i] ** 2)
+            error_sum += w * ((approx[i] - target[i]) ** 2)
+
+        return error_sum, weight_sum
+
+# Dictionary to store different models with their configurations
+model_dict = {
+    'lgb': lgb.LGBMRegressor(n_estimators=500, device='gpu', gpu_use_dp=True, objective='l2'),
+    'xgb': xgb.XGBRegressor(n_estimators=2000, learning_rate=0.1, max_depth=6, tree_method='hist', device="cuda", objective='reg:squarederror', eval_metric=r2_xgb, disable_default_eval_metric=True),
+    'cbt': cbt.CatBoostRegressor(iterations=1000, learning_rate=0.05, task_type='GPU', loss_function='RMSE', eval_metric=r2_cbt()),
+}
+
+# Train models for each fold
+for i in range(N_fold):
+    train(model_dict, 'lgb')
+    train(model_dict, 'xgb')
+    train(model_dict, 'cbt')
