@@ -76,7 +76,8 @@ def reduce_mem_usage(self, float16_as32=True):
 input_path = './jane-street-real-time-market-data-forecasting/' if os.path.exists('./jane-street-real-time-market-data-forecasting') else r'G:\\kaggle\jane-street-real-time-market-data-forecasting\\'
 
 # Flag to determine if the script is in training mode or not
-TRAINING = False
+#TRAINING = False
+TRAINING = True
 
 # Define the feature names based on the number of features (79 in this case)
 feature_names = [f"feature_{i:02d}" for i in range(79)]
@@ -121,7 +122,9 @@ if TRAINING:
 os.system('mkdir models')
 
 # Define the path to load pre-trained models (if not in training mode)
-model_path = '/kaggle/input/jsbaselinezyz'
+model_path = '/kaggle/input/jsbaselinezyz' if os.path.exists('/kaggle/input/jsbaselinezyz') else r'G:\\kaggle\jane-street-real-time-market-data-forecasting\input\\'
+#os.path.exists(r'G:\\kaggle\jane-street-real-time-market-data-forecasting\input\\')
+
 
 # If in training mode, prepare validation data
 if TRAINING:
@@ -243,3 +246,40 @@ for i in range(N_fold):
     train(model_dict, 'lgb')
     train(model_dict, 'xgb')
     train(model_dict, 'cbt')
+    
+    
+    
+
+lags_ : pl.DataFrame | None = None
+
+# Replace this function with your inference code.
+# You can return either a Pandas or Polars dataframe, though Polars is recommended.
+# Each batch of predictions (except the very first) must be returned within 10 minutes of the batch features being provided.
+def predict(test: pl.DataFrame, lags: pl.DataFrame | None) -> pl.DataFrame | pd.DataFrame:
+    """Make a prediction."""
+    # All the responders from the previous day are passed in at time_id == 0. We save them in a global variable for access at every time_id.
+    # Use them as extra features, if you like.
+    global lags_
+    if lags is not None:
+        lags_ = lags
+
+    predictions = test.select(
+        'row_id',
+        pl.lit(0.0).alias('responder_6'),
+    )
+    
+    feat = test[feature_names].to_numpy()
+    
+    pred = [model.predict(feat) for model in models]
+    pred = np.mean(pred, axis=0)
+    
+    predictions = predictions.with_columns(pl.Series('responder_6', pred.ravel()))
+
+    # The predict function must return a DataFrame
+    assert isinstance(predictions, pl.DataFrame | pd.DataFrame)
+    # with columns 'row_id', 'responer_6'
+    assert list(predictions.columns) == ['row_id', 'responder_6']
+    # and as many rows as the test data.
+    assert len(predictions) == len(test)
+
+    return predictions
