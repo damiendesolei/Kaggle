@@ -120,6 +120,7 @@ if TRAINING:
 
 # Create a directory to store the trained models
 os.system('mkdir models')
+os.getcwd()
 
 # Define the path to load pre-trained models (if not in training mode)
 model_path = '/kaggle/input/jsbaselinezyz' if os.path.exists('/kaggle/input/jsbaselinezyz') else r'G:\\kaggle\jane-street-real-time-market-data-forecasting\input\\'
@@ -177,7 +178,8 @@ def train(model_dict, model_name='lgb'):
                       eval_set=[(X_valid, y_valid)], 
                       sample_weight_eval_set=[w_valid], 
                       verbose=10, 
-                      early_stopping_rounds=100)
+                      #early_stopping_rounds=100
+                      )
 
         # Append the trained model to the list
         models.append(model)
@@ -237,9 +239,11 @@ class r2_cbt(object):
 # Dictionary to store different models with their configurations
 model_dict = {
     'lgb': lgb.LGBMRegressor(n_estimators=500, device='gpu', gpu_use_dp=True, objective='l2'),
-    'xgb': xgb.XGBRegressor(n_estimators=2000, learning_rate=0.1, max_depth=6, tree_method='hist', device="cuda", objective='reg:squarederror', eval_metric=r2_xgb, disable_default_eval_metric=True),
+    'xgb': xgb.XGBRegressor(n_estimators=2000, learning_rate=0.1, max_depth=6, tree_method='hist', device="cuda", objective='reg:squarederror', eval_metric=r2_xgb, disable_default_eval_metric=True, early_stopping_rounds=100),
     'cbt': cbt.CatBoostRegressor(iterations=1000, learning_rate=0.05, task_type='GPU', loss_function='RMSE', eval_metric=r2_cbt()),
 }
+
+#xgb.__version__
 
 # Train models for each fold
 for i in range(N_fold):
@@ -283,3 +287,18 @@ def predict(test: pl.DataFrame, lags: pl.DataFrame | None) -> pl.DataFrame | pd.
     assert len(predictions) == len(test)
 
     return predictions
+
+
+#When your notebook is run on the hidden test set, inference_server.serve must be called within 15 minutes of the notebook starting or the gateway will throw an error.
+#If you need more than 15 minutes to load your model you can do so during the very first predict call, which does not have the usual 10 minute response deadline.
+inference_server = kaggle_evaluation.jane_street_inference_server.JSInferenceServer(predict)
+
+if os.getenv('KAGGLE_IS_COMPETITION_RERUN'):
+    inference_server.serve()
+else:
+    inference_server.run_local_gateway(
+        (
+            '/kaggle/input/jane-street-realtime-marketdata-forecasting/test.parquet',
+            '/kaggle/input/jane-street-realtime-marketdata-forecasting/lags.parquet',
+        )
+    )
