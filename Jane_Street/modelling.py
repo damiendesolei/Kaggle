@@ -123,7 +123,7 @@ os.system('mkdir models')
 os.getcwd()
 
 # Define the path to load pre-trained models (if not in training mode)
-model_path = '/kaggle/input/jsbaselinezyz' if os.path.exists('/kaggle/input/jsbaselinezyz') else r'G:\\kaggle\jane-street-real-time-market-data-forecasting\input\\'
+model_path = '/kaggle/input/jsbaselinezyz' if os.path.exists('/kaggle/input/jsbaselinezyz') else r'C:\\Users\\zrj-desktop\\models\\'
 #os.path.exists(r'G:\\kaggle\jane-street-real-time-market-data-forecasting\input\\')
 
 
@@ -239,8 +239,8 @@ class r2_cbt(object):
 # Dictionary to store different models with their configurations
 model_dict = {
     'lgb': lgb.LGBMRegressor(n_estimators=500, device='gpu', gpu_use_dp=True, objective='l2'),
-    'xgb': xgb.XGBRegressor(n_estimators=2000, learning_rate=0.1, max_depth=6, tree_method='hist', device="cuda", objective='reg:squarederror', eval_metric=r2_xgb, disable_default_eval_metric=True, early_stopping_rounds=100),
-    'cbt': cbt.CatBoostRegressor(iterations=1000, learning_rate=0.05, task_type='GPU', loss_function='RMSE', eval_metric=r2_cbt()),
+    'xgb': xgb.XGBRegressor(n_estimators=1000, learning_rate=0.1, max_depth=6, tree_method='hist', device="cuda", objective='reg:squarederror', eval_metric=r2_xgb, disable_default_eval_metric=True, early_stopping_rounds=100),
+    #'cbt': cbt.CatBoostRegressor(iterations=1000, learning_rate=0.05, task_type='GPU', loss_function='RMSE', eval_metric=r2_cbt()),
 }
 
 #xgb.__version__
@@ -249,7 +249,7 @@ model_dict = {
 for i in range(N_fold):
     train(model_dict, 'lgb')
     train(model_dict, 'xgb')
-    train(model_dict, 'cbt')
+    #train(model_dict, 'cbt')
     
     
     
