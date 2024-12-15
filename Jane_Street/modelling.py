@@ -86,7 +86,7 @@ feature_names = [f"feature_{i:02d}" for i in range(79)]
 num_valid_dates = 100
 
 # Number of dates to skip from the beginning of the dataset
-skip_dates = 500
+skip_dates = 900 #skil roughly 3 years, keeping most recent 800 days
 
 # Number of folds for cross-validation
 N_fold = 5
@@ -94,7 +94,7 @@ N_fold = 5
 # If in training mode, load the training data
 if TRAINING:
     # Load the training data from a Parquet file
-    #df = pd.read_parquet(f'{input_path}/train.parquet')
+    #df = pl.scan_parquet(input_path + "train.parquet/").collect().to_pandas()
     df = pd.read_parquet(f'{input_path}train.parquet')
     
     # Reduce memory usage of the DataFrame (function not provided here)
