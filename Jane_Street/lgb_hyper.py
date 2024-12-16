@@ -10,8 +10,12 @@ import joblib
 
 import pandas as pd
 import polars as pl
-import lightgbm as lgb
 import numpy as np 
+import scipy
+
+
+import lightgbm as lgb
+import matplotlib.pyplot as plt
 
 from joblib import Parallel, delayed
 
@@ -75,7 +79,7 @@ feature_names = [f"feature_{i:02d}" for i in range(79)]
 num_valid_dates = 100
 
 # Number of dates to skip from the beginning of the dataset
-skip_dates = 900 #skil roughly 3 years, keeping most recent 800 days
+skip_dates = 1000 #skil roughly 3 years, keeping most recent 800 days
 
 
 # Load the training data
@@ -102,6 +106,10 @@ os.getcwd()
 model_path = '/kaggle/input/jsbaselinezyz' if os.path.exists('/kaggle/input/jsbaselinezyz') else r'C:\\Users\\zrj-desktop\\models\\'
 #os.path.exists(r'G:\\kaggle\jane-street-real-time-market-data-forecasting\input\\')
 
+#set up random column
+np.random.seed(24)
+df['random'] = np.random.rand(df.shape[0])
+feature_names.append('random')
 
 # If in training mode, prepare validation data
 # Extract features, target, and weights for validation dates
@@ -159,58 +167,60 @@ def r2_lgb(y_true, y_pred, sample_weight):
 
 # Number of folds for cross-validation
 N_fold = 1
-i = 1
+#i = 0
 
 # Function to train a model or load a pre-trained model
-def train(model_dict, model_name='lgb'):
-    # Select dates for training based on the fold number
-    selected_dates = [date for ii, date in enumerate(train_dates) if ii % N_fold != i]
+model_name = 'lgb_initial_with_random'
+# Select dates for training based on the fold number
+i=0
+
+selected_dates = [date for ii, date in enumerate(train_dates) if ii % N_fold == i]
+
+# Specify model
+model =lgb.LGBMRegressor(n_estimators=500, device='gpu', gpu_use_dp=True, objective='l2')
+
+# Extract features, target, and weights for the selected training dates
+X_train = df[feature_names].loc[df['date_id'].isin(selected_dates)]
+y_train = df['responder_6'].loc[df['date_id'].isin(selected_dates)]
+w_train = df['weight'].loc[df['date_id'].isin(selected_dates)]
+
+# Train the model based on the type (LightGBM, XGBoost, or CatBoost)
+# Train LightGBM model with early stopping and evaluation logging
+model.fit(X_train, y_train, w_train,  
+          eval_metric=[r2_lgb],
+          eval_set=[(X_valid, y_valid, w_valid)], 
+          callbacks=[
+              lgb.early_stopping(100), 
+              lgb.log_evaluation(10)
+          ])
+
+
+# Append the trained model to the list
+#models.append(model)
+
+# Save the trained model to a file
+joblib.dump(model, f'./models/{model_name}_{i}.model')
+
+
+# Collect garbage to free up memory
+import gc
+gc.collect()
+
+
+
+#assess the feature importance
+lgb.plot_importance(model, max_num_features=50)  # Limit to top 10 features
+plt.show()
     
-    # Get the model from the dictionary
-    model = model_dict[model_name]
-    
-    # Extract features, target, and weights for the selected training dates
-    X_train = df[feature_names].loc[df['date_id'].isin(selected_dates)]
-    y_train = df['responder_6'].loc[df['date_id'].isin(selected_dates)]
-    w_train = df['weight'].loc[df['date_id'].isin(selected_dates)]
-
-    # Train the model based on the type (LightGBM, XGBoost, or CatBoost)
-    # Train LightGBM model with early stopping and evaluation logging
-    model.fit(X_train, y_train, w_train,  
-              eval_metric=[r2_lgb],
-              eval_set=[(X_valid, y_valid, w_valid)], 
-              callbacks=[
-                  lgb.early_stopping(100), 
-                  lgb.log_evaluation(10)
-              ])
 
 
-    # Append the trained model to the list
-    models.append(model)
-    
-    # Save the trained model to a file
-    joblib.dump(model, f'./models/{model_name}_{i}.model')
-    
-    # Delete training data to free up memory
-    del X_train
-    del y_train
-    del w_train
-    
-    # Collect garbage to free up memory
-    import gc
-    gc.collect()
-    
+# Create a DataFrame
+lgb_feature_importance= pd.DataFrame({
+    'Feature': model.feature_name_,
+    'Importance': model.feature_importances_
+})
 
-    return 
+lgb_feature_importance = lgb_feature_importance.sort_values('Importance')
 
 
 
-
-
-
-# Dictionary to store different models with their configurations
-model_dict = {
-    'lgb': lgb.LGBMRegressor(n_estimators=500, device='gpu', gpu_use_dp=True, objective='l2'),
-    'xgb': xgb.XGBRegressor(n_estimators=1000, learning_rate=0.1, max_depth=6, tree_method='hist', device="cuda", objective='reg:squarederror', eval_metric=r2_xgb, disable_default_eval_metric=True, early_stopping_rounds=100),
-    #'cbt': cbt.CatBoostRegressor(iterations=1000, learning_rate=0.05, task_type='GPU', loss_function='RMSE', eval_metric=r2_cbt()),
-}
