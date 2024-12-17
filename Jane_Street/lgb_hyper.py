@@ -7,6 +7,7 @@ Created on Sun Dec 15 21:51:41 2024
 
 import os
 import joblib 
+import itertools
 
 import pandas as pd
 import polars as pl
@@ -16,6 +17,7 @@ import scipy
 
 import lightgbm as lgb
 import matplotlib.pyplot as plt
+
 
 from joblib import Parallel, delayed
 
@@ -111,6 +113,17 @@ np.random.seed(24)
 df['random'] = np.random.rand(df.shape[0])
 feature_names.append('random')
 
+
+# new features of column difference
+feature_names_0 = [f"{i:02d}" for i in range(79)]
+feature_combination = itertools.combinations(feature_names_0, 2)
+
+def columns_diff(df, combinations):
+    for i, j in combinations:
+        df[f'diff_{i}_{j}'] = df[f'feature_{i}'] - df[f'feature_{j}']
+    return df
+
+
 # If in training mode, prepare validation data
 # Extract features, target, and weights for validation dates
 X_valid = df[feature_names].loc[df['date_id'].isin(valid_dates)]
@@ -119,7 +132,10 @@ w_valid = df['weight'].loc[df['date_id'].isin(valid_dates)]
 
 
 
-#additional descriptive features
+
+    
+    
+# additional descriptive features
 def descriptive_stat(df, feature):
     #features = df.columns.tolist()
     features = feature
