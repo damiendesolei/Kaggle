@@ -81,7 +81,7 @@ feature_names = [f"feature_{i:02d}" for i in range(79)]
 num_valid_dates = 100
 
 # Number of dates to skip from the beginning of the dataset
-skip_dates = 1000 #skil roughly 3 years, keeping most recent 800 days
+skip_dates = 1400 #skil roughly 3 years, keeping most recent 400 days
 
 
 # Load the training data
@@ -114,15 +114,6 @@ df['random'] = np.random.rand(df.shape[0])
 feature_names.append('random')
 
 
-# new features of column difference
-feature_names_0 = [f"{i:02d}" for i in range(79)]
-feature_combination = itertools.combinations(feature_names_0, 2)
-
-def columns_diff(df, combinations):
-    for i, j in combinations:
-        df[f'diff_{i}_{j}'] = df[f'feature_{i}'] - df[f'feature_{j}']
-    return df
-
 
 # If in training mode, prepare validation data
 # Extract features, target, and weights for validation dates
@@ -133,7 +124,21 @@ w_valid = df['weight'].loc[df['date_id'].isin(valid_dates)]
 
 
 
-    
+
+# new features of column difference
+feature_names_0 = [f"feature_{i:02d}" for i in range(39)] #39
+feature_combination = itertools.combinations(feature_names_0, 2)
+
+def columns_diff(df, combinations):
+    for i, j in combinations:
+        print(i+" "+j)
+        df[f'diff_{i}_{j}'] = df[i] - df[j]
+    return df
+
+   
+columns_diff(df, feature_combination)
+
+
     
 # additional descriptive features
 def descriptive_stat(df, feature):
