@@ -80,8 +80,8 @@ feature_names = [f"feature_{i:02d}" for i in range(79)]
 # Number of validation dates to use
 num_valid_dates = 100
 
-# Number of dates to skip from the beginning of the dataset
-skip_dates = 1400 #skil roughly 3 years, keeping most recent 400 days
+# Number of dates to skip from the beginning of the dataset total 1700 days
+skip_dates = 1500 #keeping most recent 200 days
 
 
 # Load the training data
@@ -108,10 +108,34 @@ os.getcwd()
 model_path = '/kaggle/input/jsbaselinezyz' if os.path.exists('/kaggle/input/jsbaselinezyz') else r'C:\\Users\\zrj-desktop\\models\\'
 #os.path.exists(r'G:\\kaggle\jane-street-real-time-market-data-forecasting\input\\')
 
+
 #set up random column
 np.random.seed(24)
 df['random'] = np.random.rand(df.shape[0])
 feature_names.append('random')
+
+
+# new features of column difference
+feature_names_0 = [f"feature_{i:02d}" for i in range(39)] #39
+feature_combination = itertools.combinations(feature_names_0, 2)
+
+def columns_diff(df, combinations):
+    for i, j in combinations:
+        print(i+" "+j)
+        df[f'diff_{i}_{j}'] = df[i] - df[j]
+    return df
+
+# create new columns   
+columns_diff(df, feature_combination)
+df = reduce_mem_usage(df, False)
+
+# find the new column names
+new_diff_cols = list(df.columns[94:])
+
+feature_names = feature_names + new_diff_cols
+
+
+
 
 
 
@@ -125,21 +149,10 @@ w_valid = df['weight'].loc[df['date_id'].isin(valid_dates)]
 
 
 
-# new features of column difference
-feature_names_0 = [f"feature_{i:02d}" for i in range(39)] #39
-feature_combination = itertools.combinations(feature_names_0, 2)
-
-def columns_diff(df, combinations):
-    for i, j in combinations:
-        print(i+" "+j)
-        df[f'diff_{i}_{j}'] = df[i] - df[j]
-    return df
-
-   
-columns_diff(df, feature_combination)
-
 
     
+
+
 # additional descriptive features
 def descriptive_stat(df, feature):
     #features = df.columns.tolist()
@@ -191,19 +204,26 @@ N_fold = 1
 #i = 0
 
 # Function to train a model or load a pre-trained model
-model_name = 'lgb_initial_with_random'
+model_name = 'lgb_random_with_diff_0_39'
 # Select dates for training based on the fold number
 i=0
 
 selected_dates = [date for ii, date in enumerate(train_dates) if ii % N_fold == i]
 
 # Specify model
-model =lgb.LGBMRegressor(n_estimators=500, device='gpu', gpu_use_dp=True, objective='l2')
+model =lgb.LGBMRegressor(n_estimators=500, device='cpu', gpu_use_dp=True, objective='l2')
 
 # Extract features, target, and weights for the selected training dates
 X_train = df[feature_names].loc[df['date_id'].isin(selected_dates)]
 y_train = df['responder_6'].loc[df['date_id'].isin(selected_dates)]
 w_train = df['weight'].loc[df['date_id'].isin(selected_dates)]
+
+
+
+del df
+# Collect garbage to free up memory
+import gc
+gc.collect()
 
 # Train the model based on the type (LightGBM, XGBoost, or CatBoost)
 # Train LightGBM model with early stopping and evaluation logging
@@ -223,9 +243,7 @@ model.fit(X_train, y_train, w_train,
 joblib.dump(model, f'./models/{model_name}_{i}.model')
 
 
-# Collect garbage to free up memory
-import gc
-gc.collect()
+
 
 
 
@@ -241,7 +259,7 @@ lgb_feature_importance= pd.DataFrame({
     'Importance': model.feature_importances_
 })
 
-lgb_feature_importance = lgb_feature_importance.sort_values('Importance')
+lgb_feature_importance = lgb_feature_importance.sort_values('Importance', ascending=False).reset_index(drop=True)
 
 
 
