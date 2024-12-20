@@ -81,7 +81,7 @@ feature_names = [f"feature_{i:02d}" for i in range(79)]
 num_valid_dates = 100
 
 # Number of dates to skip from the beginning of the dataset total 1700 days
-skip_dates = 1450 #keeping most recent 250 days
+skip_dates = 1100 #keeping most recent 600 days
 
 
 # Load the training data
@@ -114,13 +114,16 @@ model_path = '/kaggle/input/jsbaselinezyz' if os.path.exists('/kaggle/input/jsba
 #os.path.exists(r'G:\\kaggle\jane-street-real-time-market-data-forecasting\input\\')
 
 
-combination_1 = pd.read_csv(model_path + "lgb_random_with_diff_combination_1_0(l2_0.646132_r2_0.00339201).csv")
-combination_2 = pd.read_csv(model_path + "lgb_random_with_diff_combination_2_0(l2_0.646372_r2_0.00302101).csv")
-combination_3 = pd.read_csv(model_path + "lgb_random_with_diff_combination_3_0(l2_0.645615_r2_0.00418869).csv")
+# combination_1 = pd.read_csv(model_path + "lgb_random_with_diff_combination_1_0(l2_0.646132_r2_0.00339201).csv")
+# combination_2 = pd.read_csv(model_path + "lgb_random_with_diff_combination_2_0(l2_0.646372_r2_0.00302101).csv")
+# combination_3 = pd.read_csv(model_path + "lgb_random_with_diff_combination_3_0(l2_0.645615_r2_0.00418869).csv")
 
-comb_features = list(combination_1[(combination_1.Importance>0) & (combination_1.Feature.str.len()>10)]['Feature']) \
-    + list(combination_2[(combination_2.Importance>0) & (combination_2.Feature.str.len()>10)]['Feature']) \
-    + list(combination_3[(combination_3.Importance>0) & (combination_3.Feature.str.len()>10)]['Feature'])
+# comb_features = list(combination_1[(combination_1.Importance>0) & (combination_1.Feature.str.len()>10)]['Feature']) \
+#     + list(combination_2[(combination_2.Importance>0) & (combination_2.Feature.str.len()>10)]['Feature']) \
+#     + list(combination_3[(combination_3.Importance>0) & (combination_3.Feature.str.len()>10)]['Feature'])
+
+comb = pd.read_csv(model_path + "lgb_random_with_diff_combination_filter_0(l2_0.644209_r2_0.00635831).csv")
+comb_features = list(comb[(comb.Importance>=7) & (comb.Feature.str.len()>10)]['Feature']) 
 
 combinations = [
     ('feature_'+element.split('_')[2], 'feature_'+element.split('_')[4]) 
@@ -231,7 +234,7 @@ N_fold = 1
 #i = 0
 
 # Function to train a model or load a pre-trained model
-model_name = 'lgb_random_with_diff_combination_all'
+model_name = 'lgb_random_with_diff_combination_filter_100'
 # Select dates for training based on the fold number
 i=0
 
@@ -275,7 +278,7 @@ joblib.dump(model, f'./models/{model_name}_{i}.model')
 
 
 #assess the feature importance
-lgb.plot_importance(model, max_num_features=50)  # Limit to top 10 features
+lgb.plot_importance(model, max_num_features=25)  # Limit to top 30 features
 plt.show()
     
 
@@ -287,6 +290,6 @@ lgb_feature_importance= pd.DataFrame({
 })
 
 lgb_feature_importance = lgb_feature_importance.sort_values('Importance', ascending=False).reset_index(drop=True)
-lgb_feature_importance.to_csv(model_path + 'lgb_random_with_diff_combination_all_0.csv', index=False)
+lgb_feature_importance.to_csv(model_path + 'lgb_random_with_diff_combination_filter_100_0.csv', index=False)
 
 
