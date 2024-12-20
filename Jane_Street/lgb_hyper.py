@@ -116,8 +116,24 @@ feature_names.append('random')
 
 
 # new features of column difference
-feature_names_0 = [f"feature_{i:02d}" for i in range(39)] #39
-feature_combination = itertools.combinations(feature_names_0, 2)
+feature_names_0 = [f"feature_{i:02d}" for i in range(79)] 
+#feature_combination = itertools.combinations(feature_names_0, 2)
+feature_combination = list(itertools.combinations(feature_names_0, 2))
+
+# Calculate chunk sizes for splitting
+total_combinations = len(feature_combination)
+chunk_size = total_combinations // 3
+remainder = total_combinations % 3
+
+# Split the combinations into three parts
+start = 0
+feature_combination_1 = feature_combination[start : start + chunk_size + (1 if remainder > 0 else 0)]
+start += len(feature_combination_1)
+feature_combination_2 = feature_combination[start : start + chunk_size + (1 if remainder > 1 else 0)]
+start += len(feature_combination_2)
+feature_combination_3 = feature_combination[start:]
+
+
 
 def columns_diff(df, combinations):
     for i, j in combinations:
@@ -126,7 +142,7 @@ def columns_diff(df, combinations):
     return df
 
 # create new columns   
-columns_diff(df, feature_combination)
+columns_diff(df, feature_combination_3)
 df = reduce_mem_usage(df, False)
 
 # find the new column names
@@ -204,7 +220,7 @@ N_fold = 1
 #i = 0
 
 # Function to train a model or load a pre-trained model
-model_name = 'lgb_random_with_diff_0_39'
+model_name = 'lgb_random_with_diff_combination_3'
 # Select dates for training based on the fold number
 i=0
 
@@ -260,6 +276,6 @@ lgb_feature_importance= pd.DataFrame({
 })
 
 lgb_feature_importance = lgb_feature_importance.sort_values('Importance', ascending=False).reset_index(drop=True)
-
+lgb_feature_importance.to_csv(model_path + 'lgb_random_with_diff_combination_3_0.csv', index=False)
 
 
