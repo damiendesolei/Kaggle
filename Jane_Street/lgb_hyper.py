@@ -242,7 +242,7 @@ new_diff_cols = list(df.columns[df.columns.get_loc('random')+1:])
 feature_names = feature_names + new_diff_cols
 
 # override feature names to top 
-feature_names = comb_features = list(comb[comb.Importance>=18]['Feature']) #top 93 features
+feature_names = comb_features = list(comb[comb.Importance>=11]['Feature']) #top 117 features
 feature_names.append('random')
 
 
@@ -384,7 +384,7 @@ N_fold = 1
 #i = 0
 
 # Function to train a model or load a pre-trained model
-model_name = 'lgb_random_with_diff_comb_plus_lag_top93'
+model_name = 'lgb_random_with_diff_comb_plus_lag_top117'
 # Select dates for training based on the fold number
 i=0
 
@@ -400,7 +400,7 @@ w_train = df['weight'].loc[df['date_id'].isin(selected_dates)]
 
 
 
-del df
+#del df
 # Collect garbage to free up memory
 import gc
 gc.collect()
@@ -440,6 +440,6 @@ lgb_feature_importance= pd.DataFrame({
 })
 
 lgb_feature_importance = lgb_feature_importance.sort_values('Importance', ascending=False).reset_index(drop=True)
-lgb_feature_importance.to_csv(model_path + 'lgb_random_with_diff_comb_plus_lag_top93_0.csv', index=False)
+lgb_feature_importance.to_csv(model_path + 'lgb_random_with_diff_comb_plus_lag_top117_0.csv', index=False)
 
 
