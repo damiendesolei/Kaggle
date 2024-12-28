@@ -10,15 +10,20 @@ import joblib
 import itertools
 
 import pandas as pd
+pd.set_option('display.max_columns', None)
 import polars as pl
 import numpy as np 
+#import stats
 import scipy
+
+from sklearn.linear_model import LinearRegression
 
 
 import lightgbm as lgb
 import matplotlib.pyplot as plt
 
 
+from tqdm import tqdm, tqdm_notebook
 from joblib import Parallel, delayed
 
 
@@ -85,22 +90,90 @@ skip_dates = 1100 #keeping most recent 600 days
 
 
 # Load the training data
-df = pd.read_parquet(f'{input_path}train.parquet')
+# df = pd.read_parquet(f'{input_path}train.parquet')
+# https://www.kaggle.com/code/motono0223/js24-preprocessing-create-lags/notebook
+class CONFIG:
+    target_col = "responder_6"
+    lag_cols_original = ["date_id", "symbol_id"] + [f"responder_{idx}" for idx in range(9)]
+    lag_cols_rename = { f"responder_{idx}" : f"responder_{idx}_lag_1" for idx in range(9)}
+    #valid_ratio = 0.05
+    start_dt = 1100
+
+# Use last 2 parquets
+train = pl.scan_parquet(f'{input_path}train.parquet'
+).select(
+    pl.int_range(pl.len(), dtype=pl.UInt32).alias("id"), # a new "id" column containing row indices starting from 0
+    pl.all(), # all original columns.
+).filter(
+    pl.col("date_id").gt(CONFIG.start_dt)
+)
     
+    
+# create lag feature
+lags = train.select(pl.col(CONFIG.lag_cols_original))
+lags = lags.rename(CONFIG.lag_cols_rename)
+lags = lags.with_columns(
+    date_id = pl.col('date_id') + 1,  # lagged by 1 day
+    )
+lags = lags.group_by(["date_id", "symbol_id"], maintain_order=True).last()  # pick up last record of previous date
+lags
+
+
+# join the lag data to train
+train = train.join(lags, on=["date_id", "symbol_id"],  how="left"
+                   ).filter(pl.col("date_id").gt(CONFIG.start_dt+1)) # remove null rows for lagged responders
+train
+
+
+# Train test split
+# len_train   = train.select(pl.col("date_id")).collect().shape[0]
+# #valid_records = int(len_train * CONFIG.valid_ratio)
+
+# last_100_unique_dates = (
+#     train.select("date_id")
+#     .unique(keep="last")  # Get unique values, keeping the last occurrence
+#     .sort("date_id", descending=False)  # Sort in ascending order
+#     .tail(100)  # Keep only the last 100 unique values
+#     .collect()
+#     .to_series()  # Convert to a Series for filtering
+# )
+# #len_ofl_mdl = len_train - valid_records
+# #last_tr_dt  = train.select(pl.col("date_id")).collect().row(len_ofl_mdl)[0]
+
+# #print(f"\n len_train = {len_train}")
+# #print(f"\n len_validation = {len_ofl_mdl}")
+# #print(f"\n---> Last offline train date = {last_tr_dt}\n")
+
+
+
+# #training_data = train.filter(pl.col("date_id").le(last_tr_dt))
+# #validation_data   = train.filter(pl.col("date_id").gt(last_tr_dt))
+# training_data = train.filter(~pl.col("date_id").is_in(last_100_unique_dates))
+# validation_data = train.filter(pl.col("date_id").is_in(last_100_unique_dates)) # pick last 100 days for validation
+    
+
+
+df = train.collect().to_pandas()
 df = reduce_mem_usage(df, False)
-    
-df = df[df['date_id'] >= skip_dates].reset_index(drop=True)
+feature_lagged_responders =  [f"responder_{idx}_lag_1" for idx in range(9)]
+feature_names = feature_names + feature_lagged_responders 
+
+#df = df[df['date_id'] >= skip_dates].reset_index(drop=True)
 
 dates = df['date_id'].unique()
 valid_dates = dates[-num_valid_dates:]
 train_dates = dates[:-num_valid_dates]
 
-print(df.tail())
+#print(df.tail())
 
   
 #set up random column
-np.random.seed(24)
-df['random'] = np.random.rand(df.shape[0])
+def add_random_column(df):
+    np.random.seed(24)
+    df['random'] = np.random.rand(df.shape[0])
+    return df
+
+add_random_column(df)
 feature_names.append('random')
   
     
@@ -122,8 +195,9 @@ model_path = '/kaggle/input/jsbaselinezyz' if os.path.exists('/kaggle/input/jsba
 #     + list(combination_2[(combination_2.Importance>0) & (combination_2.Feature.str.len()>10)]['Feature']) \
 #     + list(combination_3[(combination_3.Importance>0) & (combination_3.Feature.str.len()>10)]['Feature'])
 
-comb = pd.read_csv(model_path + "lgb_random_with_diff_combination_filter_0(l2_0.644209_r2_0.00635831).csv")
-comb_features = list(comb[(comb.Importance>=7) & (comb.Feature.str.len()>10)]['Feature']) 
+comb = pd.read_csv(model_path + "lgb_random_with_diff_combination_filter_100_0(l2_0.643843_r2_0.006922).csv")
+#find the features with importance >= random
+comb_features = list(comb[(comb.Importance>=1) & (comb.Feature.str.len()>10)]['Feature']) 
 
 combinations = [
     ('feature_'+element.split('_')[2], 'feature_'+element.split('_')[4]) 
@@ -159,15 +233,85 @@ def columns_diff(df, combinations):
 columns_diff(df, combinations)
 df = reduce_mem_usage(df, False)
 
-# find the new column names
-new_diff_cols = list(df.columns[94:])
+# find the new column names - one after random
+new_diff_cols = list(df.columns[df.columns.get_loc('random')+1:])
 
 feature_names = feature_names + new_diff_cols
 
 
 
+# new features source:
+# https://www.kaggle.com/code/jsaguiar/baseline-with-multiple-models?scriptVersionId=15034696
+
+def add_trend_feature(arr, abs_values=False):
+    """Fit a univariate linear regression and return the coefficient."""
+    idx = np.array(range(len(arr)))
+    if abs_values:
+        arr = np.abs(arr)
+    lr = LinearRegression()
+    lr.fit(idx.reshape(-1, 1), arr)
+    return lr.coef_[0]
 
 
+ 
+# https://www.kaggle.com/code/wimwim/rolling-quantiles
+def create_rolling_features(df, feature, rows=250000):
+    segments = int(np.floor(df.shape[0] / rows))
+    
+    for segment in tqdm_notebook(range(segments)):
+        seg = df.iloc[segment*rows : segment*rows+rows]
+        x_raw = seg[feature]
+        x = x_raw.values
+        #y = seg['time_to_failure'].values[-1]
+        
+        #y_tr.loc[segment, 'time_to_failure'] = y
+        df.loc[segment, f'{feature}_ave'] = x.mean()
+        # df.loc[segment, f'{feature}_std'] = x.std()
+        # df.loc[segment, f'{feature}_max'] = x.max()
+        # df.loc[segment, f'{feature}_min'] = x.min()
+        # df.loc[segment, f'{feature}_q01'] = np.quantile(x,0.01)
+        # df.loc[segment, f'{feature}_q05'] = np.quantile(x,0.05)
+        # df.loc[segment, f'{feature}_q95'] = np.quantile(x,0.95)
+        # df.loc[segment, f'{feature}_q99'] = np.quantile(x,0.99)
+        # df.loc[segment, f'{feature}_abs_median'] = np.median(np.abs(x))
+        # df.loc[segment, f'{feature}_abs_q95'] = np.quantile(np.abs(x),0.95)
+        # df.loc[segment, f'{feature}_abs_q99'] = np.quantile(np.abs(x),0.99)
+        # #df.loc[segment, 'F_test'], df.loc[segment, 'p_test'] = stats.f_oneway(x[:30000],x[30000:60000],x[60000:90000],x[90000:120000],x[120000:])
+        # df.loc[segment, f'{feature}_av_change_abs'] = np.mean(np.diff(x))
+        # df.loc[segment, f'{feature}_av_change_rate'] = np.mean(np.nonzero((np.diff(x) / x[:-1]))[0])
+        # df.loc[segment, f'{feature}_abs_max'] = np.abs(x).max()
+        
+        for windows in [125000, 250000]:
+            x_roll_std = x_raw.rolling(windows).std().dropna().values
+            x_roll_mean = x_raw.rolling(windows).mean().dropna().values
+            
+            df.loc[segment, f'{feature}_ave_roll_std_' + str(windows)] = x_roll_std.mean()
+            # df.loc[segment, f'{feature}_std_roll_std_' + str(windows)] = x_roll_std.std()
+            # df.loc[segment, f'{feature}_max_roll_std_' + str(windows)] = x_roll_std.max()
+            # df.loc[segment, f'{feature}_min_roll_std_' + str(windows)] = x_roll_std.min()
+            # df.loc[segment, f'{feature}_q01_roll_std_' + str(windows)] = np.quantile(x_roll_std,0.01)
+            # df.loc[segment, f'{feature}_q05_roll_std_' + str(windows)] = np.quantile(x_roll_std,0.05)
+            # df.loc[segment, f'{feature}_q95_roll_std_' + str(windows)] = np.quantile(x_roll_std,0.95)
+            # df.loc[segment, f'{feature}_q99_roll_std_' + str(windows)] = np.quantile(x_roll_std,0.99)
+            # df.loc[segment, f'{feature}_av_change_abs_roll_std_' + str(windows)] = np.mean(np.diff(x_roll_std))
+            # df.loc[segment, f'{feature}_av_change_rate_roll_std_' + str(windows)] = np.mean(np.nonzero((np.diff(x_roll_std) / x_roll_std[:-1]))[0])
+            # df.loc[segment, f'{feature}_abs_max_roll_std_' + str(windows)] = np.abs(x_roll_std).max()
+            
+            # df.loc[segment, f'{feature}_ave_roll_mean_' + str(windows)] = x_roll_mean.mean()
+            # df.loc[segment, f'{feature}_std_roll_mean_' + str(windows)] = x_roll_mean.std()
+            # df.loc[segment, f'{feature}_max_roll_mean_' + str(windows)] = x_roll_mean.max()
+            # df.loc[segment, f'{feature}_min_roll_mean_' + str(windows)] = x_roll_mean.min()
+            # df.loc[segment, f'{feature}_q01_roll_mean_' + str(windows)] = np.quantile(x_roll_mean,0.01)
+            # df.loc[segment, f'{feature}_q05_roll_mean_' + str(windows)] = np.quantile(x_roll_mean,0.05)
+            # df.loc[segment, f'{feature}_q95_roll_mean_' + str(windows)] = np.quantile(x_roll_mean,0.95)
+            # df.loc[segment, f'{feature}_q99_roll_mean_' + str(windows)] = np.quantile(x_roll_mean,0.99)
+            # df.loc[segment, f'{feature}_av_change_abs_roll_mean_' + str(windows)] = np.mean(np.diff(x_roll_mean))
+            # df.loc[segment, f'{feature}_av_change_rate_roll_mean_' + str(windows)] = np.mean(np.nonzero((np.diff(x_roll_mean) / x_roll_mean[:-1]))[0])
+            # df.loc[segment, f'{feature}_abs_max_roll_mean_' + str(windows)] = np.abs(x_roll_mean).max()
+
+    return df
+
+#create_rolling_features(df_temp, "feature_02", rows=250000)
 
 # If in training mode, prepare validation data
 # Extract features, target, and weights for validation dates
@@ -234,7 +378,7 @@ N_fold = 1
 #i = 0
 
 # Function to train a model or load a pre-trained model
-model_name = 'lgb_random_with_diff_combination_filter_100'
+model_name = 'lgb_random_with_diff_combination_100_plus_lag'
 # Select dates for training based on the fold number
 i=0
 
@@ -244,7 +388,7 @@ selected_dates = [date for ii, date in enumerate(train_dates) if ii % N_fold == 
 model =lgb.LGBMRegressor(n_estimators=500, device='cpu', gpu_use_dp=True, objective='l2')
 
 # Extract features, target, and weights for the selected training dates
-X_train = df[feature_names].loc[df['date_id'].isin(selected_dates)]
+dfain = df[feature_names].loc[df['date_id'].isin(selected_dates)]
 y_train = df['responder_6'].loc[df['date_id'].isin(selected_dates)]
 w_train = df['weight'].loc[df['date_id'].isin(selected_dates)]
 
@@ -257,11 +401,11 @@ gc.collect()
 
 # Train the model based on the type (LightGBM, XGBoost, or CatBoost)
 # Train LightGBM model with early stopping and evaluation logging
-model.fit(X_train, y_train, w_train,  
+model.fit(dfain, y_train, w_train,  
           eval_metric=[r2_lgb],
           eval_set=[(X_valid, y_valid, w_valid)], 
           callbacks=[
-              lgb.early_stopping(100), 
+              lgb.early_stopping(200), 
               lgb.log_evaluation(10)
           ])
 
@@ -290,6 +434,6 @@ lgb_feature_importance= pd.DataFrame({
 })
 
 lgb_feature_importance = lgb_feature_importance.sort_values('Importance', ascending=False).reset_index(drop=True)
-lgb_feature_importance.to_csv(model_path + 'lgb_random_with_diff_combination_filter_100_0.csv', index=False)
+lgb_feature_importance.to_csv(model_path + 'lgb_random_with_diff_combination_100_plus_lag_0.csv', index=False)
 
 
