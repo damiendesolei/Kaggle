@@ -5,6 +5,9 @@ Created on Sun Dec 15 21:51:41 2024
 @author: zrj-desktop
 """
 
+import warnings
+warnings.filterwarnings("ignore")
+
 import os
 import joblib 
 import itertools
@@ -195,9 +198,9 @@ model_path = '/kaggle/input/jsbaselinezyz' if os.path.exists('/kaggle/input/jsba
 #     + list(combination_2[(combination_2.Importance>0) & (combination_2.Feature.str.len()>10)]['Feature']) \
 #     + list(combination_3[(combination_3.Importance>0) & (combination_3.Feature.str.len()>10)]['Feature'])
 
-comb = pd.read_csv(model_path + "lgb_random_with_diff_combination_filter_100_0(l2_0.643843_r2_0.006922).csv")
+comb = pd.read_csv(model_path + "lgb_random_with_diff_combination_100_plus_lag_0(l2_0.643763_r2_0.00704533).csv")
 #find the features with importance >= random
-comb_features = list(comb[(comb.Importance>=1) & (comb.Feature.str.len()>10)]['Feature']) 
+comb_features = list(comb[(comb.Importance>=11) & (comb.Feature.str.len()>=26)]['Feature']) 
 
 combinations = [
     ('feature_'+element.split('_')[2], 'feature_'+element.split('_')[4]) 
@@ -225,7 +228,7 @@ combinations = [
 
 def columns_diff(df, combinations):
     for i, j in combinations:
-        print(i+" "+j)
+        print(i+" - "+j)
         df[f'diff_{i}_{j}'] = df[i] - df[j]
     return df
 
@@ -378,7 +381,7 @@ N_fold = 1
 #i = 0
 
 # Function to train a model or load a pre-trained model
-model_name = 'lgb_random_with_diff_combination_100_plus_lag'
+model_name = 'lgb_random_with_diff_combination_48_plus_lag'
 # Select dates for training based on the fold number
 i=0
 
@@ -434,6 +437,6 @@ lgb_feature_importance= pd.DataFrame({
 })
 
 lgb_feature_importance = lgb_feature_importance.sort_values('Importance', ascending=False).reset_index(drop=True)
-lgb_feature_importance.to_csv(model_path + 'lgb_random_with_diff_combination_100_plus_lag_0.csv', index=False)
+lgb_feature_importance.to_csv(model_path + 'lgb_random_with_diff_combination_48_plus_lag_0.csv', index=False)
 
 
