@@ -336,7 +336,7 @@ def create_rolling_features(df, feature, rows):
     #df[f'{feature}_trend_roll_' + str(rows)] = (df[feature].rolling(window=rows, min_periods=2).apply(calculate_slope, raw=True))  # Use a rolling window of n rows
     print(r"Initial rolling features are done...")
     
-    for window in [1*37_000, 2*37_000]:  # ~37_000 rows per day
+    for window in [1*37_000]:  # ~37_000 rows per day
         #rolling std from original rolling feature
         df[f'{feature}_avg_roll_std_' + str(window)] = df[f'{feature}_avg_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
         df[f'{feature}_std_roll_std_' + str(window)] = df[f'{feature}_std_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
@@ -444,14 +444,14 @@ N_fold = 1
 #i = 0
 
 # Function to train a model or load a pre-trained model
-model_name = 'lgb_random_with_diff_comb_plus_lag_plus_roll_187_2'
+model_name = 'lgb_random_with_diff_comb_plus_lag_plus_roll_167'
 # Select dates for training based on the fold number
 i=0
 
 selected_dates = [date for ii, date in enumerate(train_dates) if ii % N_fold == i]
 
 # Specify model
-model =lgb.LGBMRegressor(n_estimators=500, device='cpu', gpu_use_dp=True, objective='l2')
+model =lgb.LGBMRegressor(n_estimators=500, device='gpu', gpu_use_dp=True, objective='l2')
 
 # Extract features, target, and weights for the selected training dates
 dfain = df[feature_names].loc[df['date_id'].isin(selected_dates)]
@@ -502,6 +502,6 @@ lgb_feature_importance= pd.DataFrame({
 })
 
 lgb_feature_importance = lgb_feature_importance.sort_values('Importance', ascending=False).reset_index(drop=True)
-lgb_feature_importance.to_csv(model_path + 'lgb_random_with_diff_comb_plus_lag_plus_roll_187_2_0.csv', index=False)
+lgb_feature_importance.to_csv(model_path + 'lgb_random_with_diff_comb_plus_lag_plus_roll_167_0.csv', index=False)
 
 
