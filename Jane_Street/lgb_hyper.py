@@ -24,6 +24,7 @@ from sklearn.linear_model import LinearRegression
 
 import lightgbm as lgb
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 
 from tqdm import tqdm, tqdm_notebook
@@ -360,7 +361,7 @@ def create_rolling_features(df, feature, rows):
         df[f'{feature}_q95_roll_avg_' + str(window)] = df[f'{feature}_q95_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
         df[f'{feature}_chg_roll_avg_' + str(window)] = df[f'{feature}_chg_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
         df[f'{feature}_chg_rate_roll_avg_' + str(window)] = df[f'{feature}_chg_rate_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
-        print(f"Addtional rolling features for window {window} are done..")
+        print(f'Addtional rolling {feature} for window {window} are done..')
         
     features_all = list(df.columns)
     features_new = [col for col in features_all if col not in features_original]
@@ -373,11 +374,16 @@ def create_rolling_features(df, feature, rows):
 # df_check = df[['id','date_id','time_id','symbol_id']]
 
 
+# feature_61 was on top before adding any rolling features
 df, features_rolling = create_rolling_features(df, "feature_61", 37_000) # ~37_000 rows per day
-df = reduce_mem_usage(df, False)
+feature_names = feature_names + features_rolling
+
+# feature_30 was on 2nd top 
+df, features_rolling = create_rolling_features(df, "feature_30", 37_000) # ~37_000 rows per day
 feature_names = feature_names + features_rolling
 
 
+df = reduce_mem_usage(df, False)
 
 # If in training mode, prepare validation data
 # Extract features, target, and weights for validation dates
@@ -444,14 +450,14 @@ N_fold = 1
 #i = 0
 
 # Function to train a model or load a pre-trained model
-model_name = 'lgb_random_with_diff_comb_plus_lag_plus_roll_167'
+model_name = 'lgb_random_with_diff_comb_plus_lag_plus_roll_199'
 # Select dates for training based on the fold number
 i=0
 
 selected_dates = [date for ii, date in enumerate(train_dates) if ii % N_fold == i]
 
 # Specify model
-model =lgb.LGBMRegressor(n_estimators=500, device='gpu', gpu_use_dp=True, objective='l2')
+model =lgb.LGBMRegressor(n_estimators=500, device='cpu', gpu_use_dp=True, objective='l2')
 
 # Extract features, target, and weights for the selected training dates
 dfain = df[feature_names].loc[df['date_id'].isin(selected_dates)]
@@ -476,7 +482,7 @@ model.fit(dfain, y_train, w_train,
               lgb.early_stopping(100), 
               lgb.log_evaluation(10)
           ])
-
+# valid_0's l2: 0.643952	valid_0's r2: 0.00675394
 
 # Append the trained model to the list
 #models.append(model)
@@ -502,6 +508,13 @@ lgb_feature_importance= pd.DataFrame({
 })
 
 lgb_feature_importance = lgb_feature_importance.sort_values('Importance', ascending=False).reset_index(drop=True)
-lgb_feature_importance.to_csv(model_path + 'lgb_random_with_diff_comb_plus_lag_plus_roll_167_0.csv', index=False)
+lgb_feature_importance.to_csv(model_path + 'lgb_random_with_diff_comb_plus_lag_plus_roll_199_0.csv', index=False)
 
 
+
+
+#correlation matrix
+plt.figure(figsize=(10, 10))
+plt.title('Correlation Matrix\n')
+sns.heatmap(dfain.corr(), vmin=-1, vmax=1, annot=True, fmt='.2f', cmap='viridis', center=0)
+plt.show()
