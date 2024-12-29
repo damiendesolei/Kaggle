@@ -261,63 +261,91 @@ def add_trend_feature(arr, abs_values=False):
 
  
 # https://www.kaggle.com/code/wimwim/rolling-quantiles
-def create_rolling_features(df, feature, rows=250000):
-    segments = int(np.floor(df.shape[0] / rows))
+# def create_rolling_features(df, feature, rows=250000):
+#     segments = int(np.floor(df.shape[0] / rows))
     
-    for segment in tqdm_notebook(range(segments)):
-        seg = df.iloc[segment*rows : segment*rows+rows]
-        x_raw = seg[feature]
-        x = x_raw.values
-        #y = seg['time_to_failure'].values[-1]
+#     for segment in tqdm_notebook(range(segments)):
+#         seg = df.iloc[segment*rows : segment*rows+rows]
+#         x_raw = seg[feature]
+#         x = x_raw.values
+#         #y = seg['time_to_failure'].values[-1]
         
-        #y_tr.loc[segment, 'time_to_failure'] = y
-        df.loc[segment, f'{feature}_ave'] = x.mean()
-        # df.loc[segment, f'{feature}_std'] = x.std()
-        # df.loc[segment, f'{feature}_max'] = x.max()
-        # df.loc[segment, f'{feature}_min'] = x.min()
-        # df.loc[segment, f'{feature}_q01'] = np.quantile(x,0.01)
-        # df.loc[segment, f'{feature}_q05'] = np.quantile(x,0.05)
-        # df.loc[segment, f'{feature}_q95'] = np.quantile(x,0.95)
-        # df.loc[segment, f'{feature}_q99'] = np.quantile(x,0.99)
-        # df.loc[segment, f'{feature}_abs_median'] = np.median(np.abs(x))
-        # df.loc[segment, f'{feature}_abs_q95'] = np.quantile(np.abs(x),0.95)
-        # df.loc[segment, f'{feature}_abs_q99'] = np.quantile(np.abs(x),0.99)
-        # #df.loc[segment, 'F_test'], df.loc[segment, 'p_test'] = stats.f_oneway(x[:30000],x[30000:60000],x[60000:90000],x[90000:120000],x[120000:])
-        # df.loc[segment, f'{feature}_av_change_abs'] = np.mean(np.diff(x))
-        # df.loc[segment, f'{feature}_av_change_rate'] = np.mean(np.nonzero((np.diff(x) / x[:-1]))[0])
-        # df.loc[segment, f'{feature}_abs_max'] = np.abs(x).max()
+#         #y_tr.loc[segment, 'time_to_failure'] = y
+#         df.loc[segment, f'{feature}_ave'] = x.mean()
+#         # df.loc[segment, f'{feature}_std'] = x.std()
+#         # df.loc[segment, f'{feature}_max'] = x.max()
+#         # df.loc[segment, f'{feature}_min'] = x.min()
+#         # df.loc[segment, f'{feature}_q01'] = np.quantile(x,0.01)
+#         # df.loc[segment, f'{feature}_q05'] = np.quantile(x,0.05)
+#         # df.loc[segment, f'{feature}_q95'] = np.quantile(x,0.95)
+#         # df.loc[segment, f'{feature}_q99'] = np.quantile(x,0.99)
+#         # df.loc[segment, f'{feature}_abs_median'] = np.median(np.abs(x))
+#         # df.loc[segment, f'{feature}_abs_q95'] = np.quantile(np.abs(x),0.95)
+#         # df.loc[segment, f'{feature}_abs_q99'] = np.quantile(np.abs(x),0.99)
+#         # #df.loc[segment, 'F_test'], df.loc[segment, 'p_test'] = stats.f_oneway(x[:30000],x[30000:60000],x[60000:90000],x[90000:120000],x[120000:])
+#         # df.loc[segment, f'{feature}_av_change_abs'] = np.mean(np.diff(x))
+#         # df.loc[segment, f'{feature}_av_change_rate'] = np.mean(np.nonzero((np.diff(x) / x[:-1]))[0])
+#         # df.loc[segment, f'{feature}_abs_max'] = np.abs(x).max()
         
-        for windows in [125000, 250000]:
-            x_roll_std = x_raw.rolling(windows).std().dropna().values
-            x_roll_mean = x_raw.rolling(windows).mean().dropna().values
+#         for windows in [125000, 250000]:
+#             x_roll_std = x_raw.rolling(windows).std().dropna().values
+#             x_roll_mean = x_raw.rolling(windows).mean().dropna().values
             
-            df.loc[segment, f'{feature}_ave_roll_std_' + str(windows)] = x_roll_std.mean()
-            # df.loc[segment, f'{feature}_std_roll_std_' + str(windows)] = x_roll_std.std()
-            # df.loc[segment, f'{feature}_max_roll_std_' + str(windows)] = x_roll_std.max()
-            # df.loc[segment, f'{feature}_min_roll_std_' + str(windows)] = x_roll_std.min()
-            # df.loc[segment, f'{feature}_q01_roll_std_' + str(windows)] = np.quantile(x_roll_std,0.01)
-            # df.loc[segment, f'{feature}_q05_roll_std_' + str(windows)] = np.quantile(x_roll_std,0.05)
-            # df.loc[segment, f'{feature}_q95_roll_std_' + str(windows)] = np.quantile(x_roll_std,0.95)
-            # df.loc[segment, f'{feature}_q99_roll_std_' + str(windows)] = np.quantile(x_roll_std,0.99)
-            # df.loc[segment, f'{feature}_av_change_abs_roll_std_' + str(windows)] = np.mean(np.diff(x_roll_std))
-            # df.loc[segment, f'{feature}_av_change_rate_roll_std_' + str(windows)] = np.mean(np.nonzero((np.diff(x_roll_std) / x_roll_std[:-1]))[0])
-            # df.loc[segment, f'{feature}_abs_max_roll_std_' + str(windows)] = np.abs(x_roll_std).max()
+#             df.loc[segment, f'{feature}_ave_roll_std_' + str(windows)] = x_roll_std.mean()
+#             # df.loc[segment, f'{feature}_std_roll_std_' + str(windows)] = x_roll_std.std()
+#             # df.loc[segment, f'{feature}_max_roll_std_' + str(windows)] = x_roll_std.max()
+#             # df.loc[segment, f'{feature}_min_roll_std_' + str(windows)] = x_roll_std.min()
+#             # df.loc[segment, f'{feature}_q01_roll_std_' + str(windows)] = np.quantile(x_roll_std,0.01)
+#             # df.loc[segment, f'{feature}_q05_roll_std_' + str(windows)] = np.quantile(x_roll_std,0.05)
+#             # df.loc[segment, f'{feature}_q95_roll_std_' + str(windows)] = np.quantile(x_roll_std,0.95)
+#             # df.loc[segment, f'{feature}_q99_roll_std_' + str(windows)] = np.quantile(x_roll_std,0.99)
+#             # df.loc[segment, f'{feature}_av_change_abs_roll_std_' + str(windows)] = np.mean(np.diff(x_roll_std))
+#             # df.loc[segment, f'{feature}_av_change_rate_roll_std_' + str(windows)] = np.mean(np.nonzero((np.diff(x_roll_std) / x_roll_std[:-1]))[0])
+#             # df.loc[segment, f'{feature}_abs_max_roll_std_' + str(windows)] = np.abs(x_roll_std).max()
             
-            # df.loc[segment, f'{feature}_ave_roll_mean_' + str(windows)] = x_roll_mean.mean()
-            # df.loc[segment, f'{feature}_std_roll_mean_' + str(windows)] = x_roll_mean.std()
-            # df.loc[segment, f'{feature}_max_roll_mean_' + str(windows)] = x_roll_mean.max()
-            # df.loc[segment, f'{feature}_min_roll_mean_' + str(windows)] = x_roll_mean.min()
-            # df.loc[segment, f'{feature}_q01_roll_mean_' + str(windows)] = np.quantile(x_roll_mean,0.01)
-            # df.loc[segment, f'{feature}_q05_roll_mean_' + str(windows)] = np.quantile(x_roll_mean,0.05)
-            # df.loc[segment, f'{feature}_q95_roll_mean_' + str(windows)] = np.quantile(x_roll_mean,0.95)
-            # df.loc[segment, f'{feature}_q99_roll_mean_' + str(windows)] = np.quantile(x_roll_mean,0.99)
-            # df.loc[segment, f'{feature}_av_change_abs_roll_mean_' + str(windows)] = np.mean(np.diff(x_roll_mean))
-            # df.loc[segment, f'{feature}_av_change_rate_roll_mean_' + str(windows)] = np.mean(np.nonzero((np.diff(x_roll_mean) / x_roll_mean[:-1]))[0])
-            # df.loc[segment, f'{feature}_abs_max_roll_mean_' + str(windows)] = np.abs(x_roll_mean).max()
+#             # df.loc[segment, f'{feature}_ave_roll_mean_' + str(windows)] = x_roll_mean.mean()
+#             # df.loc[segment, f'{feature}_std_roll_mean_' + str(windows)] = x_roll_mean.std()
+#             # df.loc[segment, f'{feature}_max_roll_mean_' + str(windows)] = x_roll_mean.max()
+#             # df.loc[segment, f'{feature}_min_roll_mean_' + str(windows)] = x_roll_mean.min()
+#             # df.loc[segment, f'{feature}_q01_roll_mean_' + str(windows)] = np.quantile(x_roll_mean,0.01)
+#             # df.loc[segment, f'{feature}_q05_roll_mean_' + str(windows)] = np.quantile(x_roll_mean,0.05)
+#             # df.loc[segment, f'{feature}_q95_roll_mean_' + str(windows)] = np.quantile(x_roll_mean,0.95)
+#             # df.loc[segment, f'{feature}_q99_roll_mean_' + str(windows)] = np.quantile(x_roll_mean,0.99)
+#             # df.loc[segment, f'{feature}_av_change_abs_roll_mean_' + str(windows)] = np.mean(np.diff(x_roll_mean))
+#             # df.loc[segment, f'{feature}_av_change_rate_roll_mean_' + str(windows)] = np.mean(np.nonzero((np.diff(x_roll_mean) / x_roll_mean[:-1]))[0])
+#             # df.loc[segment, f'{feature}_abs_max_roll_mean_' + str(windows)] = np.abs(x_roll_mean).max()
 
+#     return df
+
+def create_rolling_features(df, feature, rows):
+    
+    #df = df.iloc[::-1].reset_index(drop=True) # reserve df by index
+    
+    df[f'{feature}_ave_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).mean()
+    # df[f'{feature}_std_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).std()
+    # df[f'{feature}_max_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).max()
+    # df[f'{feature}_min_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).min()
+    # df[f'{feature}_q01_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.01)
+    # df[f'{feature}_q05_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.05)
+    # df[f'{feature}_q95_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.95)
+    # df[f'{feature}_q99_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.99)
+    df[f'{feature}_change_rate_roll_' + str(rows)] = ((df[feature] - df[feature].shift(rows)) / df[feature].shift(rows)).fillna(0)
+    
+    #df = df.iloc[::-1].reset_index(drop=True) # reserve df by index
+    
     return df
 
-#create_rolling_features(df_temp, "feature_02", rows=250000)
+
+
+df_temp = df[['id','date_id','time_id','symbol_id','weight','feature_01','feature_02']]
+df_check = df[['id','date_id','time_id','symbol_id']]
+
+# reserve the df by index
+
+#create_rolling_features(df_temp, "feature_02", 25000)
+df_temp = create_rolling_features(df_temp, "feature_02", 3)
+
+
 
 # If in training mode, prepare validation data
 # Extract features, target, and weights for validation dates
