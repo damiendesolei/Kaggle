@@ -228,7 +228,7 @@ combinations = [
 
 def columns_diff(df, combinations):
     for i, j in combinations:
-        print(i+" - "+j)
+        print(f'feature_{i} - feature_{j} is done..')
         df[f'diff_{i}_{j}'] = df[i] - df[j]
     return df
 
@@ -242,21 +242,21 @@ new_diff_cols = list(df.columns[df.columns.get_loc('random')+1:])
 feature_names = feature_names + new_diff_cols
 
 # override feature names to top 
-feature_names = comb_features = list(comb[comb.Importance>=11]['Feature']) #top 117 features
-feature_names.append('random')
+# feature_names = comb_features = list(comb[comb.Importance>=11]['Feature']) #top 117 features
+# feature_names.append('random')
 
 
 # new features source:
 # https://www.kaggle.com/code/jsaguiar/baseline-with-multiple-models?scriptVersionId=15034696
 
-def add_trend_feature(arr, abs_values=False):
-    """Fit a univariate linear regression and return the coefficient."""
-    idx = np.array(range(len(arr)))
-    if abs_values:
-        arr = np.abs(arr)
-    lr = LinearRegression()
-    lr.fit(idx.reshape(-1, 1), arr)
-    return lr.coef_[0]
+def calculate_slope(series_y):
+    n = len(series_y)
+    if n < 2:  # Ensure at least two points are available for regression
+        return 0
+    x = np.arange(n)  # Use a simple range as x values since intervals are consistent
+    slope, _ = np.polyfit(x, series_y, 1)  # Linear regression
+    
+    return slope
 
 
  
@@ -319,31 +319,63 @@ def add_trend_feature(arr, abs_values=False):
 
 def create_rolling_features(df, feature, rows):
     
-    #df = df.iloc[::-1].reset_index(drop=True) # reserve df by index
+    features_original = list(df.columns)
     
-    df[f'{feature}_ave_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).mean()
-    # df[f'{feature}_std_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).std()
-    # df[f'{feature}_max_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).max()
-    # df[f'{feature}_min_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).min()
-    # df[f'{feature}_q01_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.01)
-    # df[f'{feature}_q05_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.05)
-    # df[f'{feature}_q95_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.95)
-    # df[f'{feature}_q99_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.99)
-    df[f'{feature}_change_rate_roll_' + str(rows)] = ((df[feature] - df[feature].shift(rows)) / df[feature].shift(rows)).fillna(0)
+    #rolling features
+    df[f'{feature}_avg_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).mean()
+    df[f'{feature}_std_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).std()
+    df[f'{feature}_max_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).max()
+    df[f'{feature}_min_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).min()
+    df[f'{feature}_q01_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.01)
+    df[f'{feature}_q05_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.05)
+    df[f'{feature}_q50_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.50)
+    df[f'{feature}_q95_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.95)
+    df[f'{feature}_q99_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.99)
+    df[f'{feature}_chg_roll_' + str(rows)] = ((df[feature] - df[feature].shift(rows))).fillna(0)
+    df[f'{feature}_chg_rate_roll_' + str(rows)] = ((df[feature] - df[feature].shift(rows)) / df[feature].shift(rows)).fillna(0)
+    #df[f'{feature}_trend_roll_' + str(rows)] = (df[feature].rolling(window=rows, min_periods=2).apply(calculate_slope, raw=True))  # Use a rolling window of n rows
+    print(r"Initial rolling features are done...")
     
-    #df = df.iloc[::-1].reset_index(drop=True) # reserve df by index
+    for window in [2*37_000, 3*37_000, 15*37_000]:  # ~37_000 rows per day
+        #rolling std from original rolling feature
+        df[f'{feature}_avg_roll_std_' + str(window)] = df[f'{feature}_avg_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
+        df[f'{feature}_std_roll_std_' + str(window)] = df[f'{feature}_std_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
+        df[f'{feature}_max_roll_std_' + str(window)] = df[f'{feature}_max_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
+        df[f'{feature}_min_roll_std_' + str(window)] = df[f'{feature}_min_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
+        df[f'{feature}_q01_roll_std_' + str(window)] = df[f'{feature}_q01_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
+        df[f'{feature}_q05_roll_std_' + str(window)] = df[f'{feature}_q05_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
+        df[f'{feature}_q50_roll_std_' + str(window)] = df[f'{feature}_q50_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
+        df[f'{feature}_q95_roll_std_' + str(window)] = df[f'{feature}_q95_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
+        df[f'{feature}_chg_roll_std_' + str(window)] = df[f'{feature}_chg_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
+        df[f'{feature}_chg_rate_roll_std_' + str(window)] = df[f'{feature}_chg_rate_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
+                
+        #rolling std from original rolling feature
+        df[f'{feature}_avg_roll_avg_' + str(window)] = df[f'{feature}_avg_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
+        df[f'{feature}_std_roll_avg_' + str(window)] = df[f'{feature}_std_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
+        df[f'{feature}_max_roll_avg_' + str(window)] = df[f'{feature}_max_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
+        df[f'{feature}_min_roll_avg_' + str(window)] = df[f'{feature}_min_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
+        df[f'{feature}_q01_roll_avg_' + str(window)] = df[f'{feature}_q01_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
+        df[f'{feature}_q05_roll_avg_' + str(window)] = df[f'{feature}_q05_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
+        df[f'{feature}_q50_roll_avg_' + str(window)] = df[f'{feature}_q50_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
+        df[f'{feature}_q95_roll_avg_' + str(window)] = df[f'{feature}_q95_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
+        df[f'{feature}_chg_roll_avg_' + str(window)] = df[f'{feature}_chg_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
+        df[f'{feature}_chg_rate_roll_avg_' + str(window)] = df[f'{feature}_chg_rate_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
+        print(f"Addtional rolling features for window {window} are done..")
+        
+    features_all = list(df.columns)
+    features_new = [col for col in features_all if col not in features_original]
     
-    return df
+    return df, features_new
 
 
 
-df_temp = df[['id','date_id','time_id','symbol_id','weight','feature_01','feature_02']]
-df_check = df[['id','date_id','time_id','symbol_id']]
+# df_temp = df[['id','date_id','time_id','symbol_id','weight','feature_01','feature_02']]
+# df_check = df[['id','date_id','time_id','symbol_id']]
 
-# reserve the df by index
 
-#create_rolling_features(df_temp, "feature_02", 25000)
-df_temp = create_rolling_features(df_temp, "feature_02", 3)
+df, features_rolling = create_rolling_features(df, "feature_61", 37_000) # ~37_000 rows per day
+df = reduce_mem_usage(df, False)
+feature_names = feature_names + features_rolling
 
 
 
@@ -362,38 +394,38 @@ w_valid = df['weight'].loc[df['date_id'].isin(valid_dates)]
 
 
 # additional descriptive features
-def descriptive_stat(df, feature):
-    #features = df.columns.tolist()
-    features = feature
-    df['mean_features'] = df[features].mean(axis=1)
-    df['std_features'] = df[features].std(axis=1)
-    df['max_features'] = df[features].max(axis=1)
-    df['min_features'] = df[features].min(axis=1)
-    df['median_features'] = df[features].median(axis=1)
-    df['range_features'] = df['max_features'] - df['min_features']
-    df['90percentile_features'] = np.percentile(df[features], 90, axis=1)
-    df['75percentile_features'] = np.percentile(df[features], 75, axis=1)
-    df['25percentile_features'] = np.percentile(df[features], 25, axis=1)
-    df['10percentile_features'] = np.percentile(df[features], 10, axis=1)
-    df['kurtosis_features'] = scipy.stats.kurtosis(df[features], axis=1)
-    df['skew_features'] = scipy.stats.skew(df[features], axis=1)
+# def descriptive_stat(df, feature):
+#     #features = df.columns.tolist()
+#     features = feature
+#     df['mean_features'] = df[features].mean(axis=1)
+#     df['std_features'] = df[features].std(axis=1)
+#     df['max_features'] = df[features].max(axis=1)
+#     df['min_features'] = df[features].min(axis=1)
+#     df['median_features'] = df[features].median(axis=1)
+#     df['range_features'] = df['max_features'] - df['min_features']
+#     df['90percentile_features'] = np.percentile(df[features], 90, axis=1)
+#     df['75percentile_features'] = np.percentile(df[features], 75, axis=1)
+#     df['25percentile_features'] = np.percentile(df[features], 25, axis=1)
+#     df['10percentile_features'] = np.percentile(df[features], 10, axis=1)
+#     df['kurtosis_features'] = scipy.stats.kurtosis(df[features], axis=1)
+#     df['skew_features'] = scipy.stats.skew(df[features], axis=1)
     
-    mean_abs_dev = (df[features] - df[features].mean(axis=1).values.reshape(-1, 1)).abs().mean(axis=1)
-    median_abs_dev = (df[features] - df[features].median(axis=1).values.reshape(-1, 1)).abs().mean(axis=1)
-    range_abs_diff = (df[features] - df[features].median(axis=1).values.reshape(-1, 1)).abs().max(axis=1) - (df[features] - df[features].median(axis=1).values.reshape(-1, 1)).abs().min(axis=1)
-    geometric_mean = np.exp(np.log(df[features].replace(0, 1)).mean(axis=1))
-    harmonic_mean = len(features) / (1 / df[features].replace(0, 1)).sum(axis=1)
-    coeff_variation = df['std_features'] / df['mean_features']
-    df['mean_absolute_deviation'] = mean_abs_dev
-    df['median_absolute_deviation'] = median_abs_dev
-    df['range_abs_diff'] = range_abs_diff
-    df['geometric_mean'] = geometric_mean
-    df['harmonic_mean'] = harmonic_mean
-    df['coeff_variation'] = coeff_variation
-    # just keep the descriptive statistics
-    #dataset = df.drop(features, axis=1)
+#     mean_abs_dev = (df[features] - df[features].mean(axis=1).values.reshape(-1, 1)).abs().mean(axis=1)
+#     median_abs_dev = (df[features] - df[features].median(axis=1).values.reshape(-1, 1)).abs().mean(axis=1)
+#     range_abs_diff = (df[features] - df[features].median(axis=1).values.reshape(-1, 1)).abs().max(axis=1) - (df[features] - df[features].median(axis=1).values.reshape(-1, 1)).abs().min(axis=1)
+#     geometric_mean = np.exp(np.log(df[features].replace(0, 1)).mean(axis=1))
+#     harmonic_mean = len(features) / (1 / df[features].replace(0, 1)).sum(axis=1)
+#     coeff_variation = df['std_features'] / df['mean_features']
+#     df['mean_absolute_deviation'] = mean_abs_dev
+#     df['median_absolute_deviation'] = median_abs_dev
+#     df['range_abs_diff'] = range_abs_diff
+#     df['geometric_mean'] = geometric_mean
+#     df['harmonic_mean'] = harmonic_mean
+#     df['coeff_variation'] = coeff_variation
+#     # just keep the descriptive statistics
+#     #dataset = df.drop(features, axis=1)
     
-    return df
+#     return df
 
 
 
@@ -412,7 +444,7 @@ N_fold = 1
 #i = 0
 
 # Function to train a model or load a pre-trained model
-model_name = 'lgb_random_with_diff_comb_plus_lag_top117'
+model_name = 'lgb_random_with_diff_comb_plus_lag_plus_roll_207'
 # Select dates for training based on the fold number
 i=0
 
@@ -428,7 +460,9 @@ w_train = df['weight'].loc[df['date_id'].isin(selected_dates)]
 
 
 
-#del df
+
+
+del df
 # Collect garbage to free up memory
 import gc
 gc.collect()
@@ -439,7 +473,7 @@ model.fit(dfain, y_train, w_train,
           eval_metric=[r2_lgb],
           eval_set=[(X_valid, y_valid, w_valid)], 
           callbacks=[
-              lgb.early_stopping(200), 
+              lgb.early_stopping(100), 
               lgb.log_evaluation(10)
           ])
 
@@ -468,6 +502,6 @@ lgb_feature_importance= pd.DataFrame({
 })
 
 lgb_feature_importance = lgb_feature_importance.sort_values('Importance', ascending=False).reset_index(drop=True)
-lgb_feature_importance.to_csv(model_path + 'lgb_random_with_diff_comb_plus_lag_top117_0.csv', index=False)
+lgb_feature_importance.to_csv(model_path + 'lgb_random_with_diff_comb_plus_lag_plus_roll_207_0.csv', index=False)
 
 
