@@ -235,7 +235,7 @@ def columns_diff(df, combinations):
 
 # create new columns   
 columns_diff(df, combinations)
-df = reduce_mem_usage(df, False)
+#df = reduce_mem_usage(df, False)
 
 # find the new column names - one after random
 new_diff_cols = list(df.columns[df.columns.get_loc('random')+1:])
@@ -327,11 +327,11 @@ def create_rolling_features(df, feature, rows):
     df[f'{feature}_std_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).std()
     df[f'{feature}_max_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).max()
     df[f'{feature}_min_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).min()
-    df[f'{feature}_q01_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.01)
-    df[f'{feature}_q05_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.05)
-    df[f'{feature}_q50_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.50)
-    df[f'{feature}_q95_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.95)
-    df[f'{feature}_q99_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.99)
+    #df[f'{feature}_q01_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.01)
+    #df[f'{feature}_q05_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.05)
+    #df[f'{feature}_q50_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.50)
+    #df[f'{feature}_q95_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.95)
+    #df[f'{feature}_q99_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.99)
     df[f'{feature}_chg_roll_' + str(rows)] = ((df[feature] - df[feature].shift(rows))).fillna(0)
     df[f'{feature}_chg_rate_roll_' + str(rows)] = ((df[feature] - df[feature].shift(rows)) / df[feature].shift(rows)).fillna(0)
     #df[f'{feature}_trend_roll_' + str(rows)] = (df[feature].rolling(window=rows, min_periods=2).apply(calculate_slope, raw=True))  # Use a rolling window of n rows
@@ -343,22 +343,22 @@ def create_rolling_features(df, feature, rows):
         df[f'{feature}_std_roll_std_' + str(window)] = df[f'{feature}_std_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
         df[f'{feature}_max_roll_std_' + str(window)] = df[f'{feature}_max_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
         df[f'{feature}_min_roll_std_' + str(window)] = df[f'{feature}_min_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
-        df[f'{feature}_q01_roll_std_' + str(window)] = df[f'{feature}_q01_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
-        df[f'{feature}_q05_roll_std_' + str(window)] = df[f'{feature}_q05_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
-        df[f'{feature}_q50_roll_std_' + str(window)] = df[f'{feature}_q50_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
-        df[f'{feature}_q95_roll_std_' + str(window)] = df[f'{feature}_q95_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
-        df[f'{feature}_chg_roll_std_' + str(window)] = df[f'{feature}_chg_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
+        #df[f'{feature}_q01_roll_std_' + str(window)] = df[f'{feature}_q01_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
+        #df[f'{feature}_q05_roll_std_' + str(window)] = df[f'{feature}_q05_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
+        #df[f'{feature}_q50_roll_std_' + str(window)] = df[f'{feature}_q50_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
+        #df[f'{feature}_q95_roll_std_' + str(window)] = df[f'{feature}_q95_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
+        #df[f'{feature}_chg_roll_std_' + str(window)] = df[f'{feature}_chg_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
         df[f'{feature}_chg_rate_roll_std_' + str(window)] = df[f'{feature}_chg_rate_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
                 
         #rolling std from original rolling feature
-        df[f'{feature}_avg_roll_avg_' + str(window)] = df[f'{feature}_avg_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
-        df[f'{feature}_std_roll_avg_' + str(window)] = df[f'{feature}_std_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
-        df[f'{feature}_max_roll_avg_' + str(window)] = df[f'{feature}_max_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
-        df[f'{feature}_min_roll_avg_' + str(window)] = df[f'{feature}_min_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
-        df[f'{feature}_q01_roll_avg_' + str(window)] = df[f'{feature}_q01_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
-        df[f'{feature}_q05_roll_avg_' + str(window)] = df[f'{feature}_q05_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
-        df[f'{feature}_q50_roll_avg_' + str(window)] = df[f'{feature}_q50_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
-        df[f'{feature}_q95_roll_avg_' + str(window)] = df[f'{feature}_q95_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
+        #df[f'{feature}_avg_roll_avg_' + str(window)] = df[f'{feature}_avg_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
+        #df[f'{feature}_std_roll_avg_' + str(window)] = df[f'{feature}_std_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
+        #df[f'{feature}_max_roll_avg_' + str(window)] = df[f'{feature}_max_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
+        #df[f'{feature}_min_roll_avg_' + str(window)] = df[f'{feature}_min_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
+        #df[f'{feature}_q01_roll_avg_' + str(window)] = df[f'{feature}_q01_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
+        #df[f'{feature}_q05_roll_avg_' + str(window)] = df[f'{feature}_q05_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
+        #df[f'{feature}_q50_roll_avg_' + str(window)] = df[f'{feature}_q50_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
+        #df[f'{feature}_q95_roll_avg_' + str(window)] = df[f'{feature}_q95_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
         df[f'{feature}_chg_roll_avg_' + str(window)] = df[f'{feature}_chg_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
         df[f'{feature}_chg_rate_roll_avg_' + str(window)] = df[f'{feature}_chg_rate_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
         print(f'Addtional rolling {feature} for window {window} are done..')
@@ -383,7 +383,20 @@ df, features_rolling = create_rolling_features(df, "feature_30", 37_000) # ~37_0
 feature_names = feature_names + features_rolling
 
 
+# reduce ram requirement
 df = reduce_mem_usage(df, False)
+
+
+# check correlation
+feature_61_cols = [col for col in df.columns if 'feature_30' in col]
+plt.figure(figsize=(40, 40))
+plt.title('Correlation Matrix\n')
+corr_matrix = df[feature_61_cols].corr()
+sns.heatmap(corr_matrix, vmin=-1, vmax=1, annot=True, fmt='.2f', cmap='viridis', center=0)
+plt.show()
+
+
+
 
 # If in training mode, prepare validation data
 # Extract features, target, and weights for validation dates
@@ -450,7 +463,7 @@ N_fold = 1
 #i = 0
 
 # Function to train a model or load a pre-trained model
-model_name = 'lgb_random_with_diff_comb_plus_lag_plus_roll_199'
+model_name = 'lgb_random_with_diff_comb_plus_lag_plus_roll_163'
 # Select dates for training based on the fold number
 i=0
 
@@ -508,13 +521,8 @@ lgb_feature_importance= pd.DataFrame({
 })
 
 lgb_feature_importance = lgb_feature_importance.sort_values('Importance', ascending=False).reset_index(drop=True)
-lgb_feature_importance.to_csv(model_path + 'lgb_random_with_diff_comb_plus_lag_plus_roll_199_0.csv', index=False)
+lgb_feature_importance.to_csv(model_path + 'lgb_random_with_diff_comb_plus_lag_plus_roll_163_0.csv', index=False)
 
 
 
 
-#correlation matrix
-plt.figure(figsize=(10, 10))
-plt.title('Correlation Matrix\n')
-sns.heatmap(dfain.corr(), vmin=-1, vmax=1, annot=True, fmt='.2f', cmap='viridis', center=0)
-plt.show()
