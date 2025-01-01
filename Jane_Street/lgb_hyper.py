@@ -379,8 +379,8 @@ df, features_rolling = create_rolling_features(df, "feature_61", 37_000) # ~37_0
 feature_names = feature_names + features_rolling
 
 # feature_30 was on 2nd top 
-df, features_rolling = create_rolling_features(df, "feature_30", 37_000) # ~37_000 rows per day
-feature_names = feature_names + features_rolling
+#df, features_rolling = create_rolling_features(df, "feature_30", 37_000) # ~37_000 rows per day
+#feature_names = feature_names + features_rolling
 
 
 # reduce ram requirement
@@ -388,7 +388,7 @@ df = reduce_mem_usage(df, False)
 
 
 # check correlation
-feature_61_cols = [col for col in df.columns if 'feature_30' in col]
+feature_61_cols = [col for col in df.columns if 'feature_61' in col]
 plt.figure(figsize=(40, 40))
 plt.title('Correlation Matrix\n')
 corr_matrix = df[feature_61_cols].corr()
@@ -463,7 +463,7 @@ N_fold = 1
 #i = 0
 
 # Function to train a model or load a pre-trained model
-model_name = 'lgb_random_with_diff_comb_plus_lag_plus_roll_163'
+model_name = 'lgb_random_with_diff_comb_plus_lag_plus_roll_150'
 # Select dates for training based on the fold number
 i=0
 
@@ -521,7 +521,7 @@ lgb_feature_importance= pd.DataFrame({
 })
 
 lgb_feature_importance = lgb_feature_importance.sort_values('Importance', ascending=False).reset_index(drop=True)
-lgb_feature_importance.to_csv(model_path + 'lgb_random_with_diff_comb_plus_lag_plus_roll_163_0.csv', index=False)
+lgb_feature_importance.to_csv(model_path + 'lgb_random_with_diff_comb_plus_lag_plus_roll_150_0.csv', index=False)
 
 
 
