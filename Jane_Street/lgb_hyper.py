@@ -24,7 +24,6 @@ from sklearn.linear_model import LinearRegression
 
 import lightgbm as lgb
 import matplotlib.pyplot as plt
-import seaborn as sns
 
 
 from tqdm import tqdm, tqdm_notebook
@@ -235,7 +234,7 @@ def columns_diff(df, combinations):
 
 # create new columns   
 columns_diff(df, combinations)
-#df = reduce_mem_usage(df, False)
+df = reduce_mem_usage(df, False)
 
 # find the new column names - one after random
 new_diff_cols = list(df.columns[df.columns.get_loc('random')+1:])
@@ -327,11 +326,11 @@ def create_rolling_features(df, feature, rows):
     df[f'{feature}_std_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).std()
     df[f'{feature}_max_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).max()
     df[f'{feature}_min_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).min()
-    #df[f'{feature}_q01_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.01)
-    #df[f'{feature}_q05_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.05)
+    df[f'{feature}_q01_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.01)
+    df[f'{feature}_q05_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.05)
     df[f'{feature}_q50_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.50)
-    #df[f'{feature}_q95_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.95)
-    #df[f'{feature}_q99_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.99)
+    df[f'{feature}_q95_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.95)
+    df[f'{feature}_q99_roll_' + str(rows)] = df[feature].rolling(window=rows, min_periods=1).quantile(0.99)
     df[f'{feature}_chg_roll_' + str(rows)] = ((df[feature] - df[feature].shift(rows))).fillna(0)
     df[f'{feature}_chg_rate_roll_' + str(rows)] = ((df[feature] - df[feature].shift(rows)) / df[feature].shift(rows)).fillna(0)
     #df[f'{feature}_trend_roll_' + str(rows)] = (df[feature].rolling(window=rows, min_periods=2).apply(calculate_slope, raw=True))  # Use a rolling window of n rows
@@ -343,25 +342,25 @@ def create_rolling_features(df, feature, rows):
         df[f'{feature}_std_roll_std_' + str(window)] = df[f'{feature}_std_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
         df[f'{feature}_max_roll_std_' + str(window)] = df[f'{feature}_max_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
         df[f'{feature}_min_roll_std_' + str(window)] = df[f'{feature}_min_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
-        #df[f'{feature}_q01_roll_std_' + str(window)] = df[f'{feature}_q01_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
-        #df[f'{feature}_q05_roll_std_' + str(window)] = df[f'{feature}_q05_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
+        df[f'{feature}_q01_roll_std_' + str(window)] = df[f'{feature}_q01_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
+        df[f'{feature}_q05_roll_std_' + str(window)] = df[f'{feature}_q05_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
         df[f'{feature}_q50_roll_std_' + str(window)] = df[f'{feature}_q50_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
-        #df[f'{feature}_q95_roll_std_' + str(window)] = df[f'{feature}_q95_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
+        df[f'{feature}_q95_roll_std_' + str(window)] = df[f'{feature}_q95_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
         df[f'{feature}_chg_roll_std_' + str(window)] = df[f'{feature}_chg_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
         df[f'{feature}_chg_rate_roll_std_' + str(window)] = df[f'{feature}_chg_rate_roll_' + str(rows)].rolling(window=rows, min_periods=1).std()
                 
         #rolling std from original rolling feature
-        #df[f'{feature}_avg_roll_avg_' + str(window)] = df[f'{feature}_avg_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
-        #df[f'{feature}_std_roll_avg_' + str(window)] = df[f'{feature}_std_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
+        df[f'{feature}_avg_roll_avg_' + str(window)] = df[f'{feature}_avg_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
+        df[f'{feature}_std_roll_avg_' + str(window)] = df[f'{feature}_std_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
         df[f'{feature}_max_roll_avg_' + str(window)] = df[f'{feature}_max_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
-        #df[f'{feature}_min_roll_avg_' + str(window)] = df[f'{feature}_min_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
-        #df[f'{feature}_q01_roll_avg_' + str(window)] = df[f'{feature}_q01_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
-        #df[f'{feature}_q05_roll_avg_' + str(window)] = df[f'{feature}_q05_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
-        #df[f'{feature}_q50_roll_avg_' + str(window)] = df[f'{feature}_q50_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
-        #df[f'{feature}_q95_roll_avg_' + str(window)] = df[f'{feature}_q95_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
+        df[f'{feature}_min_roll_avg_' + str(window)] = df[f'{feature}_min_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
+        df[f'{feature}_q01_roll_avg_' + str(window)] = df[f'{feature}_q01_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
+        df[f'{feature}_q05_roll_avg_' + str(window)] = df[f'{feature}_q05_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
+        df[f'{feature}_q50_roll_avg_' + str(window)] = df[f'{feature}_q50_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
+        df[f'{feature}_q95_roll_avg_' + str(window)] = df[f'{feature}_q95_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
         df[f'{feature}_chg_roll_avg_' + str(window)] = df[f'{feature}_chg_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
         df[f'{feature}_chg_rate_roll_avg_' + str(window)] = df[f'{feature}_chg_rate_roll_' + str(rows)].rolling(window=rows, min_periods=1).mean()
-        print(f'Addtional rolling {feature} for window {window} are done..')
+        print(f"Addtional rolling features for window {window} are done..")
         
     features_all = list(df.columns)
     features_new = [col for col in features_all if col not in features_original]
@@ -374,27 +373,9 @@ def create_rolling_features(df, feature, rows):
 # df_check = df[['id','date_id','time_id','symbol_id']]
 
 
-# feature_61 was on top before adding any rolling features
 df, features_rolling = create_rolling_features(df, "feature_61", 37_000) # ~37_000 rows per day
-feature_names = feature_names + features_rolling
-
-# feature_30 was on 2nd top 
-#df, features_rolling = create_rolling_features(df, "feature_30", 37_000) # ~37_000 rows per day
-#feature_names = feature_names + features_rolling
-
-
-# reduce ram requirement
 df = reduce_mem_usage(df, False)
-
-
-# check correlation
-feature_61_cols = [col for col in df.columns if 'feature_61' in col]
-plt.figure(figsize=(40, 40))
-plt.title('Correlation Matrix\n')
-corr_matrix = df[feature_61_cols].corr()
-sns.heatmap(corr_matrix, vmin=-1, vmax=1, annot=True, fmt='.2f', cmap='viridis', center=0)
-plt.show()
-
+feature_names = feature_names + features_rolling
 
 
 
@@ -463,14 +444,14 @@ N_fold = 1
 #i = 0
 
 # Function to train a model or load a pre-trained model
-model_name = 'lgb_random_with_diff_comb_plus_lag_plus_roll_154'
+model_name = 'lgb_random_with_diff_comb_plus_lag_plus_roll_167'
 # Select dates for training based on the fold number
 i=0
 
 selected_dates = [date for ii, date in enumerate(train_dates) if ii % N_fold == i]
 
 # Specify model
-model =lgb.LGBMRegressor(n_estimators=500, device='cpu', gpu_use_dp=True, objective='l2')
+model =lgb.LGBMRegressor(n_estimators=500, device='gpu', gpu_use_dp=True, objective='l2')
 
 # Extract features, target, and weights for the selected training dates
 dfain = df[feature_names].loc[df['date_id'].isin(selected_dates)]
@@ -495,7 +476,7 @@ model.fit(dfain, y_train, w_train,
               lgb.early_stopping(100), 
               lgb.log_evaluation(10)
           ])
-# valid_0's l2: 0.643952	valid_0's r2: 0.00675394
+
 
 # Append the trained model to the list
 #models.append(model)
@@ -521,8 +502,6 @@ lgb_feature_importance= pd.DataFrame({
 })
 
 lgb_feature_importance = lgb_feature_importance.sort_values('Importance', ascending=False).reset_index(drop=True)
-lgb_feature_importance.to_csv(model_path + 'lgb_random_with_diff_comb_plus_lag_plus_roll_154_0.csv', index=False)
-
-
+lgb_feature_importance.to_csv(model_path + 'lgb_random_with_diff_comb_plus_lag_plus_roll_167_0.csv', index=False)
 
 
