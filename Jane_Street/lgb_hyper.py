@@ -536,7 +536,7 @@ best_params = study.best_params
 best_score = -study.best_value
 
 # Format the file name with the best score
-file_name = model_path + f"lgb_with_diff_comb_plus_lag_plus_roll_99_hyper-parameters_{best_score:.4f}.csv"
+file_name = model_path + f"lgb_with_diff_comb_plus_lag_plus_roll_99_parameters_{best_score:.4f}.csv"
 
 # Save the best parameters to a CSV file
 df_param = pd.DataFrame([best_params])  # Convert to DataFrame
@@ -546,16 +546,16 @@ print(f"Best parameters saved to {file_name}")
 
 
 
-best_params = {'boosting_type': 'gbdt',
-     'num_leaves': 129,
-     'learning_rate': 0.03750657256278831,
-     'feature_fraction': 0.8250061015238525,
-     'bagging_fraction': 0.6124354446736642,
-     'bagging_freq': 11,
-     'min_data_in_leaf': 36,
-     'max_depth': 9,
-     'lambda_l1': 0.3066945171837958,
-     'lambda_l2': 0.0008372317612231998}
+# best_params = {'boosting_type': 'gbdt',
+#      'num_leaves': 129,
+#      'learning_rate': 0.03750657256278831,
+#      'feature_fraction': 0.8250061015238525,
+#      'bagging_fraction': 0.6124354446736642,
+#      'bagging_freq': 11,
+#      'min_data_in_leaf': 36,
+#      'max_depth': 9,
+#      'lambda_l1': 0.3066945171837958,
+#      'lambda_l2': 0.0008372317612231998}
 
 
 
