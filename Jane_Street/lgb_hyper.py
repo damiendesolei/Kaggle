@@ -30,7 +30,11 @@ from tqdm import tqdm, tqdm_notebook
 from joblib import Parallel, delayed
 
 
+import optuna
 
+
+        
+        
 
 def reduce_mem_usage(self, float16_as32=True):
     #memory_usage()是df每列的内存使用量,sum是对它们求和, B->KB->MB
@@ -157,7 +161,7 @@ train
 
 
 df = train.collect().to_pandas()
-df = reduce_mem_usage(df, False)
+#df = reduce_mem_usage(df, False)
 feature_lagged_responders =  [f"responder_{idx}_lag_1" for idx in range(9)]
 feature_names = feature_names + feature_lagged_responders 
 
@@ -198,9 +202,9 @@ model_path = '/kaggle/input/jsbaselinezyz' if os.path.exists('/kaggle/input/jsba
 #     + list(combination_2[(combination_2.Importance>0) & (combination_2.Feature.str.len()>10)]['Feature']) \
 #     + list(combination_3[(combination_3.Importance>0) & (combination_3.Feature.str.len()>10)]['Feature'])
 
-comb = pd.read_csv(model_path + "lgb_random_with_diff_combination_48_plus_lag_0(l2_0.643723_r2_0.00710699).csv")
+comb = pd.read_csv(model_path + "lgb_random_with_diff_comb_plus_lag_plus_roll_167_0(l2_0.643665_r2_0.00719742).csv")
 #find the features with importance >= random
-comb_features = list(comb[(comb.Importance>=1) & (comb.Feature.str.len()>=26)]['Feature']) 
+comb_features = list(comb[(comb.Importance>=1) & (comb.Feature.str.len()==26)]['Feature']) 
 
 combinations = [
     ('feature_'+element.split('_')[2], 'feature_'+element.split('_')[4]) 
@@ -228,13 +232,14 @@ combinations = [
 
 def columns_diff(df, combinations):
     for i, j in combinations:
-        print(f'feature_{i} - feature_{j} is done..')
+        #print(f'feature_{i} - feature_{j} is done..')
         df[f'diff_{i}_{j}'] = df[i] - df[j]
+    print('Diff features are created...')
     return df
 
 # create new columns   
 columns_diff(df, combinations)
-df = reduce_mem_usage(df, False)
+#df = reduce_mem_usage(df, False)
 
 # find the new column names - one after random
 new_diff_cols = list(df.columns[df.columns.get_loc('random')+1:])
@@ -374,8 +379,15 @@ def create_rolling_features(df, feature, rows):
 
 
 df, features_rolling = create_rolling_features(df, "feature_61", 37_000) # ~37_000 rows per day
-df = reduce_mem_usage(df, False)
+reduce_mem_usage(df, False)
 feature_names = feature_names + features_rolling
+
+
+
+
+# override feature names to top 
+feature_names = comb_features = list(comb[comb.Importance>=1]['Feature']) #top 166 features
+
 
 
 
@@ -429,8 +441,8 @@ w_valid = df['weight'].loc[df['date_id'].isin(valid_dates)]
 
 
 
-# Initialize a list to store trained models
-models = []
+# # Initialize a list to store trained models
+# models = []
 
 
 # Custom R2 metric for LightGBM
@@ -443,18 +455,17 @@ def r2_lgb(y_true, y_pred, sample_weight):
 N_fold = 1
 #i = 0
 
-# Function to train a model or load a pre-trained model
-model_name = 'lgb_random_with_diff_comb_plus_lag_plus_roll_167'
+
 # Select dates for training based on the fold number
 i=0
 
 selected_dates = [date for ii, date in enumerate(train_dates) if ii % N_fold == i]
 
-# Specify model
-model =lgb.LGBMRegressor(n_estimators=500, device='gpu', gpu_use_dp=True, objective='l2')
+# # Specify model
+# model =lgb.LGBMRegressor(n_estimators=500, device='gpu', gpu_use_dp=True, objective='l2')
 
 # Extract features, target, and weights for the selected training dates
-dfain = df[feature_names].loc[df['date_id'].isin(selected_dates)]
+X_train = df[feature_names].loc[df['date_id'].isin(selected_dates)]
 y_train = df['responder_6'].loc[df['date_id'].isin(selected_dates)]
 w_train = df['weight'].loc[df['date_id'].isin(selected_dates)]
 
@@ -467,9 +478,98 @@ del df
 import gc
 gc.collect()
 
+
+
+
+def objective(trial):
+    # Define parameter search space
+    param = {
+        "objective": "regression",
+        "metric": "None",  # Disable default metrics
+        "boosting_type": trial.suggest_categorical("boosting_type", ["gbdt", "dart"]),
+        "num_leaves": trial.suggest_int("num_leaves", 20, 256),
+        "learning_rate": trial.suggest_loguniform("learning_rate", 1e-4, 1e-1),
+        "feature_fraction": trial.suggest_uniform("feature_fraction", 0.6, 1.0),
+        "bagging_fraction": trial.suggest_uniform("bagging_fraction", 0.6, 1.0),
+        "bagging_freq": trial.suggest_int("bagging_freq", 5, 12),
+        "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 20, 100),
+        "max_depth": trial.suggest_int("max_depth", -1, 16),  # -1 means no limit
+        "lambda_l1": trial.suggest_loguniform("lambda_l1", 1e-4, 10.0),
+        "lambda_l2": trial.suggest_loguniform("lambda_l2", 1e-4, 10.0),
+        "device_type": "gpu",  # Enable GPU support
+        "seed" : 12
+
+    }
+
+    # Create a LightGBM dataset
+    dtrain = lgb.Dataset(X_train, y_train, weight=w_train)
+    dval = lgb.Dataset(X_valid, y_valid, weight=w_valid, reference=dtrain)
+
+    # Train LightGBM model
+    model = lgb.train(
+        param,
+        dtrain,
+        valid_sets=[dval],
+        feval=lambda y_pred, dval: r2_lgb(dval.get_label(), y_pred, dval.get_weight()),  # Use weights in the custom metric
+        callbacks=[
+            lgb.early_stopping(100), 
+            lgb.log_evaluation(10)]
+    )
+
+    # Use the best score (maximized R²) as the objective to minimize (negative sign)
+    best_score = model.best_score["valid_0"]["r2"]
+    return -best_score
+ 
+
+# Run Optuna study
+print("Start running hyper parameter tuning..")
+study = optuna.create_study(direction="minimize")
+study.optimize(objective, timeout=7200) # 2 hour
+
+# Print the best hyperparameters and score
+print("Best hyperparameters:", study.best_params)
+print("Best weighted r2:", -study.best_value)
+
+# Get the best parameters and score
+best_params = study.best_params
+best_score = -study.best_value
+
+# Format the file name with the best score
+file_name = model_path + f"lgb_random_with_diff_comb_plus_lag_plus_roll_167_hyper-parameters_{best_score:.4f}.csv"
+
+# Save the best parameters to a CSV file
+df_param = pd.DataFrame([best_params])  # Convert to DataFrame
+df_param.to_csv(file_name, index=False)  # Save to CSV
+
+print(f"Best parameters saved to {file_name}")
+
+
+
+best_params = {'boosting_type': 'dart',
+          'num_leaves': 230,
+          'learning_rate': 0.07504761814542842,
+          'feature_fraction': 0.9032502315324735,
+          'bagging_fraction': 0.706869158243077,
+          'bagging_freq': 12,
+          'min_data_in_leaf': 88,
+          'max_depth': 14,
+          'lambda_l1': 7.007441196554272,
+          'lambda_l2': 3.40952321997674}
+
+
+
+
+
+# Function to train a model or load a pre-trained model
+model_name = 'lgb_random_with_diff_comb_plus_lag_plus_roll_167_hyper'
+
+
 # Train the model based on the type (LightGBM, XGBoost, or CatBoost)
+model =lgb.LGBMRegressor(n_estimators=500, device='gpu', gpu_use_dp=True, objective='l2', **best_params) # from Hyper param tuning
+
+
 # Train LightGBM model with early stopping and evaluation logging
-model.fit(dfain, y_train, w_train,  
+model.fit(X_train, y_train, w_train,  
           eval_metric=[r2_lgb],
           eval_set=[(X_valid, y_valid, w_valid)], 
           callbacks=[
@@ -481,8 +581,19 @@ model.fit(dfain, y_train, w_train,
 # Append the trained model to the list
 #models.append(model)
 
+# Output the best weighted r2 score
+r2 = max(model.evals_result_['valid_0']['r2'])
+print(f"valid r2: {r2}")
+
+  
+    
 # Save the trained model to a file
-joblib.dump(model, f'./models/{model_name}_{i}.model')
+joblib.dump(model, f'./models/{model_name}_{i}_{r2:.6f}.model')
+
+
+# Save the feature names
+feature_names_pd = pd.DataFrame(feature_names)
+feature_names_pd.to_csv(f'./models/{model_name}_{i}_{r2:.6f}_feature_names.csv')
 
 
 
@@ -502,6 +613,6 @@ lgb_feature_importance= pd.DataFrame({
 })
 
 lgb_feature_importance = lgb_feature_importance.sort_values('Importance', ascending=False).reset_index(drop=True)
-lgb_feature_importance.to_csv(model_path + 'lgb_random_with_diff_comb_plus_lag_plus_roll_167_0.csv', index=False)
+lgb_feature_importance.to_csv(model_path + 'lgb_random_with_diff_comb_plus_lag_plus_roll_167_hyper_0.csv', index=False)
 
 
