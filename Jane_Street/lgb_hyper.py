@@ -23,6 +23,7 @@ from sklearn.linear_model import LinearRegression
 
 
 import lightgbm as lgb
+from sklearn.metrics import r2_score
 import matplotlib.pyplot as plt
 
 
@@ -202,7 +203,7 @@ model_path = '/kaggle/input/jsbaselinezyz' if os.path.exists('/kaggle/input/jsba
 #     + list(combination_2[(combination_2.Importance>0) & (combination_2.Feature.str.len()>10)]['Feature']) \
 #     + list(combination_3[(combination_3.Importance>0) & (combination_3.Feature.str.len()>10)]['Feature'])
 
-comb = pd.read_csv(model_path + "lgb_random_with_diff_comb_plus_lag_plus_roll_167_0(l2_0.643665_r2_0.00719742).csv")
+comb = pd.read_csv(model_path + "lgb_random_with_diff_comb_plus_lag_plus_roll_167_hyper_0_0.008017.csv")
 #find the features with importance >= random
 comb_features = list(comb[(comb.Importance>=1) & (comb.Feature.str.len()==26)]['Feature']) 
 
@@ -386,7 +387,7 @@ feature_names = feature_names + features_rolling
 
 
 # override feature names to top 
-feature_names = comb_features = list(comb[comb.Importance>=1]['Feature']) #top 166 features
+feature_names = comb_features = list(comb[comb.Importance>=500]['Feature']) #top 99 features
 
 
 
@@ -487,15 +488,15 @@ def objective(trial):
         "objective": "regression",
         "metric": "None",  # Disable default metrics
         "boosting_type": trial.suggest_categorical("boosting_type", ["gbdt", "dart"]),
-        "num_leaves": trial.suggest_int("num_leaves", 20, 256),
+        "num_leaves": trial.suggest_int("num_leaves", 8, 256),
         "learning_rate": trial.suggest_loguniform("learning_rate", 1e-4, 1e-1),
         "feature_fraction": trial.suggest_uniform("feature_fraction", 0.6, 1.0),
         "bagging_fraction": trial.suggest_uniform("bagging_fraction", 0.6, 1.0),
         "bagging_freq": trial.suggest_int("bagging_freq", 5, 12),
         "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 20, 100),
         "max_depth": trial.suggest_int("max_depth", -1, 16),  # -1 means no limit
-        "lambda_l1": trial.suggest_loguniform("lambda_l1", 1e-4, 10.0),
-        "lambda_l2": trial.suggest_loguniform("lambda_l2", 1e-4, 10.0),
+        "lambda_l1": trial.suggest_loguniform("lambda_l1", 1e-4, 1.0),
+        "lambda_l2": trial.suggest_loguniform("lambda_l2", 1e-4, 1.0),
         "device_type": "gpu",  # Enable GPU support
         "seed" : 12
 
@@ -535,7 +536,7 @@ best_params = study.best_params
 best_score = -study.best_value
 
 # Format the file name with the best score
-file_name = model_path + f"lgb_random_with_diff_comb_plus_lag_plus_roll_167_hyper-parameters_{best_score:.4f}.csv"
+file_name = model_path + f"lgb_with_diff_comb_plus_lag_plus_roll_99_hyper-parameters_{best_score:.4f}.csv"
 
 # Save the best parameters to a CSV file
 df_param = pd.DataFrame([best_params])  # Convert to DataFrame
@@ -545,23 +546,23 @@ print(f"Best parameters saved to {file_name}")
 
 
 
-best_params = {'boosting_type': 'dart',
-          'num_leaves': 230,
-          'learning_rate': 0.07504761814542842,
-          'feature_fraction': 0.9032502315324735,
-          'bagging_fraction': 0.706869158243077,
-          'bagging_freq': 12,
-          'min_data_in_leaf': 88,
-          'max_depth': 14,
-          'lambda_l1': 7.007441196554272,
-          'lambda_l2': 3.40952321997674}
+best_params = {'boosting_type': 'gbdt',
+     'num_leaves': 129,
+     'learning_rate': 0.03750657256278831,
+     'feature_fraction': 0.8250061015238525,
+     'bagging_fraction': 0.6124354446736642,
+     'bagging_freq': 11,
+     'min_data_in_leaf': 36,
+     'max_depth': 9,
+     'lambda_l1': 0.3066945171837958,
+     'lambda_l2': 0.0008372317612231998}
 
 
 
 
 
 # Function to train a model or load a pre-trained model
-model_name = 'lgb_random_with_diff_comb_plus_lag_plus_roll_167_hyper'
+model_name = 'lgb_with_diff_comb_plus_lag_plus_roll_99_hyper'
 
 
 # Train the model based on the type (LightGBM, XGBoost, or CatBoost)
@@ -613,6 +614,5 @@ lgb_feature_importance= pd.DataFrame({
 })
 
 lgb_feature_importance = lgb_feature_importance.sort_values('Importance', ascending=False).reset_index(drop=True)
-lgb_feature_importance.to_csv(model_path + f'lgb_random_with_diff_comb_plus_lag_plus_roll_167_hyper_0_{r2:.6f}.csv', index=False)
-
+lgb_feature_importance.to_csv(model_path + f'{model_name}_0_{r2:.6f}.csv', index=False)
 
