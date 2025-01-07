@@ -592,8 +592,8 @@ joblib.dump(model, f'./models/{model_name}_{i}_{r2:.6f}.model')
 
 
 # Save the feature names
-feature_names_pd = pd.DataFrame(feature_names)
-feature_names_pd.to_csv(f'./models/{model_name}_{i}_{r2:.6f}_feature_names.csv')
+#feature_names_pd = pd.DataFrame(feature_names)
+#feature_names_pd.to_csv(f'./models/{model_name}_{i}_{r2:.6f}_feature_names.csv')
 
 
 
@@ -613,6 +613,6 @@ lgb_feature_importance= pd.DataFrame({
 })
 
 lgb_feature_importance = lgb_feature_importance.sort_values('Importance', ascending=False).reset_index(drop=True)
-lgb_feature_importance.to_csv(model_path + 'lgb_random_with_diff_comb_plus_lag_plus_roll_167_hyper_0.csv', index=False)
+lgb_feature_importance.to_csv(model_path + f'lgb_random_with_diff_comb_plus_lag_plus_roll_167_hyper_0_{r2:.6f}.csv', index=False)
 
 
