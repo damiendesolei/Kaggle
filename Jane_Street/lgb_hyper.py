@@ -203,7 +203,7 @@ model_path = '/kaggle/input/jsbaselinezyz' if os.path.exists('/kaggle/input/jsba
 #     + list(combination_2[(combination_2.Importance>0) & (combination_2.Feature.str.len()>10)]['Feature']) \
 #     + list(combination_3[(combination_3.Importance>0) & (combination_3.Feature.str.len()>10)]['Feature'])
 
-comb = pd.read_csv(model_path + "lgb_random_with_diff_comb_plus_lag_plus_roll_167_hyper_0_0.008017.csv")
+comb = pd.read_csv(model_path + "lgb_with_diff_comb_plus_lag_plus_roll_99_hyper_0_0.007095.csv")
 #find the features with importance >= random
 comb_features = list(comb[(comb.Importance>=1) & (comb.Feature.str.len()==26)]['Feature']) 
 
@@ -211,6 +211,12 @@ combinations = [
     ('feature_'+element.split('_')[2], 'feature_'+element.split('_')[4]) 
     for element in comb_features
 ]
+
+
+#overwrite to reduce the number of diff features as the LB is showing negative score
+combinations = [('feature_07', 'feature_56'), ('feature_07', 'feature_60'), ('feature_04', 'feature_60')
+                , ('feature_09', 'feature_28'), ('feature_06', 'feature_59'), ('feature_15', 'feature_36')]
+
 
 # # new features of column difference
 # feature_names_0 = [f"feature_{i:02d}" for i in range(79)] 
@@ -387,9 +393,13 @@ feature_names = feature_names + features_rolling
 
 
 # override feature names to top 
-feature_names = comb_features = list(comb[comb.Importance>=500]['Feature']) #top 99 features
-
-
+feature_names_0 = [f"feature_{i:02d}" for i in range(79)]
+feature_lagged_responders =  [f"responder_{idx}_lag_1" for idx in range(9)]
+diff_features = ['diff_feature_07_feature_56','diff_feature_07_feature_60','diff_feature_04_feature_60',
+                 'diff_feature_09_feature_28','diff_feature_06_feature_59','diff_feature_15_feature_36']
+rolling_features = ['feature_61_chg_rate_roll_avg_37000','feature_61_chg_rate_roll_37000',
+                    'feature_61_std_roll_std_37000','feature_61_chg_roll_avg_37000','feature_61_chg_rate_roll_std_37000']
+feature_names = feature_names_0 + feature_lagged_responders + diff_features + rolling_features
 
 
 # If in training mode, prepare validation data
@@ -489,11 +499,11 @@ def objective(trial):
         "metric": "None",  # Disable default metrics
         "boosting_type": trial.suggest_categorical("boosting_type", ["gbdt", "dart"]),
         "num_leaves": trial.suggest_int("num_leaves", 8, 256),
-        "learning_rate": trial.suggest_loguniform("learning_rate", 1e-4, 1e-1),
-        "feature_fraction": trial.suggest_uniform("feature_fraction", 0.6, 1.0),
-        "bagging_fraction": trial.suggest_uniform("bagging_fraction", 0.6, 1.0),
+        "learning_rate": trial.suggest_loguniform("learning_rate", 1e-3, 1e-1),
+        "feature_fraction": trial.suggest_uniform("feature_fraction", 0.8, 1.0),
+        "bagging_fraction": trial.suggest_uniform("bagging_fraction", 0.8, 1.0),
         "bagging_freq": trial.suggest_int("bagging_freq", 5, 12),
-        "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 20, 100),
+        "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 10, 200),
         "max_depth": trial.suggest_int("max_depth", -1, 16),  # -1 means no limit
         "lambda_l1": trial.suggest_loguniform("lambda_l1", 1e-4, 1.0),
         "lambda_l2": trial.suggest_loguniform("lambda_l2", 1e-4, 1.0),
@@ -525,7 +535,7 @@ def objective(trial):
 # Run Optuna study
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(direction="minimize")
-study.optimize(objective, timeout=7200) # 2 hour
+study.optimize(objective, timeout=10800) # 2 hour
 
 # Print the best hyperparameters and score
 print("Best hyperparameters:", study.best_params)
@@ -536,7 +546,7 @@ best_params = study.best_params
 best_score = -study.best_value
 
 # Format the file name with the best score
-file_name = model_path + f"lgb_with_diff_comb_plus_lag_plus_roll_99_parameters_{best_score:.4f}.csv"
+file_name = model_path + f"lgb_with_diff_comb_plus_lag_plus_roll_100_parameters_{best_score:.4f}.csv"
 
 # Save the best parameters to a CSV file
 df_param = pd.DataFrame([best_params])  # Convert to DataFrame
@@ -562,7 +572,7 @@ print(f"Best parameters saved to {file_name}")
 
 
 # Function to train a model or load a pre-trained model
-model_name = 'lgb_with_diff_comb_plus_lag_plus_roll_99_hyper'
+model_name = 'lgb_with_diff_comb_plus_lag_plus_roll_100_hyper'
 
 
 # Train the model based on the type (LightGBM, XGBoost, or CatBoost)
