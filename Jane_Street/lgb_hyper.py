@@ -399,8 +399,12 @@ diff_features = ['diff_feature_07_feature_56','diff_feature_07_feature_60','diff
                  'diff_feature_09_feature_28','diff_feature_06_feature_59','diff_feature_15_feature_36']
 rolling_features = ['feature_61_chg_rate_roll_avg_37000','feature_61_chg_rate_roll_37000',
                     'feature_61_std_roll_std_37000','feature_61_chg_roll_avg_37000','feature_61_chg_rate_roll_std_37000']
-feature_names = feature_names_0 + feature_lagged_responders + diff_features + rolling_features
+# feature_names = feature_names_0 + feature_lagged_responders + diff_features + rolling_features
+remove_features = ['feature_15', 'feature_17', 'feature_32', 'feature_33', 'feature_39', 'feature_41','feature_42', 
+                   'feature_44', 'feature_50', 'feature_52', 'feature_53', 'feature_55', 'feature_58', 'feature_73', 'feature_74']
 
+feature_names = feature_names_0 + feature_lagged_responders
+feature_names = [feature for feature in feature_names if feature not in remove_features]
 
 # If in training mode, prepare validation data
 # Extract features, target, and weights for validation dates
@@ -535,7 +539,7 @@ def objective(trial):
 # Run Optuna study
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(direction="minimize")
-study.optimize(objective, timeout=10800) # 2 hour
+study.optimize(objective, timeout=10800) # 3 hour
 
 # Print the best hyperparameters and score
 print("Best hyperparameters:", study.best_params)
@@ -546,7 +550,7 @@ best_params = study.best_params
 best_score = -study.best_value
 
 # Format the file name with the best score
-file_name = model_path + f"lgb_with_diff_comb_plus_lag_plus_roll_100_parameters_{best_score:.4f}.csv"
+file_name = model_path + f"lgb_plus_lag_73_parameters_{best_score:.4f}.csv"
 
 # Save the best parameters to a CSV file
 df_param = pd.DataFrame([best_params])  # Convert to DataFrame
@@ -572,7 +576,7 @@ print(f"Best parameters saved to {file_name}")
 
 
 # Function to train a model or load a pre-trained model
-model_name = 'lgb_with_diff_comb_plus_lag_plus_roll_100_hyper'
+model_name = 'lgb_plus_lag_73_hyper'
 
 
 # Train the model based on the type (LightGBM, XGBoost, or CatBoost)
