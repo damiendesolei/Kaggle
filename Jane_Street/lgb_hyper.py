@@ -403,8 +403,12 @@ rolling_features = ['feature_61_chg_rate_roll_avg_37000','feature_61_chg_rate_ro
 remove_features = ['feature_15', 'feature_17', 'feature_32', 'feature_33', 'feature_39', 'feature_41','feature_42', 
                    'feature_44', 'feature_50', 'feature_52', 'feature_53', 'feature_55', 'feature_58', 'feature_73', 'feature_74']
 
-feature_names = feature_names_0 + feature_lagged_responders
+feature_names = feature_names_0 #+ feature_lagged_responders
 feature_names = [feature for feature in feature_names if feature not in remove_features]
+
+
+
+
 
 # If in training mode, prepare validation data
 # Extract features, target, and weights for validation dates
@@ -539,7 +543,7 @@ def objective(trial):
 # Run Optuna study
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(direction="minimize")
-study.optimize(objective, timeout=10800) # 3 hour
+study.optimize(objective, timeout=3600*2) # 3 hour
 
 # Print the best hyperparameters and score
 print("Best hyperparameters:", study.best_params)
@@ -550,7 +554,7 @@ best_params = study.best_params
 best_score = -study.best_value
 
 # Format the file name with the best score
-file_name = model_path + f"lgb_plus_lag_73_parameters_{best_score:.4f}.csv"
+file_name = model_path + f"lgb_64_parameters_{best_score:.4f}.csv"
 
 # Save the best parameters to a CSV file
 df_param = pd.DataFrame([best_params])  # Convert to DataFrame
@@ -560,23 +564,23 @@ print(f"Best parameters saved to {file_name}")
 
 
 
-# best_params = {'boosting_type': 'gbdt',
-#      'num_leaves': 129,
-#      'learning_rate': 0.03750657256278831,
-#      'feature_fraction': 0.8250061015238525,
-#      'bagging_fraction': 0.6124354446736642,
-#      'bagging_freq': 11,
-#      'min_data_in_leaf': 36,
-#      'max_depth': 9,
-#      'lambda_l1': 0.3066945171837958,
-#      'lambda_l2': 0.0008372317612231998}
+# best_params = {'boosting_type': 'dart',
+ # 'num_leaves': 175,
+ # 'learning_rate': 0.09888571468760918,
+ # 'feature_fraction': 0.9912733317137515,
+ # 'bagging_fraction': 0.9984475888172389,
+ # 'bagging_freq': 12,
+ # 'min_data_in_leaf': 83,
+ # 'max_depth': 12,
+ # 'lambda_l1': 0.0006919593351673486,
+ # 'lambda_l2': 0.00013421465613062895}
 
 
 
 
 
 # Function to train a model or load a pre-trained model
-model_name = 'lgb_plus_lag_73_hyper'
+model_name = 'lgb_64_hyper'
 
 
 # Train the model based on the type (LightGBM, XGBoost, or CatBoost)
