@@ -404,15 +404,15 @@ time_id_feature = ['sin_time_id','cos_time_id','sin_time_id_halfday','cos_time_i
 # override feature names to top 
 feature_names_0 = [f"feature_{i:02d}" for i in range(79)]
 feature_lagged_responders =  [f"responder_{idx}_lag_1" for idx in range(9)]
-diff_features = ['diff_feature_07_feature_56','diff_feature_07_feature_60','diff_feature_04_feature_60',
-                 'diff_feature_09_feature_28','diff_feature_06_feature_59','diff_feature_15_feature_36']
+diff_features = ['diff_feature_15_feature_36']
 rolling_features = ['feature_61_chg_rate_roll_avg_37000','feature_61_chg_rate_roll_37000',
                     'feature_61_std_roll_std_37000','feature_61_chg_roll_avg_37000','feature_61_chg_rate_roll_std_37000']
 # feature_names = feature_names_0 + feature_lagged_responders + diff_features + rolling_features
 remove_features = ['feature_15', 'feature_17', 'feature_32', 'feature_33', 'feature_39', 'feature_41','feature_42', 
-                   'feature_44', 'feature_50', 'feature_52', 'feature_53', 'feature_55', 'feature_58', 'feature_73', 'feature_74']
+                   'feature_44', 'feature_50', 'feature_52', 'feature_53', 'feature_55', 'feature_58', 'feature_73', 'feature_74',
+                   'feature_63']
 
-feature_names = feature_names_0 + time_id_feature
+feature_names = feature_names_0 + time_id_feature #+ diff_features
 feature_names = [feature for feature in feature_names if feature not in remove_features]
 
 
@@ -553,7 +553,7 @@ def objective(trial):
 # Run Optuna study
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(direction="minimize")
-study.optimize(objective, timeout=3600*2) # 3 hour
+study.optimize(objective, timeout=3600) # 1 hour
 
 # Print the best hyperparameters and score
 print("Best hyperparameters:", study.best_params)
