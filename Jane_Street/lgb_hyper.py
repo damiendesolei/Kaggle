@@ -391,6 +391,15 @@ feature_names = feature_names + features_rolling
 
 
 
+# date_time features
+df['sin_time_id']=np.sin(2*np.pi*df['time_id']/967)
+df['cos_time_id']=np.cos(2*np.pi*df['time_id']/967)
+df['sin_time_id_halfday']=np.sin(2*np.pi*df['time_id']/483)
+df['cos_time_id_halfday']=np.cos(2*np.pi*df['time_id']/483)
+    
+time_id_feature = ['sin_time_id','cos_time_id','sin_time_id_halfday','cos_time_id_halfday']
+
+
 
 # override feature names to top 
 feature_names_0 = [f"feature_{i:02d}" for i in range(79)]
@@ -403,7 +412,7 @@ rolling_features = ['feature_61_chg_rate_roll_avg_37000','feature_61_chg_rate_ro
 remove_features = ['feature_15', 'feature_17', 'feature_32', 'feature_33', 'feature_39', 'feature_41','feature_42', 
                    'feature_44', 'feature_50', 'feature_52', 'feature_53', 'feature_55', 'feature_58', 'feature_73', 'feature_74']
 
-feature_names = feature_names_0 #+ feature_lagged_responders
+feature_names = feature_names_0 + time_id_feature
 feature_names = [feature for feature in feature_names if feature not in remove_features]
 
 
@@ -504,6 +513,7 @@ def objective(trial):
     # Define parameter search space
     param = {
         "objective": "regression",
+        "n_estimators": trial.suggest_categorical("n_estimators", [200, 300, 400, 500]),
         "metric": "None",  # Disable default metrics
         "boosting_type": trial.suggest_categorical("boosting_type", ["gbdt", "dart"]),
         "num_leaves": trial.suggest_int("num_leaves", 8, 256),
@@ -554,7 +564,7 @@ best_params = study.best_params
 best_score = -study.best_value
 
 # Format the file name with the best score
-file_name = model_path + f"lgb_64_parameters_{best_score:.4f}.csv"
+file_name = model_path + f"lgb_68_parameters_{best_score:.4f}.csv"
 
 # Save the best parameters to a CSV file
 df_param = pd.DataFrame([best_params])  # Convert to DataFrame
@@ -580,11 +590,11 @@ print(f"Best parameters saved to {file_name}")
 
 
 # Function to train a model or load a pre-trained model
-model_name = 'lgb_64_hyper'
+model_name = 'lgb_68_hyper'
 
 
 # Train the model based on the type (LightGBM, XGBoost, or CatBoost)
-model =lgb.LGBMRegressor(n_estimators=500, device='gpu', gpu_use_dp=True, objective='l2', **best_params) # from Hyper param tuning
+model =lgb.LGBMRegressor(device='gpu', gpu_use_dp=True, objective='l2', **best_params) # from Hyper param tuning
 
 
 # Train LightGBM model with early stopping and evaluation logging
