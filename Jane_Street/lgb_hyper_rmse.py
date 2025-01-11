@@ -514,12 +514,13 @@ def objective(trial):
     param = {
         "objective": "regression",
         "n_estimators": trial.suggest_categorical("n_estimators", [200, 300, 400, 500]),
-        "metric": "None",  # Disable default metrics
-        "boosting_type": trial.suggest_categorical("boosting_type", ["gbdt", "dart"]),
+        #"metric": "None",  # Disable default metrics
+        "metric": "rmse",
+        "boosting_type": 'gbdt', #trial.suggest_categorical("boosting_type", ["gbdt", "dart"]),
         "num_leaves": trial.suggest_int("num_leaves", 8, 256),
         "learning_rate": trial.suggest_loguniform("learning_rate", 1e-3, 1e-1),
-        "feature_fraction": trial.suggest_uniform("feature_fraction", 0.8, 1.0),
-        "bagging_fraction": trial.suggest_uniform("bagging_fraction", 0.8, 1.0),
+        "feature_fraction": trial.suggest_uniform("feature_fraction", 0.6, 1.0),
+        "bagging_fraction": trial.suggest_uniform("bagging_fraction", 0.6, 1.0),
         "bagging_freq": trial.suggest_int("bagging_freq", 5, 12),
         "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 10, 200),
         "max_depth": trial.suggest_int("max_depth", -1, 16),  # -1 means no limit
@@ -539,14 +540,14 @@ def objective(trial):
         param,
         dtrain,
         valid_sets=[dval],
-        feval=lambda y_pred, dval: r2_lgb(dval.get_label(), y_pred, dval.get_weight()),  # Use weights in the custom metric
+        #feval=lambda y_pred, dval: r2_lgb(dval.get_label(), y_pred, dval.get_weight()),  # Use weights in the custom metric
         callbacks=[
             lgb.early_stopping(100), 
             lgb.log_evaluation(10)]
     )
 
     # Use the best score (maximized R²) as the objective to minimize (negative sign)
-    best_score = model.best_score["valid_0"]["r2"]
+    best_score = model.best_score["valid_0"]["rmse"]
     return -best_score
  
 
@@ -557,14 +558,14 @@ study.optimize(objective, timeout=3600) # 1 hour
 
 # Print the best hyperparameters and score
 print("Best hyperparameters:", study.best_params)
-print("Best weighted r2:", -study.best_value)
+print("Best rmse:", -study.best_value)
 
 # Get the best parameters and score
 best_params = study.best_params
 best_score = -study.best_value
 
 # Format the file name with the best score
-file_name = model_path + f"lgb_68_parameters_{best_score:.4f}.csv"
+file_name = model_path + f"lgb_67_parameters_rmse_{best_score:.4f}.csv"
 
 # Save the best parameters to a CSV file
 df_param = pd.DataFrame([best_params])  # Convert to DataFrame
@@ -590,7 +591,7 @@ print(f"Best parameters saved to {file_name}")
 
 
 # Function to train a model or load a pre-trained model
-model_name = 'lgb_68_hyper'
+model_name = 'lgb_67_hyper'
 
 
 # Train the model based on the type (LightGBM, XGBoost, or CatBoost)
