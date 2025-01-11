@@ -241,7 +241,7 @@ def columns_diff(df, combinations):
     for i, j in combinations:
         #print(f'feature_{i} - feature_{j} is done..')
         df[f'diff_{i}_{j}'] = df[i] - df[j]
-    print('Diff features are created...')
+    print('Ratio features are created...')
     return df
 
 # create new columns   
@@ -404,15 +404,16 @@ time_id_feature = ['sin_time_id','cos_time_id','sin_time_id_halfday','cos_time_i
 # override feature names to top 
 feature_names_0 = [f"feature_{i:02d}" for i in range(79)]
 feature_lagged_responders =  [f"responder_{idx}_lag_1" for idx in range(9)]
-diff_features = ['diff_feature_15_feature_36']
+feature_lagged_responders = ['responder_1_lag_1', 'responder_6_lag_1', 'responder_7_lag_1']
+diff_features = ['diff_feature_15_feature_36','diff_feature_07_feature_60']
 rolling_features = ['feature_61_chg_rate_roll_avg_37000','feature_61_chg_rate_roll_37000',
                     'feature_61_std_roll_std_37000','feature_61_chg_roll_avg_37000','feature_61_chg_rate_roll_std_37000']
 # feature_names = feature_names_0 + feature_lagged_responders + diff_features + rolling_features
 remove_features = ['feature_15', 'feature_17', 'feature_32', 'feature_33', 'feature_39', 'feature_41','feature_42', 
                    'feature_44', 'feature_50', 'feature_52', 'feature_53', 'feature_55', 'feature_58', 'feature_73', 'feature_74',
-                   'feature_63']
+                   'feature_63', 'feature_54', 'feature_43']
 
-feature_names = feature_names_0 + time_id_feature #+ diff_features
+feature_names = feature_names_0 + time_id_feature + feature_lagged_responders
 feature_names = [feature for feature in feature_names if feature not in remove_features]
 
 
@@ -565,7 +566,7 @@ best_params = study.best_params
 best_score = -study.best_value
 
 # Format the file name with the best score
-file_name = model_path + f"lgb_67_parameters_rmse_{best_score:.4f}.csv"
+file_name = model_path + f"lgb_with_lag_68_parameters_rmse_{best_score:.4f}.csv"
 
 # Save the best parameters to a CSV file
 df_param = pd.DataFrame([best_params])  # Convert to DataFrame
@@ -591,7 +592,7 @@ print(f"Best parameters saved to {file_name}")
 
 
 # Function to train a model or load a pre-trained model
-model_name = 'lgb_67_hyper'
+model_name = 'lgb_with_lag_68_hyper'
 
 
 # Train the model based on the type (LightGBM, XGBoost, or CatBoost)
