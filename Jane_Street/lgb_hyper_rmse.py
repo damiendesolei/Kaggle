@@ -385,13 +385,29 @@ def create_rolling_features(df, feature, rows):
 # df_check = df[['id','date_id','time_id','symbol_id']]
 
 
-df, features_rolling = create_rolling_features(df, "feature_61", 37_000) # ~37_000 rows per day
-reduce_mem_usage(df, False)
-feature_names = feature_names + features_rolling
+#df, features_rolling = create_rolling_features(df, "feature_61", 37_000) # ~37_000 rows per day
+#reduce_mem_usage(df, False)
+# feature_names = feature_names + features_rolling
+
+
+# addtional features 
+# https://www.kaggle.com/code/yanisbelami/jane-street-real-time-market-data-forecasting-eda#Statistical-Tests
+df['feature_16_17_product'] = df['feature_16'] * df['feature_17']
+df['feature_16_36_product'] = df['feature_16'] * df['feature_36']
+df['responder_3_7_8_avg'] = (df['responder_3'] + df['responder_7'] + df['responder_8']) / 3
+#df['responder_3_7_8_sum'] = df[['responder_3', 'responder_7', 'responder_8']].sum(axis=1)
+df['feature_36_squared'] = df['feature_36'] ** 2
+df['feature_16_17_ratio'] = df['feature_16'] / (df['feature_17'] + 1e-9)
+df['feature_16_rolling_mean'] = df['feature_16'].rolling(window=5, min_periods=1).mean()
+df['feature_16_rolling_std'] = df['feature_16'].rolling(window=5, min_periods=1).std()
+
+addtional_features = ['feature_16_17_product','feature_16_36_product','responder_3_7_8_avg','feature_36_squared',
+                      'feature_16_17_ratio','feature_16_rolling_mean','feature_16_rolling_std']
 
 
 
-# date_time features
+# date_time features from yunsuxiaozi
+# https://www.kaggle.com/code/yunsuxiaozi/js2024-starter
 df['sin_time_id']=np.sin(2*np.pi*df['time_id']/967)
 df['cos_time_id']=np.cos(2*np.pi*df['time_id']/967)
 df['sin_time_id_halfday']=np.sin(2*np.pi*df['time_id']/483)
@@ -413,7 +429,7 @@ remove_features = ['feature_15', 'feature_17', 'feature_32', 'feature_33', 'feat
                    'feature_44', 'feature_50', 'feature_52', 'feature_53', 'feature_55', 'feature_58', 'feature_73', 'feature_74',
                    'feature_63', 'feature_54', 'feature_43']
 
-feature_names = feature_names_0 + time_id_feature + feature_lagged_responders
+feature_names = feature_names_0 + time_id_feature + feature_lagged_responders + addtional_features
 feature_names = [feature for feature in feature_names if feature not in remove_features]
 
 
@@ -566,7 +582,7 @@ best_params = study.best_params
 best_score = -study.best_value
 
 # Format the file name with the best score
-file_name = model_path + f"lgb_with_lag_68_parameters_rmse_{best_score:.4f}.csv"
+file_name = model_path + f"lgb_with_lag_add_75_parameters_rmse_{best_score:.4f}.csv"
 
 # Save the best parameters to a CSV file
 df_param = pd.DataFrame([best_params])  # Convert to DataFrame
@@ -592,7 +608,7 @@ print(f"Best parameters saved to {file_name}")
 
 
 # Function to train a model or load a pre-trained model
-model_name = 'lgb_with_lag_68_hyper'
+model_name = 'lgb_with_lag_add_75_hyper'
 
 
 # Train the model based on the type (LightGBM, XGBoost, or CatBoost)
