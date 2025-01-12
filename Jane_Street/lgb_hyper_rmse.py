@@ -394,14 +394,15 @@ def create_rolling_features(df, feature, rows):
 # https://www.kaggle.com/code/yanisbelami/jane-street-real-time-market-data-forecasting-eda#Statistical-Tests
 #df['feature_16_17_product'] = df['feature_16'] * df['feature_17']
 df['feature_16_36_product'] = df['feature_16'] * df['feature_36']
-#df['responder_3_7_8_lag_1_avg'] = (df['responder_3_lag_1'] + df['responder_7_lag_1'] + df['responder_8_lag_1']) / 3
+df['responder_3_7_8_lag_1_avg'] = (df['responder_3_lag_1'] + df['responder_7_lag_1'] + df['responder_8_lag_1']) / 3
 #df['responder_3_7_8_sum'] = df[['responder_3', 'responder_7', 'responder_8']].sum(axis=1)
 df['feature_36_squared'] = df['feature_36'] ** 2
-df['feature_16_17_ratio'] = df['feature_16'] / (df['feature_17'] + 1e-9)
+#df['feature_16_17_ratio'] = df['feature_16'] / (df['feature_17'] + 1e-9)
 #df['feature_16_rolling_mean'] = df['feature_16'].rolling(window=5, min_periods=1).mean()
 #df['feature_16_rolling_std'] = df['feature_16'].rolling(window=5, min_periods=1).std()
 
-addtional_features = ['feature_16_36_product','feature_36_squared','feature_16_17_ratio']
+addtional_features = ['feature_16_36_product','feature_36_squared',
+                      'responder_3_7_8_lag_1_avg']
 
 
 
@@ -434,7 +435,7 @@ feature_names = [feature for feature in feature_names if feature not in remove_f
 
 
 
-
+#df = reduce_mem_usage(df, False)
 # If in training mode, prepare validation data
 # Extract features, target, and weights for validation dates
 X_valid = df[feature_names].loc[df['date_id'].isin(valid_dates)]
@@ -574,7 +575,7 @@ def objective(trial):
 # Run Optuna study
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(direction="minimize")
-study.optimize(objective, timeout=3600) # 1 hour
+study.optimize(objective, timeout=3600) # 3600*n hour
 
 # Print the best hyperparameters and score
 print("Best hyperparameters:", study.best_params)
@@ -671,52 +672,52 @@ lgb_feature_importance.to_csv(model_path + f'{model_name}_0_{r2:.6f}.csv', index
 
 FIT_RIDGE = False
 # Ridge regression
-if FIT_RIDGE:
-    ridge_features = feature_names
+#if FIT_RIDGE:
+ridge_features = feature_names
+
+from sklearn.linear_model import Ridge
+
+
+def custom_metric(y_true,y_pred,weight):
+    weighted_r2=1-(np.sum(weight*(y_true-y_pred)**2)/np.sum(weight*y_true**2))
+    return weighted_r2
+
+
+X_train = X_train.fillna(-99)
+X_valid = X_valid.fillna(-99)
+
+results = []
+
+for alpha in range(0,1000000,100000):
+    #print(f'reg alpha is {alpha}')
+    linear_model = Ridge(alpha)
+    linear_model.fit(X_train[ridge_features],y_train)
+    pred_train = linear_model.predict(X_train[ridge_features])
+    pred_valid = linear_model.predict(X_valid[ridge_features])
     
-    from sklearn.linear_model import Ridge
+    eps=1e-10  
+    pred_valid=np.clip(pred_valid,-5+eps,5-eps)
     
+    train_r2 = custom_metric(y_train,pred_train,weight=w_train)
+    valid_r2 = custom_metric(y_valid,pred_valid,weight=w_valid)
     
-    def custom_metric(y_true,y_pred,weight):
-        weighted_r2=1-(np.sum(weight*(y_true-y_pred)**2)/np.sum(weight*y_true**2))
-        return weighted_r2
+    print(f'reg alpha is {alpha}:' + f"train weighted_r2:{train_r2:.12f}" + ' ' + f"test weighted_r2:{valid_r2:.12f}")
+    #print(f"test weighted_r2:{valid_r2}")
     
+    results.append({
+    "alpha": alpha,
+    "train_r2": train_r2,
+    "valid_r2": valid_r2})
     
-    X_train = X_train.fillna(-1)
-    X_valid = X_valid.fillna(-1)
-    
-    results = []
-    
-    for alpha in range(500000,900000,10000):
-        #print(f'reg alpha is {alpha}')
-        model = Ridge(alpha)
-        model.fit(X_train[ridge_features],y_train)
-        pred_train = model.predict(X_train[ridge_features])
-        pred_valid = model.predict(X_valid[ridge_features])
-        
-        eps=1e-10  
-        pred_valid=np.clip(pred_valid,-5+eps,5-eps)
-        
-        train_r2 = custom_metric(y_train,pred_train,weight=w_train)
-        valid_r2 = custom_metric(y_valid,pred_valid,weight=w_valid)
-        
-        print(f'reg alpha is {alpha}:' + f"train weighted_r2:{train_r2}" + ' ' + f"test weighted_r2:{valid_r2}")
-        #print(f"test weighted_r2:{valid_r2}")
-        
-        results.append({
-        "alpha": alpha,
-        "train_r2": train_r2,
-        "valid_r2": valid_r2})
-        
-    ridge_results = pd.DataFrame(results)
-    
-    #fit the model with the best alpha
-    best_alpha = ridge_results.loc[ridge_results['valid_r2'].idxmax(), 'alpha']
-    model = Ridge(best_alpha)
-    model.fit(X_train[ridge_features],y_train)
-    
-    #predict the valid set
-    pred_ridge = model.predict(X_valid[ridge_features])
+ridge_results = pd.DataFrame(results)
+
+#fit the model with the best alpha
+best_alpha = ridge_results.loc[ridge_results['valid_r2'].idxmax(), 'alpha']
+linear_model = Ridge(best_alpha)
+linear_model.fit(X_train[ridge_features],y_train)
+
+#predict the valid set
+pred_ridge = linear_model.predict(X_valid[ridge_features])
 #eps=1e-10  
 #pred_valid=np.clip(pred_valid,-5+eps,5-eps)
 
@@ -726,19 +727,19 @@ if FIT_RIDGE:
 
 FIT_ENSEMBLE = False
 
-if FIT_ENSEMBLE:
+#if FIT_ENSEMBLE:
 # Load lgb model and predictions
-    lgb_model = joblib.load(r'C:\\Users\\zrj-desktop\\models\\lgb_with_lag_add_77_hyper_0_0.004455.model')
-    pred_lgb = lgb_model.predict(X_valid.to_numpy())
-    r2_lgb(pred_lgb,pred_valid,w_valid)
+lgb_model = joblib.load(r'C:\\Users\\zrj-desktop\\models\\lgb_with_lag_add_77_hyper_0_0.008203.model')
+pred_lgb = lgb_model.predict(X_valid.to_numpy())
+r2_lgb(pred_lgb,y_valid,w_valid)
+
+
+# Find the optimal weight
+for w in np.arange(0, 1.25, 0.25):
+    pred_ensemble = w*pred_ridge + (1-w)*pred_lgb
     
+    eps=1e-10  
+    pred_ensemble=np.clip(pred_ensemble,-5+eps,5-eps)
+    valid_r2 = custom_metric(pred_ensemble,pred_valid,weight=w_valid)
     
-    # Find the optimal weight
-    for w in np.arange(0, 1.25, 0.25):
-        pred_ensemble = w*pred_ridge + (1-w)*pred_lgb
-        
-        eps=1e-10  
-        pred_ensemble=np.clip(pred_ensemble,-5+eps,5-eps)
-        valid_r2 = custom_metric(pred_ensemble,pred_valid,weight=w_valid)
-        
-        print(f'weight {w} has weighted r2 of {valid_r2}')
+    print(f'weight {w} has weighted r2 of {valid_r2}')
