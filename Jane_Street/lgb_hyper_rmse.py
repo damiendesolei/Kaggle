@@ -392,17 +392,16 @@ def create_rolling_features(df, feature, rows):
 
 # addtional features 
 # https://www.kaggle.com/code/yanisbelami/jane-street-real-time-market-data-forecasting-eda#Statistical-Tests
-df['feature_16_17_product'] = df['feature_16'] * df['feature_17']
+#df['feature_16_17_product'] = df['feature_16'] * df['feature_17']
 df['feature_16_36_product'] = df['feature_16'] * df['feature_36']
-df['responder_3_7_8_avg'] = (df['responder_3'] + df['responder_7'] + df['responder_8']) / 3
+#df['responder_3_7_8_lag_1_avg'] = (df['responder_3_lag_1'] + df['responder_7_lag_1'] + df['responder_8_lag_1']) / 3
 #df['responder_3_7_8_sum'] = df[['responder_3', 'responder_7', 'responder_8']].sum(axis=1)
 df['feature_36_squared'] = df['feature_36'] ** 2
 df['feature_16_17_ratio'] = df['feature_16'] / (df['feature_17'] + 1e-9)
-df['feature_16_rolling_mean'] = df['feature_16'].rolling(window=5, min_periods=1).mean()
-df['feature_16_rolling_std'] = df['feature_16'].rolling(window=5, min_periods=1).std()
+#df['feature_16_rolling_mean'] = df['feature_16'].rolling(window=5, min_periods=1).mean()
+#df['feature_16_rolling_std'] = df['feature_16'].rolling(window=5, min_periods=1).std()
 
-addtional_features = ['feature_16_17_product','feature_16_36_product','responder_3_7_8_avg','feature_36_squared',
-                      'feature_16_17_ratio','feature_16_rolling_mean','feature_16_rolling_std']
+addtional_features = ['feature_16_36_product','feature_36_squared','feature_16_17_ratio']
 
 
 
@@ -540,9 +539,9 @@ def objective(trial):
         "bagging_fraction": trial.suggest_uniform("bagging_fraction", 0.6, 1.0),
         "bagging_freq": trial.suggest_int("bagging_freq", 5, 12),
         "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 10, 200),
-        "max_depth": trial.suggest_int("max_depth", -1, 16),  # -1 means no limit
-        "lambda_l1": trial.suggest_loguniform("lambda_l1", 1e-4, 1.0),
-        "lambda_l2": trial.suggest_loguniform("lambda_l2", 1e-4, 1.0),
+        "max_depth": trial.suggest_int("max_depth", -1, 32),  # -1 means no limit
+        "lambda_l1": trial.suggest_loguniform("lambda_l1", 0.001, 0.1),
+        "lambda_l2": trial.suggest_loguniform("lambda_l2", 0.001, 0.1),
         "device_type": "gpu",  # Enable GPU support
         "seed" : 12
 
@@ -582,7 +581,7 @@ best_params = study.best_params
 best_score = -study.best_value
 
 # Format the file name with the best score
-file_name = model_path + f"lgb_with_lag_add_75_parameters_rmse_{best_score:.4f}.csv"
+file_name = model_path + f"lgb_with_lag_add_71_parameters_rmse_{best_score:.4f}.csv"
 
 # Save the best parameters to a CSV file
 df_param = pd.DataFrame([best_params])  # Convert to DataFrame
@@ -608,7 +607,7 @@ print(f"Best parameters saved to {file_name}")
 
 
 # Function to train a model or load a pre-trained model
-model_name = 'lgb_with_lag_add_75_hyper'
+model_name = 'lgb_with_lag_add_71_hyper'
 
 
 # Train the model based on the type (LightGBM, XGBoost, or CatBoost)
