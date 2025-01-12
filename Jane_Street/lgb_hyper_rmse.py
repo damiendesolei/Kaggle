@@ -419,7 +419,7 @@ time_id_feature = ['sin_time_id','cos_time_id','sin_time_id_halfday','cos_time_i
 # override feature names to top 
 feature_names_0 = [f"feature_{i:02d}" for i in range(79)]
 feature_lagged_responders =  [f"responder_{idx}_lag_1" for idx in range(9)]
-feature_lagged_responders = ['responder_1_lag_1', 'responder_6_lag_1', 'responder_7_lag_1']
+#feature_lagged_responders = ['responder_1_lag_1', 'responder_6_lag_1', 'responder_7_lag_1']
 diff_features = ['diff_feature_15_feature_36','diff_feature_07_feature_60']
 rolling_features = ['feature_61_chg_rate_roll_avg_37000','feature_61_chg_rate_roll_37000',
                     'feature_61_std_roll_std_37000','feature_61_chg_roll_avg_37000','feature_61_chg_rate_roll_std_37000']
@@ -581,7 +581,7 @@ best_params = study.best_params
 best_score = -study.best_value
 
 # Format the file name with the best score
-file_name = model_path + f"lgb_with_lag_add_71_parameters_rmse_{best_score:.4f}.csv"
+file_name = model_path + f"lgb_with_lag_add_77_parameters_rmse_{best_score:.4f}.csv"
 
 # Save the best parameters to a CSV file
 df_param = pd.DataFrame([best_params])  # Convert to DataFrame
@@ -607,7 +607,7 @@ print(f"Best parameters saved to {file_name}")
 
 
 # Function to train a model or load a pre-trained model
-model_name = 'lgb_with_lag_add_71_hyper'
+model_name = 'lgb_with_lag_add_77_hyper'
 
 
 # Train the model based on the type (LightGBM, XGBoost, or CatBoost)
