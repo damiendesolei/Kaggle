@@ -515,6 +515,10 @@ w_train = df['weight'].loc[df['date_id'].isin(selected_dates)]
 
 
 
+# fill nan with -1
+X_train = X_train.fillna(-99)
+X_valid = X_valid.fillna(-99)
+
 
 
 del df
@@ -564,7 +568,7 @@ def objective(trial):
 
     # Use the best score (maximized R²) as the objective to minimize (negative sign)
     best_score = model.best_score["valid_0"]["rmse"]
-    return -best_score
+    return best_score
  
 
 # Run Optuna study
@@ -591,16 +595,18 @@ print(f"Best parameters saved to {file_name}")
 
 
 
-# best_params = {'boosting_type': 'dart',
- # 'num_leaves': 175,
- # 'learning_rate': 0.09888571468760918,
- # 'feature_fraction': 0.9912733317137515,
- # 'bagging_fraction': 0.9984475888172389,
- # 'bagging_freq': 12,
- # 'min_data_in_leaf': 83,
- # 'max_depth': 12,
- # 'lambda_l1': 0.0006919593351673486,
- # 'lambda_l2': 0.00013421465613062895}
+# best_params = {
+#     'n_estimators': 400,
+#     'boosting_type': 'gbdt',
+#     'num_leaves': 95,
+#     'learning_rate': 0.00225754489083057,
+#     'feature_fraction': 0.629549161986194,
+#     'bagging_fraction': 0.689505346752916,
+#     'bagging_freq': 5,
+#     'min_data_in_leaf': 137,
+#     'max_depth': 23,
+#     'lambda_l1': 0.00371833402510076,
+#     'lambda_l2': 0.00557895148548676}
 
 
 
@@ -661,3 +667,78 @@ lgb_feature_importance= pd.DataFrame({
 lgb_feature_importance = lgb_feature_importance.sort_values('Importance', ascending=False).reset_index(drop=True)
 lgb_feature_importance.to_csv(model_path + f'{model_name}_0_{r2:.6f}.csv', index=False)
 
+
+
+FIT_RIDGE = False
+# Ridge regression
+if FIT_RIDGE:
+    ridge_features = feature_names
+    
+    from sklearn.linear_model import Ridge
+    
+    
+    def custom_metric(y_true,y_pred,weight):
+        weighted_r2=1-(np.sum(weight*(y_true-y_pred)**2)/np.sum(weight*y_true**2))
+        return weighted_r2
+    
+    
+    X_train = X_train.fillna(-1)
+    X_valid = X_valid.fillna(-1)
+    
+    results = []
+    
+    for alpha in range(500000,900000,10000):
+        #print(f'reg alpha is {alpha}')
+        model = Ridge(alpha)
+        model.fit(X_train[ridge_features],y_train)
+        pred_train = model.predict(X_train[ridge_features])
+        pred_valid = model.predict(X_valid[ridge_features])
+        
+        eps=1e-10  
+        pred_valid=np.clip(pred_valid,-5+eps,5-eps)
+        
+        train_r2 = custom_metric(y_train,pred_train,weight=w_train)
+        valid_r2 = custom_metric(y_valid,pred_valid,weight=w_valid)
+        
+        print(f'reg alpha is {alpha}:' + f"train weighted_r2:{train_r2}" + ' ' + f"test weighted_r2:{valid_r2}")
+        #print(f"test weighted_r2:{valid_r2}")
+        
+        results.append({
+        "alpha": alpha,
+        "train_r2": train_r2,
+        "valid_r2": valid_r2})
+        
+    ridge_results = pd.DataFrame(results)
+    
+    #fit the model with the best alpha
+    best_alpha = ridge_results.loc[ridge_results['valid_r2'].idxmax(), 'alpha']
+    model = Ridge(best_alpha)
+    model.fit(X_train[ridge_features],y_train)
+    
+    #predict the valid set
+    pred_ridge = model.predict(X_valid[ridge_features])
+#eps=1e-10  
+#pred_valid=np.clip(pred_valid,-5+eps,5-eps)
+
+#valid_r2 = custom_metric(y_valid,pred_valid,weight=w_valid)
+
+
+
+FIT_ENSEMBLE = False
+
+if FIT_ENSEMBLE:
+# Load lgb model and predictions
+    lgb_model = joblib.load(r'C:\\Users\\zrj-desktop\\models\\lgb_with_lag_add_77_hyper_0_0.004455.model')
+    pred_lgb = lgb_model.predict(X_valid.to_numpy())
+    r2_lgb(pred_lgb,pred_valid,w_valid)
+    
+    
+    # Find the optimal weight
+    for w in np.arange(0, 1.25, 0.25):
+        pred_ensemble = w*pred_ridge + (1-w)*pred_lgb
+        
+        eps=1e-10  
+        pred_ensemble=np.clip(pred_ensemble,-5+eps,5-eps)
+        valid_r2 = custom_metric(pred_ensemble,pred_valid,weight=w_valid)
+        
+        print(f'weight {w} has weighted r2 of {valid_r2}')
