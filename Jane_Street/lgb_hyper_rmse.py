@@ -394,15 +394,14 @@ def create_rolling_features(df, feature, rows):
 # https://www.kaggle.com/code/yanisbelami/jane-street-real-time-market-data-forecasting-eda#Statistical-Tests
 #df['feature_16_17_product'] = df['feature_16'] * df['feature_17']
 df['feature_16_36_product'] = df['feature_16'] * df['feature_36']
-df['responder_3_7_8_lag_1_avg'] = (df['responder_3_lag_1'] + df['responder_7_lag_1'] + df['responder_8_lag_1']) / 3
+#df['responder_3_7_8_lag_1_avg'] = (df['responder_3_lag_1'] + df['responder_7_lag_1'] + df['responder_8_lag_1']) / 3
 #df['responder_3_7_8_sum'] = df[['responder_3', 'responder_7', 'responder_8']].sum(axis=1)
 df['feature_36_squared'] = df['feature_36'] ** 2
-#df['feature_16_17_ratio'] = df['feature_16'] / (df['feature_17'] + 1e-9)
+df['feature_16_17_ratio'] = df['feature_16'] / (df['feature_17'] + 1e-9)
 #df['feature_16_rolling_mean'] = df['feature_16'].rolling(window=5, min_periods=1).mean()
 #df['feature_16_rolling_std'] = df['feature_16'].rolling(window=5, min_periods=1).std()
 
-addtional_features = ['feature_16_36_product','feature_36_squared',
-                      'responder_3_7_8_lag_1_avg']
+addtional_features = ['feature_36_squared','feature_16_36_product','feature_16_17_ratio']
 
 
 
@@ -429,7 +428,7 @@ remove_features = ['feature_15', 'feature_17', 'feature_32', 'feature_33', 'feat
                    'feature_44', 'feature_50', 'feature_52', 'feature_53', 'feature_55', 'feature_58', 'feature_73', 'feature_74',
                    'feature_63', 'feature_54', 'feature_43']
 
-feature_names = feature_names_0 + time_id_feature + feature_lagged_responders + addtional_features
+feature_names = feature_names_0 + time_id_feature + feature_lagged_responders + addtional_features 
 feature_names = [feature for feature in feature_names if feature not in remove_features]
 
 
@@ -575,7 +574,7 @@ def objective(trial):
 # Run Optuna study
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(direction="minimize")
-study.optimize(objective, timeout=3600) # 3600*n hour
+study.optimize(objective, timeout=3600*2) # 3600*n hour
 
 # Print the best hyperparameters and score
 print("Best hyperparameters:", study.best_params)
@@ -596,18 +595,18 @@ print(f"Best parameters saved to {file_name}")
 
 
 
-# best_params = {
-#     'n_estimators': 400,
-#     'boosting_type': 'gbdt',
-#     'num_leaves': 95,
-#     'learning_rate': 0.00225754489083057,
-#     'feature_fraction': 0.629549161986194,
-#     'bagging_fraction': 0.689505346752916,
-#     'bagging_freq': 5,
-#     'min_data_in_leaf': 137,
-#     'max_depth': 23,
-#     'lambda_l1': 0.00371833402510076,
-#     'lambda_l2': 0.00557895148548676}
+best_params = {
+    'n_estimators': 300,
+    'boosting_type': 'gbdt',
+    'num_leaves': 94,
+    'learning_rate': 0.00102630066811707,
+    'feature_fraction': 0.609355133461571,
+    'bagging_fraction': 0.616603753103674,
+    'bagging_freq': 8,
+    'min_data_in_leaf': 199,
+    'max_depth': 19,
+    'lambda_l1': 0.017087494689739,
+    'lambda_l2': 0.0989621072529946}
 
 
 
@@ -667,6 +666,12 @@ lgb_feature_importance= pd.DataFrame({
 
 lgb_feature_importance = lgb_feature_importance.sort_values('Importance', ascending=False).reset_index(drop=True)
 lgb_feature_importance.to_csv(model_path + f'{model_name}_0_{r2:.6f}.csv', index=False)
+
+
+
+
+
+
 
 
 
