@@ -397,11 +397,11 @@ df['feature_16_36_product'] = df['feature_16'] * df['feature_36']
 #df['responder_3_7_8_lag_1_avg'] = (df['responder_3_lag_1'] + df['responder_7_lag_1'] + df['responder_8_lag_1']) / 3
 #df['responder_3_7_8_sum'] = df[['responder_3', 'responder_7', 'responder_8']].sum(axis=1)
 df['feature_36_squared'] = df['feature_36'] ** 2
-df['feature_16_17_ratio'] = df['feature_16'] / (df['feature_17'] + 1e-9)
+#df['feature_16_17_ratio'] = df['feature_16'] / (df['feature_17'] + 1e-9)
 #df['feature_16_rolling_mean'] = df['feature_16'].rolling(window=5, min_periods=1).mean()
 #df['feature_16_rolling_std'] = df['feature_16'].rolling(window=5, min_periods=1).std()
 
-addtional_features = ['feature_36_squared','feature_16_36_product','feature_16_17_ratio']
+addtional_features = ['feature_36_squared','feature_16_36_product']
 
 
 
@@ -428,7 +428,7 @@ remove_features = ['feature_15', 'feature_17', 'feature_32', 'feature_33', 'feat
                    'feature_44', 'feature_50', 'feature_52', 'feature_53', 'feature_55', 'feature_58', 'feature_73', 'feature_74',
                    'feature_63', 'feature_54', 'feature_43']
 
-feature_names = feature_names_0 + time_id_feature + feature_lagged_responders + addtional_features 
+feature_names = feature_names_0 + time_id_feature + feature_lagged_responders + addtional_features + diff_features
 feature_names = [feature for feature in feature_names if feature not in remove_features]
 
 
@@ -537,13 +537,13 @@ def objective(trial):
         #"metric": "None",  # Disable default metrics
         "metric": "rmse",
         "boosting_type": 'gbdt', #trial.suggest_categorical("boosting_type", ["gbdt", "dart"]),
-        "num_leaves": trial.suggest_int("num_leaves", 8, 256),
+        "num_leaves": trial.suggest_int("num_leaves", 128, 256),
         "learning_rate": trial.suggest_loguniform("learning_rate", 1e-3, 1e-1),
-        "feature_fraction": trial.suggest_uniform("feature_fraction", 0.6, 1.0),
-        "bagging_fraction": trial.suggest_uniform("bagging_fraction", 0.6, 1.0),
-        "bagging_freq": trial.suggest_int("bagging_freq", 5, 12),
-        "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 10, 200),
-        "max_depth": trial.suggest_int("max_depth", -1, 32),  # -1 means no limit
+        "feature_fraction": trial.suggest_uniform("feature_fraction", 0.6, 0.8),
+        "bagging_fraction": trial.suggest_uniform("bagging_fraction", 0.6, 0.8),
+        "bagging_freq": trial.suggest_int("bagging_freq", 8, 12),
+        "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 128, 256),
+        "max_depth": trial.suggest_int("max_depth", 8, 32),  # -1 means no limit
         "lambda_l1": trial.suggest_loguniform("lambda_l1", 0.001, 0.1),
         "lambda_l2": trial.suggest_loguniform("lambda_l2", 0.001, 0.1),
         "device_type": "gpu",  # Enable GPU support
@@ -574,7 +574,7 @@ def objective(trial):
 # Run Optuna study
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(direction="minimize")
-study.optimize(objective, timeout=3600*2) # 3600*n hour
+study.optimize(objective, timeout=3600*3) # 3600*n hour
 
 # Print the best hyperparameters and score
 print("Best hyperparameters:", study.best_params)
@@ -585,7 +585,7 @@ best_params = study.best_params
 best_score = -study.best_value
 
 # Format the file name with the best score
-file_name = model_path + f"lgb_with_lag_add_77_parameters_rmse_{best_score:.4f}.csv"
+file_name = model_path + f"lgb_with_lag_add_78_parameters_rmse_{best_score:.4f}.csv"
 
 # Save the best parameters to a CSV file
 df_param = pd.DataFrame([best_params])  # Convert to DataFrame
@@ -595,25 +595,25 @@ print(f"Best parameters saved to {file_name}")
 
 
 
-best_params = {
-    'n_estimators': 300,
-    'boosting_type': 'gbdt',
-    'num_leaves': 94,
-    'learning_rate': 0.00102630066811707,
-    'feature_fraction': 0.609355133461571,
-    'bagging_fraction': 0.616603753103674,
-    'bagging_freq': 8,
-    'min_data_in_leaf': 199,
-    'max_depth': 19,
-    'lambda_l1': 0.017087494689739,
-    'lambda_l2': 0.0989621072529946}
-
+# best_params = {
+#     'n_estimators': 400,
+#     'boosting_type': 'gbdt',
+#     'num_leaves': 132,
+#     'learning_rate': 0.01697482033838441,
+#     'feature_fraction': 0.6766159288033143,
+#     'bagging_fraction': 0.6640290696090753,
+#     'bagging_freq': 9,
+#     'min_data_in_leaf': 199,
+#     'max_depth': 11,
+#     'lambda_l1': 0.010969338788828302,
+#     'lambda_l2': 0.017670611642700187}
+#[400]	valid_0's l2: 0.643044	valid_0's r2: 0.00815552
 
 
 
 
 # Function to train a model or load a pre-trained model
-model_name = 'lgb_with_lag_add_77_hyper'
+model_name = 'lgb_with_lag_add_78_hyper'
 
 
 # Train the model based on the type (LightGBM, XGBoost, or CatBoost)
