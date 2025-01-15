@@ -111,3 +111,48 @@ sales_test = pd.merge(sales_test, calendar, how='left', on =['date','warehouse']
 
 # check column difference
 np.setdiff1d(sales_train.columns,sales_test.columns)
+
+
+
+
+# date related features
+def add_date_features(df):
+    df['year'] = df['date'].dt.year
+    #df['month'] = df['date'].dt.month
+    df['dayofmonth'] = df['date'].dt.day
+    
+    
+    df['dayofyear'] = df['date'].dt.dayofyear
+    df['sin_dayofyear']=np.sin(2*np.pi*df['dayofyear']/365)
+    df['cos_dayofyear']=np.cos(2*np.pi*df['dayofyear']/365)
+    
+    df['dayofweek']=df['date'].dt.dayofweek
+    #df['weekday'] = df['date'].dt.weekday
+    df['weekend']=(df['dayofweek']>4).astype(np.int8)
+    df['sin_dayofweek']=np.sin(2*np.pi*df['dayofweek']/7)
+    df['cos_dayofweek']=np.cos(2*np.pi*df['dayofweek']/7)
+    
+    df['weekofyear'] = df['date'].dt.isocalendar().week
+    df['sin_weekofyear']=np.sin(2*np.pi*df['weekofyear']/52)
+    df['cos_weekofyear']=np.cos(2*np.pi*df['weekofyear']/52)
+    
+    df['quarter']=df['date'].dt.quarter
+    df['sin_quarter']=np.sin(2*np.pi*df['quarter']/4)
+    df['cos_quarter']=np.cos(2*np.pi*df['quarter']/4)
+    
+    df['month']=df['date'].dt.month
+    df['is_month_start'] = df['date'].dt.is_month_start
+    df['is_month_end'] = df['date'].dt.is_month_end
+    df['sin_month']=np.sin(2*np.pi*df['month']/12)
+    df['cos_month']=np.cos(2*np.pi*df['month']/12)
+    
+    
+    df['date_copy'] = df['date']
+    return df
+
+
+sales_train = add_date_features(sales_train)
+
+
+date_columns = [col for col in sales_train.columns if 'date' in col]
+check = sales_train[date_columns]
