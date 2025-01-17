@@ -125,6 +125,7 @@ np.setdiff1d(train.columns, test.columns)
 
 
 # date related features
+
 def add_date_features(df):
     df['year'] = df['date'].dt.year
     #df['month'] = df['date'].dt.month
@@ -250,7 +251,6 @@ holidays_frankfurt = [
 ]
 
 
-
 def fill_holidays(df_fill, warehouses, holidays):
     df = df_fill.copy()
     for item in holidays:
@@ -267,10 +267,24 @@ def fill_holidays(df_fill, warehouses, holidays):
     return df
 
 
-
 train = fill_holidays(df_fill=train, warehouses=['Prague_1', 'Prague_2', 'Prague_3'], holidays=holidays_prague)
 train = fill_holidays(df_fill=train, warehouses=['Brno_1'], holidays=holidays_brno)
 train = fill_holidays(df_fill=train, warehouses=['Munich_1'], holidays=holidays_munich)
 train = fill_holidays(df_fill=train, warehouses=['Frankfurt_1'], holidays=holidays_frankfurt)
 train = fill_holidays(df_fill=train, warehouses=['Budapest_1'], holidays=holidays_budapest)
-print(f"calendar.shape:{train.shape}")
+print(f"train.shape:{train.shape}")
+
+
+
+
+# Find all weekend dates
+start_date = train['date'].min()
+end_date = train['date'].max()
+#start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+#end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+current_date = start_date
+weekends = []
+while current_date <= end_date:
+    if current_date.weekday() == 5 or current_date.weekday() == 6:
+        weekends.append(current_date.strftime('%Y-%m-%d'))
+    current_date += timedelta(days=1)
