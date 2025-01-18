@@ -9,6 +9,8 @@ import warnings
 warnings.filterwarnings("ignore")
 
 import os
+import datetime as dt
+
 import joblib 
 #import itertools
 
@@ -21,7 +23,7 @@ import scipy
 from datetime import datetime, timedelta
 
 from sklearn.linear_model import LinearRegression
-
+from sklearn.model_selection import TimeSeriesSplit
 
 import lightgbm as lgb
 #from sklearn.metrics import r2_score
@@ -36,12 +38,13 @@ import optuna
 
 
 
-def reduce_mem_usage(self, float16_as32=True):
+def reduce_mem_usage(df, float16_as32=True):
     #memory_usage()是df每列的内存使用量,sum是对它们求和, B->KB->MB
     start_mem = df.memory_usage().sum() / 1024**2
     print('Memory usage of dataframe is {:.2f} MB'.format(start_mem))
+    non_date_columns = [col for col in df.columns if df[col].dtype != 'datetime64[ns]']
 
-    for col in df.columns:#遍历每列的列名
+    for col in non_date_columns:#遍历每列的列名
         col_type = df[col].dtype#列名的type
         if col_type != object and str(col_type)!='category':#不是object也就是说这里处理的是数值类型的变量
             c_min,c_max = df[col].min(),df[col].max() #求出这列的最大值和最小值
@@ -71,10 +74,10 @@ def reduce_mem_usage(self, float16_as32=True):
                 #如果数值在float64的取值范围内，对它进行类型转换
                 else:
                     df[col] = df[col].astype(np.float64)
-    #计算一下结束后的内存
+    #current ram
     end_mem = df.memory_usage().sum() / 1024**2
     print('Memory usage after optimization is: {:.2f} MB'.format(end_mem))
-    #相比一开始的内存减少了百分之多少
+    #ram reduction%
     print('Decreased by {:.1f}%'.format(100 * (start_mem - end_mem) / start_mem))
 
     return df
@@ -96,11 +99,11 @@ for dirname, _, filenames in os.walk(PATH):
 # Read in the files
 train = pd.read_csv(PATH + 'sales_train.csv', parse_dates=['date'])
 test = pd.read_csv(PATH + 'sales_test.csv', parse_dates=['date'])
-print(f'original train df dimention is {train.shape}')
+print(f'{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} original train df dimention is {train.shape}')
 
 test_id = test['unique_id'].unique() #only use unique_id in testset
 train = train[train['unique_id'].isin(test_id)]
-print(f'modified train df dimention is {train.shape}')
+print(f'{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} filtered train df dimention is {train.shape}')
 
 
 # Read in other files
@@ -119,9 +122,11 @@ test = test.merge(calendar, how='left', on =['date','warehouse'])
 
 
 # check column difference
-np.setdiff1d(train.columns, test.columns)
+print(f'{np.setdiff1d(train.columns, test.columns)} in train, but not in test')
 
 
+# combine train and test
+total = pd.concat((train, test))
 
 
 # date related features
@@ -156,12 +161,15 @@ def add_date_features(df):
     df['sin_month']=np.sin(2*np.pi*df['month']/12)
     df['cos_month']=np.cos(2*np.pi*df['month']/12)
     
+    df['day']=df['date'].dt.day
+    df['dayofmonth']=df['day']//10
+    df['sin_day']=np.sin(2*np.pi*df['day']/30)
+    df['cos_day']=np.cos(2*np.pi*df['day']/30)
     
-    df['date_copy'] = df['date']
     return df
 
 
-train = add_date_features(train)
+total = add_date_features(total)
 
 
 
@@ -262,29 +270,218 @@ def fill_holidays(df_fill, warehouses, holidays):
             df.loc[(df['warehouse'].isin(warehouses)) & (df['date'] == generated_date), 'holiday_name'] = holiday_name
     
     #add features
-    df['long_weekend'] = ((df['shops_closed'] == 1) & (df['shops_closed'].shift(1) == 1)).astype(np.int8)
+    #df['long_weekend'] = ((df['shops_closed'] == 1) & (df['shops_closed'].shift(1) == 1)).astype(np.int8)
     
     return df
 
+# check = train[['date','warehouse','holiday_name','holiday','shops_closed','winter_school_holidays','school_holidays']]
+# check = check[train['holiday_name'].notna()]
+total = fill_holidays(total, ['Prague_1', 'Prague_2', 'Prague_3'], holidays_prague)
+total = fill_holidays(total, ['Brno_1'], holidays_brno)
+total = fill_holidays(total, ['Munich_1'], holidays_munich)
+total = fill_holidays(total, ['Frankfurt_1'], holidays_frankfurt)
+total = fill_holidays(total, ['Budapest_1'], holidays_budapest)
+print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} total.shape:{total.shape}")
 
-train = fill_holidays(df_fill=train, warehouses=['Prague_1', 'Prague_2', 'Prague_3'], holidays=holidays_prague)
-train = fill_holidays(df_fill=train, warehouses=['Brno_1'], holidays=holidays_brno)
-train = fill_holidays(df_fill=train, warehouses=['Munich_1'], holidays=holidays_munich)
-train = fill_holidays(df_fill=train, warehouses=['Frankfurt_1'], holidays=holidays_frankfurt)
-train = fill_holidays(df_fill=train, warehouses=['Budapest_1'], holidays=holidays_budapest)
-print(f"train.shape:{train.shape}")
 
 
 
 
-# Find all weekend dates
+# Find all weekend dates - to flag out weekend
 start_date = train['date'].min()
 end_date = train['date'].max()
 #start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
 #end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
 current_date = start_date
+
 weekends = []
 while current_date <= end_date:
     if current_date.weekday() == 5 or current_date.weekday() == 6:
         weekends.append(current_date.strftime('%Y-%m-%d'))
     current_date += timedelta(days=1)
+    
+    
+    
+    
+# Food Types
+def get_food_type(food):
+    food_types = {
+        
+        "fruit": [
+            "Apple", "Avocado", "Banana", "Cucumber", "Lemon", "Mango", "Melon", 
+            "Orange", "Pear", "Pineapple", "Pomegranate", "Grape", "Watermelon", 
+            "Blueberry", "Lime", "Zucchini", "Grapefruit", "Physalis", "Berry", 
+            "Tangerine", "Apricot", "Pomelo", "Blackberry", "Cherry", "Raspberry", 
+            "Passion fruit", "Date", "Plum", "Fig", "Cactus Fruit", "Peach", 
+            "Nectarine", "Strawberry", "Mandarin", "Persimmon", "Canteloupe", 
+            "Lamb's lettuce"],
+        
+        "vegetable": [
+            "Tomato", "Potato", "Mushroom", "Onion", "Lettuce", "Cabbage", "Carrot", 
+            "Pepper", "Bell Pepper", "Radish", "Pumpkin", "Broccoli", "Basil", 
+            "Cauliflower", "Leek", "Chive", "Eggplant", "Kohlrabi", "Asparagus", 
+            "Rosemary", "Mint", "Chicory", "Fennel", "Strawberry", "Raspberry", 
+            "Ginger", "Pak choi", "Green Bean", "Cress", "Pea", "Pomelo", "Chili", 
+            "Squash", "Paprika", "Nut", "Plantain", "Soybean sprout", "Cantaloupe"],
+        
+        "meat": [
+            "Chicken", "Pork", "Beef", "Turkey", "Mix meat", "Duck", "Plant meat",
+            "Burger"],
+        
+        "fish": [
+            "Salmon", "Shrimp", "Surimi"],
+        
+        "other": [
+            "Herb", "Salad", "Parsley", "Garlic", "Beet", "Spinach", "Sweet Potato", 
+            "Thyme", "Snack", "Arugula", "Grapefruit", "Physalis", "Berry", 
+            "Shallot", "Corn", "Sprout", "Bean", "Cauliflower", "Leek", "Chive", 
+            "Eggplant", "Kohlrabi", "Asparagus", "Rosemary", "Mint", "Chicory", 
+            "Peach", "Nectarine", "Thyme", "Fennel", "Strawberry", "Raspberry", 
+            "Ginger", "Passion fruit", "Date", "Plum", "Fig", "Bell pepper", 
+            "Soup", "Cactus Fruit", "Pak choi", "Drink", "Pappudia", "Tangerine", 
+            "Apricot", "Pea", "Pomelo", "Bag", "Chili", "Blackberry", "Granadilla", 
+            "Cherry", "Squash", "Paprika", "Nut", "Plantain", "Mandarin", 
+            "Soybean sprout", "Soil", "Cantaloupe", "Green Bean", "Persimmon", 
+            "Cress", "Pepperoni", "Gooseberry", "Currant", "Flower"],
+        
+         "Bakery":[
+           "Bread", "Pastry", "Roll", "Baguette", "Toust", "Croissant", "Tortilla",
+           "Donut", "Snack", "Cake", "Pretzel", "Cracker", "Muffin", "Bagel",
+           "Breadcrumb", "Pita", "Rice Cake", "Bun", "Waffle", "Biscuit",
+           "Sandwich", "Cheese", "Wrap", "Breadcrumbs", "Focaccia", "Cookie",
+           "Cream", "Cornmeal", "Dessert", "Grain", "Hot Dog", "Pasta", "Pizza",
+           "Flatbread", "Yogurt", "Bakery", "Lucki", "Brioche"]
+    }
+    
+    for food_type, food_list in food_types.items():
+        if food in food_list:
+            return food_type
+    return 'other'
+
+
+# Feature Engineering
+def feature_engineering(df):
+    
+    df['index']=np.arange(len(df))
+    df=df.sort_values(['date']).reset_index(drop=True)
+
+
+
+    print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} add autoregression feature >>>")
+    for gap in [14, 20, 28, 35, 356, 364, 370]:
+        df[f'sales_shift{gap}'] = df.groupby(['warehouse','name'])['sales'].shift(gap)
+    
+
+
+    print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} extract names >>>")
+    #name:'Pastry_196'
+    df['name_0']=df['name'].apply(lambda x:x.split("_")[0])
+    df['name_1']=df['name'].apply(lambda x:x.split("_")[1])
+    df.drop(['name'],axis=1,inplace=True)
+    for i in range(2,5): #strip out the numeric suffix
+        df[f'L{i}_category_name_en']=df[f'L{i}_category_name_en'].apply(lambda x:x.split('_')[2])
+
+
+
+    print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} store2country feature >>>")
+    store2country = {
+        'Budapest_1': 'Hungary',
+        'Prague_2': 'Czechia',
+        'Brno_1': 'Czechia',
+        'Prague_1': 'Czechia',
+        'Prague_3': 'Czechia',
+        'Munich_1': 'Germany',
+        'Frankfurt_1': 'Germany'
+    }
+    df['country']=df['warehouse'].apply(lambda x:store2country[x])
+
+
+
+    print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} get food type >>>")
+    df['L5_category_name_en']=df['name_1'].apply(lambda x:get_food_type(x))
+
+
+
+    print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} add weekend feature >>>")
+    df.loc[(df['holiday_name'].isna())&(df['date'].isin(weekends)),'holiday_name']='weekend'
+    #simple weekend
+    df['is_holiday']=(df['holiday_name']==df['holiday_name']).astype(np.int8)
+    #holiday but not weekend
+    df.loc[(df['is_holiday']==1)&(df['holiday_name']!='weekend'),'is_holiday']=2
+    
+    
+
+    print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} get total discount >>>")
+    df['total_type_discount']=0
+    for i in range(7):
+        df['total_type_discount']+=df[f'type_{i}_discount']
+    
+    df['dollar_discount'] = df['total_type_discount'] * df['sell_price_main']
+
+
+
+    print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} time diff and shift feature >>>")
+    for gap in [1, 2]:
+        for col in ['is_holiday','weekend']:
+            df[col+f"_shift{gap}"]=df.groupby(['warehouse','unique_id','product_unique_id'])[col].shift(gap)
+
+    for col in ['total_orders','sell_price_main','total_type_discount']:#'total_orders*sell_price_main'
+        for agg in ['std','skew','max','median']:
+            df[f'{agg}_{col}_each_name_WU_per_day']=df.groupby(['date','warehouse','unique_id','name_0','name_1'])[col].transform(agg)
+            df[f'{agg}_{col}_each_name0_WU_per_day']=df.groupby(['date','warehouse','unique_id','name_0'])[col].transform(agg)
+            df[f'{agg}_{col}_each_L1_WU_per_day']=df.groupby(['date','warehouse','unique_id','L1_category_name_en'])[col].transform(agg)
+            df[f'{agg}_{col}_each_name0_W_per_day']=df.groupby(['date','warehouse','name_0'])[col].transform(agg)
+            df[f'{agg}_{col}_each_name0_per_day']=df.groupby(['date','name_0'])[col].transform(agg)
+            
+            for gap in [1]:
+                df[f'{agg}_{col}_each_name_WU_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name_WU_per_day'].diff(gap)
+                df[f'{agg}_{col}_each_name0_WU_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name0_WU_per_day'].diff(gap)
+                df[f'{agg}_{col}_each_L1_WU_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_L1_WU_per_day'].diff(gap)
+                df[f'{agg}_{col}_each_name0_W_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name0_W_per_day'].diff(gap)
+                df[f'{agg}_{col}_each_name0_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name0_per_day'].diff(gap)
+  
+                
+    df=df.sort_values(['index']).reset_index(drop=True)
+    df.drop(['index'],axis=1,inplace=True)
+    
+    return df
+
+
+total = feature_engineering(total)
+total = reduce_mem_usage(total)
+
+
+
+# Set up random column
+def add_random_column(df):
+    np.random.seed(24)
+    df['random'] = np.random.rand(df.shape[0])
+    return df
+
+add_random_column(total)
+
+
+
+# Split the train and test
+drop_cols=['availability']
+total.drop([col for col in total.columns if total[col].isna().mean()>0.98]+drop_cols, axis=1, inplace=True)
+total.drop(drop_cols, axis=1, inplace=True)
+train = total[:len(train)]
+test = total[len(train):].drop(['sales'], axis=1)
+
+# check objective columns
+# object_columns = [col for col in test.columns if test[col].dtype == 'object']
+# print(test[object_columns].head())
+
+
+print(f"train.shape:{train.shape},test.shape:{test.shape}")
+train.head()
+
+
+#
+features = 
+
+
+# Hyper parameter tuning
+def weighted_MAE(y_true,y_pred,weight):
+    return np.sum(weight*np.abs(y_true-y_pred))/np.sum(weight)
