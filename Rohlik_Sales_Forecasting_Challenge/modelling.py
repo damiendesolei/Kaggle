@@ -482,7 +482,7 @@ train.head()
 # intial features with only numeric columns
 features = [col for col in test.columns if (test[col].dtype != 'object' and test[col].dtype != 'datetime64[ns]')]
 
-
+model_name = 'lgb_with_random_138_parameters'
 
 
 # define weighted MAE
@@ -496,7 +496,7 @@ X = train[features]
 y = train['sales']
 w = train['weight']
 
-X_train, X_test, y_train, y_test, w_train, w_test = train_test_split(X, y, w, test_size=0.25, random_state=2025)
+X_train, X_valid, y_train, y_valid, w_train, w_valid = train_test_split(X, y, w, test_size=0.25, random_state=2025)
 
 
 def objective(trial):
@@ -520,7 +520,7 @@ def objective(trial):
 
     # Create a LightGBM dataset
     dtrain = lgb.Dataset(X_train, y_train, weight=w_train)
-    dval = lgb.Dataset(X_test, y_test, weight=w_test, reference=dtrain)
+    dval = lgb.Dataset(X_valid, y_valid, weight=w_valid, reference=dtrain)
 
     # Train LightGBM model
     model = lgb.train(param,
@@ -533,11 +533,12 @@ def objective(trial):
     )
 
     # Use the best score (maximized R²) as the objective to minimize (negative sign)
-    best_score = model.best_score["valid_0"]["mae"]
+    #print(model.best_score["valid_0"])
+    best_score = model.best_score["valid_0"]["l1"]
     return best_score
     
-    y_pred = model.predict(X_test)
-    wmae = weighted_mae(y_test, y_pred, w_test)  # WMAE for regression
+    y_pred = model.predict(X_valid)
+    wmae = weighted_mae(y_valid, y_pred, w_valid)  # WMAE for regression
     
     return wmae
 
@@ -545,22 +546,102 @@ def objective(trial):
 # Run Optuna study
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(direction="minimize")
-study.optimize(objective, timeout=3600*0.5) # 3600*n hour
+study.optimize(objective, timeout=3600*2) # 3600*n hour
 
 # Print the best hyperparameters and score
 print("Best hyperparameters:", study.best_params)
-print("Best rmse:", -study.best_value)
+print("Best mae:", study.best_value)
 
 # Get the best parameters and score
 best_params = study.best_params
-best_score = -study.best_value
+best_score = study.best_value
 
 # Format the file name with the best score
 model_path = r'G:\\kaggle\Rohlik_Sales_Forecasting_Challenge\model\\'
-file_name = model_path + f"lgb_with_random_138_parameters_wmae_{best_score:.4f}.csv"
+file_name = model_path + model_name + f"_mae_{best_score:.4f}.csv"
 
 # Save the best parameters to a CSV file
 df_param = pd.DataFrame([best_params])  # Convert to DataFrame
 df_param.to_csv(file_name, index=False)  # Save to CSV
 
 print(f"Best parameters saved to {file_name}")
+
+
+
+# best_params = {'n_estimators': 500,
+#      'max_depth': 19,
+#      'learning_rate': 0.0830361280686556,
+#      'num_leaves': 255,
+#      'feature_fraction': 0.6447449374663567,
+#      'bagging_fraction': 0.7696843249694738,
+#      'bagging_freq': 11,
+#      'lambda_l1': 0.017680527407702887,
+#      'lambda_l2': 0.004257637413705428}
+
+
+# Model fitting and prediction
+model =lgb.LGBMRegressor(device='gpu', gpu_use_dp=True, objective='l1', **best_params) # from Hyper param tuning
+
+
+# weighted mae for lgb - weight will not be passed by lgb directly.
+def weighted_mae_val(y_true, y_pred, sample_weight):
+    wmae = np.average(np.abs(y_true-y_pred), weights=sample_weight)
+    return 'wmae', wmae, False # True = higher is better
+
+
+# Train LightGBM model with early stopping and evaluation logging
+model.fit(X_train, y_train, w_train,  
+          eval_metric=[weighted_mae_val],
+          eval_set=[(X_valid, y_valid, w_valid)], 
+          callbacks=[
+              lgb.early_stopping(100), 
+              lgb.log_evaluation(10)
+          ])
+
+
+# Append the trained model to the list
+#models.append(model)
+
+# Output the best weighted MAE
+wmae = min(model.evals_result_['valid_0']['wmae'])
+print(f"valid wmae: {wmae}")
+#valid_0's l1: 28.02	valid_0's wmae: 28.02
+  
+    
+# Save the trained model to a file
+joblib.dump(model, model_path + f'{model_name}_wmae_{wmae:.4f}.model')
+
+
+
+
+
+
+#assess the feature importance
+lgb.plot_importance(model, max_num_features=25)  # Limit to top 30 features
+plt.show()
+    
+
+
+# Create a DataFrame
+lgb_feature_importance= pd.DataFrame({
+    'Feature': model.feature_name_,
+    'Importance': model.feature_importances_
+})
+
+lgb_feature_importance = lgb_feature_importance.sort_values('Importance', ascending=False).reset_index(drop=True)
+lgb_feature_importance.to_csv(model_path + f'{model_name}_features_{wmae:.4f}.csv', index=False)
+
+
+
+
+
+
+# Predict and submit
+test['sales_hat'] = model.predict(test[features])
+test.loc[test['sales_hat'] < 0, 'sales_hat'] = 0
+
+# Create id
+test['id'] = test['unique_id'].astype(str) + "_" + test['date'].astype(str)
+submission = test[['id','sales_hat']]
+submission.to_csv(model_path + f"{model_name}_submission_{wmae:.4f}.csv",index=False)
+
