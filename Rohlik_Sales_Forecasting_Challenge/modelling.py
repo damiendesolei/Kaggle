@@ -23,7 +23,7 @@ import scipy
 from datetime import datetime, timedelta
 
 from sklearn.linear_model import LinearRegression
-from sklearn.model_selection import TimeSeriesSplit
+from sklearn.model_selection import TimeSeriesSplit, train_test_split
 
 import lightgbm as lgb
 #from sklearn.metrics import r2_score
@@ -41,7 +41,7 @@ import optuna
 def reduce_mem_usage(df, float16_as32=True):
     #memory_usage()是df每列的内存使用量,sum是对它们求和, B->KB->MB
     start_mem = df.memory_usage().sum() / 1024**2
-    print('Memory usage of dataframe is {:.2f} MB'.format(start_mem))
+    print('Memory usage of current dataframe is {:.2f} MB'.format(start_mem))
     non_date_columns = [col for col in df.columns if df[col].dtype != 'datetime64[ns]']
 
     for col in non_date_columns:#遍历每列的列名
@@ -109,6 +109,7 @@ print(f'{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} filtered train df dime
 # Read in other files
 inventory = pd.read_csv(PATH + 'inventory.csv')
 calendar = pd.read_csv(PATH + 'calendar.csv', parse_dates=['date'])
+weights = pd.read_csv(PATH + 'test_weights.csv') 
 
 
 # Join with Inventory
@@ -119,6 +120,11 @@ test = test.merge(inventory, how='left', on =['unique_id','warehouse'])
 # Join with Calendar
 train = train.merge(calendar, how='left', on =['date','warehouse'])
 test = test.merge(calendar, how='left', on =['date','warehouse'])
+
+
+# Join with Weight
+train = train.merge(weights, how='left', on =['unique_id'])
+test = test.merge(weights, how='left', on =['unique_id'])
 
 
 # check column difference
@@ -366,12 +372,10 @@ def feature_engineering(df):
     df=df.sort_values(['date']).reset_index(drop=True)
 
 
-
     print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} add autoregression feature >>>")
     for gap in [14, 20, 28, 35, 356, 364, 370]:
         df[f'sales_shift{gap}'] = df.groupby(['warehouse','name'])['sales'].shift(gap)
     
-
 
     print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} extract names >>>")
     #name:'Pastry_196'
@@ -380,7 +384,6 @@ def feature_engineering(df):
     df.drop(['name'],axis=1,inplace=True)
     for i in range(2,5): #strip out the numeric suffix
         df[f'L{i}_category_name_en']=df[f'L{i}_category_name_en'].apply(lambda x:x.split('_')[2])
-
 
 
     print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} store2country feature >>>")
@@ -396,10 +399,8 @@ def feature_engineering(df):
     df['country']=df['warehouse'].apply(lambda x:store2country[x])
 
 
-
     print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} get food type >>>")
-    df['L5_category_name_en']=df['name_1'].apply(lambda x:get_food_type(x))
-
+    df['L5_category_name_en']=df['name_0'].apply(lambda x:get_food_type(x))
 
 
     print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} add weekend feature >>>")
@@ -410,14 +411,12 @@ def feature_engineering(df):
     df.loc[(df['is_holiday']==1)&(df['holiday_name']!='weekend'),'is_holiday']=2
     
     
-
     print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} get total discount >>>")
     df['total_type_discount']=0
     for i in range(7):
         df['total_type_discount']+=df[f'type_{i}_discount']
     
     df['dollar_discount'] = df['total_type_discount'] * df['sell_price_main']
-
 
 
     print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} time diff and shift feature >>>")
@@ -465,7 +464,7 @@ add_random_column(total)
 # Split the train and test
 drop_cols=['availability']
 total.drop([col for col in total.columns if total[col].isna().mean()>0.98]+drop_cols, axis=1, inplace=True)
-total.drop(drop_cols, axis=1, inplace=True)
+#total.drop(drop_cols, axis=1, inplace=True)
 train = total[:len(train)]
 test = total[len(train):].drop(['sales'], axis=1)
 
@@ -474,14 +473,94 @@ test = total[len(train):].drop(['sales'], axis=1)
 # print(test[object_columns].head())
 
 
-print(f"train.shape:{train.shape},test.shape:{test.shape}")
+print(f"train.shape:{train.shape}, test.shape:{test.shape}")
 train.head()
 
 
-#
-features = 
 
 
-# Hyper parameter tuning
-def weighted_MAE(y_true,y_pred,weight):
-    return np.sum(weight*np.abs(y_true-y_pred))/np.sum(weight)
+# intial features with only numeric columns
+features = [col for col in test.columns if (test[col].dtype != 'object' and test[col].dtype != 'datetime64[ns]')]
+
+
+
+
+# define weighted MAE
+def weighted_mae(y_true, y_pred, weight):
+    wmae = np.sum(weight * np.abs(y_true-y_pred)) / np.sum(weight)
+    return 'wmae', wmae, False # True = higher is better
+
+
+#  Train test split
+X = train[features]
+y = train['sales']
+w = train['weight']
+
+X_train, X_test, y_train, y_test, w_train, w_test = train_test_split(X, y, w, test_size=0.25, random_state=2025)
+
+
+def objective(trial):
+    param = {
+        'objective': 'regression',  
+        'metric': 'mae',  
+        'boosting_type': 'gbdt',
+        'n_estimators': trial.suggest_categorical('n_estimators', [200, 300, 400, 500]),
+        'max_depth': trial.suggest_int('max_depth', 1, 32),  
+        'learning_rate': trial.suggest_loguniform('learning_rate', 0.01, 0.1),  
+        'num_leaves': trial.suggest_int('num_leaves', 12, 256), 
+        'feature_fraction': trial.suggest_uniform('feature_fraction', 0.6, 1.0),  
+        'bagging_fraction': trial.suggest_uniform('bagging_fraction', 0.6, 1.0),  
+        'bagging_freq': trial.suggest_int('bagging_freq', 2, 12),  
+        "lambda_l1": trial.suggest_loguniform("lambda_l1", 0.001, 0.1),
+        "lambda_l2": trial.suggest_loguniform("lambda_l2", 0.001, 0.1),
+        "device_type": "gpu",  
+        "seed" : 2025
+
+    }
+
+    # Create a LightGBM dataset
+    dtrain = lgb.Dataset(X_train, y_train, weight=w_train)
+    dval = lgb.Dataset(X_test, y_test, weight=w_test, reference=dtrain)
+
+    # Train LightGBM model
+    model = lgb.train(param,
+        dtrain,
+        valid_sets=[dval],
+        #feval=lambda y_pred, dval: r2_lgb(dval.get_label(), y_pred, dval.get_weight()),  # Use weights in the custom metric
+        callbacks=[
+            lgb.early_stopping(100), 
+            lgb.log_evaluation(20)]
+    )
+
+    # Use the best score (maximized R²) as the objective to minimize (negative sign)
+    best_score = model.best_score["valid_0"]["mae"]
+    return best_score
+    
+    y_pred = model.predict(X_test)
+    wmae = weighted_mae(y_test, y_pred, w_test)  # WMAE for regression
+    
+    return wmae
+
+
+# Run Optuna study
+print("Start running hyper parameter tuning..")
+study = optuna.create_study(direction="minimize")
+study.optimize(objective, timeout=3600*0.5) # 3600*n hour
+
+# Print the best hyperparameters and score
+print("Best hyperparameters:", study.best_params)
+print("Best rmse:", -study.best_value)
+
+# Get the best parameters and score
+best_params = study.best_params
+best_score = -study.best_value
+
+# Format the file name with the best score
+model_path = r'G:\\kaggle\Rohlik_Sales_Forecasting_Challenge\model\\'
+file_name = model_path + f"lgb_with_random_138_parameters_wmae_{best_score:.4f}.csv"
+
+# Save the best parameters to a CSV file
+df_param = pd.DataFrame([best_params])  # Convert to DataFrame
+df_param.to_csv(file_name, index=False)  # Save to CSV
+
+print(f"Best parameters saved to {file_name}")
