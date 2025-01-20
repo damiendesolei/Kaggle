@@ -103,7 +103,7 @@ print(f'{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} original train df dime
 
 test_id = test['unique_id'].unique() #only use unique_id in testset
 train = train[train['unique_id'].isin(test_id)]
-train = train[train.date>='2021-01-01 00:00:00'] # only use post-covid data
+#train = train[train.date>='2021-01-01 00:00:00'] # only use post-covid data
 print(f'{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} filtered train df dimention is {train.shape}')
 
 
@@ -448,8 +448,30 @@ def feature_engineering(df):
     return df
 
 
+
 total = feature_engineering(total)
-total = reduce_mem_usage(total)
+
+
+
+# Perform target encoding 
+def target_encoding(df, cat_cols, target_variable, weight=0): # weight=0 -> no smooth
+
+    for col in cat_cols:
+        weight = weight
+        feat = df.groupby(col)[target_variable].agg(["mean", "count"])
+        mean = feat['mean']
+        count = feat['count']
+        
+        smooth = (count * mean + weight * mean) / (weight + count)
+
+        df.loc[:, col] = df.loc[:, col].map(smooth)
+
+    return df
+
+total = target_encoding(total, ['product_unique_id'], 'sales')
+
+
+
 
 
 
@@ -460,7 +482,7 @@ def add_random_column(df):
     return df
 
 add_random_column(total)
-
+total = reduce_mem_usage(total)
 
 
 # Split the train and test
@@ -494,7 +516,7 @@ features = [col for col in test.columns if (test[col].dtype != 'object' and test
 
 
 # Setup model name to tune and predict
-model_name = 'lgb_with_random_103_parameters'
+model_name = 'lgb_with_random_49_parameters'
 
 
 # define weighted MAE
@@ -508,14 +530,14 @@ X = train[features]
 y = train['sales']
 w = train['weight']
 
-#X_train, X_valid, y_train, y_valid, w_train, w_valid = train_test_split(X, y, w, test_size=0.25, random_state=2025)
-X_train = train[features].loc[~X['month'].isin([6])]
-y_train = train['sales'].loc[~X['month'].isin([6])]
-w_train = train['weight'].loc[~X['month'].isin([6])]
+X_train, X_valid, y_train, y_valid, w_train, w_valid = train_test_split(X, y, w, test_size=0.25, random_state=2025)
+# X_train = train[features].loc[~X['month'].isin([6])]
+# y_train = train['sales'].loc[~X['month'].isin([6])]
+# w_train = train['weight'].loc[~X['month'].isin([6])]
 
-X_valid = train[features].loc[X['month'].isin([6])]
-y_valid = train['sales'].loc[X['month'].isin([6])]
-w_valid = train['weight'].loc[X['month'].isin([6])]
+# X_valid = train[features].loc[X['month'].isin([6])]
+# y_valid = train['sales'].loc[X['month'].isin([6])]
+# w_valid = train['weight'].loc[X['month'].isin([6])]
 
 
 
@@ -525,7 +547,7 @@ def objective(trial):
         'objective': 'regression',  
         'metric': 'mae',  
         'boosting_type': 'gbdt',
-        'n_estimators': trial.suggest_int('n_estimators', 200, 500, step=100),
+        'n_estimators': trial.suggest_int('n_estimators', 300, 500, step=100),
         'max_depth': trial.suggest_int('max_depth', 1, 32, step=2),  
         'learning_rate': trial.suggest_loguniform('learning_rate', 0.01, 0.1),  
         'num_leaves': trial.suggest_int('num_leaves', 12, 256, step=2), 
@@ -569,7 +591,7 @@ def objective(trial):
 # Run Optuna study
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(direction="minimize")
-study.optimize(objective, timeout=3600*1) # 3600*n hour
+study.optimize(objective, timeout=3600*3) # 3600*n hour
 
 # Print the best hyperparameters and score
 print("Best hyperparameters:", study.best_params)
