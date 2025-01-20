@@ -373,7 +373,8 @@ def feature_engineering(df):
 
 
     print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} add autoregression feature >>>")
-    for gap in [14, 20, 28, 35, 356, 364, 370]:
+    #for gap in [14, 20, 28, 35, 356, 364, 370]:
+    for gap in [14, 356]:
         df[f'sales_shift{gap}'] = df.groupby(['warehouse','name'])['sales'].shift(gap)
     
 
@@ -425,7 +426,7 @@ def feature_engineering(df):
             df[col+f"_shift{gap}"]=df.groupby(['warehouse','unique_id','product_unique_id'])[col].shift(gap)
 
     for col in ['total_orders','sell_price_main','total_type_discount']:#'total_orders*sell_price_main'
-        for agg in ['std','skew','max','median']:
+        for agg in ['std','skew','max']:#,'median']:
             df[f'{agg}_{col}_each_name_WU_per_day']=df.groupby(['date','warehouse','unique_id','name_0','name_1'])[col].transform(agg)
             df[f'{agg}_{col}_each_name0_WU_per_day']=df.groupby(['date','warehouse','unique_id','name_0'])[col].transform(agg)
             df[f'{agg}_{col}_each_L1_WU_per_day']=df.groupby(['date','warehouse','unique_id','L1_category_name_en'])[col].transform(agg)
@@ -468,6 +469,10 @@ total.drop([col for col in total.columns if total[col].isna().mean()>0.98]+drop_
 train = total[:len(train)]
 test = total[len(train):].drop(['sales'], axis=1)
 
+# fill nan with -99
+train = train.fillna(-99)
+test = test.fillna(-99)
+
 # check objective columns
 # object_columns = [col for col in test.columns if test[col].dtype == 'object']
 # print(test[object_columns].head())
@@ -482,7 +487,13 @@ train.head()
 # intial features with only numeric columns
 features = [col for col in test.columns if (test[col].dtype != 'object' and test[col].dtype != 'datetime64[ns]')]
 
-model_name = 'lgb_with_random_138_parameters'
+
+
+
+
+
+# Setup model name to tune and predict
+model_name = 'lgb_with_random_103_parameters'
 
 
 # define weighted MAE
@@ -499,17 +510,21 @@ w = train['weight']
 X_train, X_valid, y_train, y_valid, w_train, w_valid = train_test_split(X, y, w, test_size=0.25, random_state=2025)
 
 
+
+# Define the parameter space
 def objective(trial):
     param = {
         'objective': 'regression',  
         'metric': 'mae',  
         'boosting_type': 'gbdt',
-        'n_estimators': trial.suggest_categorical('n_estimators', [200, 300, 400, 500]),
+        'n_estimators': trial.suggest_int('n_estimators', 200, 500, step=100),
         'max_depth': trial.suggest_int('max_depth', 1, 32),  
         'learning_rate': trial.suggest_loguniform('learning_rate', 0.01, 0.1),  
-        'num_leaves': trial.suggest_int('num_leaves', 12, 256), 
-        'feature_fraction': trial.suggest_uniform('feature_fraction', 0.6, 1.0),  
-        'bagging_fraction': trial.suggest_uniform('bagging_fraction', 0.6, 1.0),  
+        'num_leaves': trial.suggest_int('num_leaves', 12, 256, step=2), 
+        #'feature_fraction': trial.suggest_uniform('feature_fraction', 0.6, 1.0),  
+        #'bagging_fraction': trial.suggest_uniform('bagging_fraction', 0.6, 1.0),  
+        'feature_fraction': trial.suggest_categorical('feature_fraction', [0.6, 0.7, 0.8, 0.9, 1.0]),
+        'bagging_fraction': trial.suggest_categorical('bagging_fraction', [0.6, 0.7, 0.8, 0.9, 1.0]),
         'bagging_freq': trial.suggest_int('bagging_freq', 2, 12),  
         "lambda_l1": trial.suggest_loguniform("lambda_l1", 0.001, 0.1),
         "lambda_l2": trial.suggest_loguniform("lambda_l2", 0.001, 0.1),
@@ -529,7 +544,7 @@ def objective(trial):
         #feval=lambda y_pred, dval: r2_lgb(dval.get_label(), y_pred, dval.get_weight()),  # Use weights in the custom metric
         callbacks=[
             lgb.early_stopping(100), 
-            lgb.log_evaluation(20)]
+            lgb.log_evaluation(10)]
     )
 
     # Use the best score (maximized R²) as the objective to minimize (negative sign)
@@ -546,7 +561,7 @@ def objective(trial):
 # Run Optuna study
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(direction="minimize")
-study.optimize(objective, timeout=3600*2) # 3600*n hour
+study.optimize(objective, timeout=3600*1) # 3600*n hour
 
 # Print the best hyperparameters and score
 print("Best hyperparameters:", study.best_params)
