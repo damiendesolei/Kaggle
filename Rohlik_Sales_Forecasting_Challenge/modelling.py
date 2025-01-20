@@ -90,9 +90,9 @@ PATH = '/kaggle/input/rohlik-sales-forecasting-challenge' if os.path.exists('/ka
 
 
 # list all files in the path
-for dirname, _, filenames in os.walk(PATH):
-    for filename in filenames:
-        print(os.path.join(dirname, filename))
+# for dirname, _, filenames in os.walk(PATH):
+#     for filename in filenames:
+#         print(os.path.join(dirname, filename))
         
         
 
@@ -103,6 +103,7 @@ print(f'{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} original train df dime
 
 test_id = test['unique_id'].unique() #only use unique_id in testset
 train = train[train['unique_id'].isin(test_id)]
+train = train[train.date>='2021-01-01 00:00:00'] # only use post-covid data
 print(f'{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} filtered train df dimention is {train.shape}')
 
 
@@ -425,20 +426,20 @@ def feature_engineering(df):
         for col in ['is_holiday','weekend']:
             df[col+f"_shift{gap}"]=df.groupby(['warehouse','unique_id','product_unique_id'])[col].shift(gap)
 
-    for col in ['total_orders','sell_price_main','total_type_discount']:#'total_orders*sell_price_main'
-        for agg in ['std','skew','max']:#,'median']:
-            df[f'{agg}_{col}_each_name_WU_per_day']=df.groupby(['date','warehouse','unique_id','name_0','name_1'])[col].transform(agg)
-            df[f'{agg}_{col}_each_name0_WU_per_day']=df.groupby(['date','warehouse','unique_id','name_0'])[col].transform(agg)
-            df[f'{agg}_{col}_each_L1_WU_per_day']=df.groupby(['date','warehouse','unique_id','L1_category_name_en'])[col].transform(agg)
-            df[f'{agg}_{col}_each_name0_W_per_day']=df.groupby(['date','warehouse','name_0'])[col].transform(agg)
-            df[f'{agg}_{col}_each_name0_per_day']=df.groupby(['date','name_0'])[col].transform(agg)
+    # for col in ['total_orders','sell_price_main','total_type_discount']:#'total_orders*sell_price_main'
+    #     for agg in ['std','skew','max']:#,'median']:
+    #         df[f'{agg}_{col}_each_name_WU_per_day']=df.groupby(['date','warehouse','unique_id','name_0','name_1'])[col].transform(agg)
+    #         df[f'{agg}_{col}_each_name0_WU_per_day']=df.groupby(['date','warehouse','unique_id','name_0'])[col].transform(agg)
+    #         df[f'{agg}_{col}_each_L1_WU_per_day']=df.groupby(['date','warehouse','unique_id','L1_category_name_en'])[col].transform(agg)
+    #         df[f'{agg}_{col}_each_name0_W_per_day']=df.groupby(['date','warehouse','name_0'])[col].transform(agg)
+    #         df[f'{agg}_{col}_each_name0_per_day']=df.groupby(['date','name_0'])[col].transform(agg)
             
-            for gap in [1]:
-                df[f'{agg}_{col}_each_name_WU_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name_WU_per_day'].diff(gap)
-                df[f'{agg}_{col}_each_name0_WU_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name0_WU_per_day'].diff(gap)
-                df[f'{agg}_{col}_each_L1_WU_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_L1_WU_per_day'].diff(gap)
-                df[f'{agg}_{col}_each_name0_W_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name0_W_per_day'].diff(gap)
-                df[f'{agg}_{col}_each_name0_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name0_per_day'].diff(gap)
+    #         for gap in [1]:
+    #             df[f'{agg}_{col}_each_name_WU_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name_WU_per_day'].diff(gap)
+    #             df[f'{agg}_{col}_each_name0_WU_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name0_WU_per_day'].diff(gap)
+    #             df[f'{agg}_{col}_each_L1_WU_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_L1_WU_per_day'].diff(gap)
+    #             df[f'{agg}_{col}_each_name0_W_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name0_W_per_day'].diff(gap)
+    #             df[f'{agg}_{col}_each_name0_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name0_per_day'].diff(gap)
   
                 
     df=df.sort_values(['index']).reset_index(drop=True)
@@ -507,7 +508,14 @@ X = train[features]
 y = train['sales']
 w = train['weight']
 
-X_train, X_valid, y_train, y_valid, w_train, w_valid = train_test_split(X, y, w, test_size=0.25, random_state=2025)
+#X_train, X_valid, y_train, y_valid, w_train, w_valid = train_test_split(X, y, w, test_size=0.25, random_state=2025)
+X_train = train[features].loc[~X['month'].isin([6])]
+y_train = train['sales'].loc[~X['month'].isin([6])]
+w_train = train['weight'].loc[~X['month'].isin([6])]
+
+X_valid = train[features].loc[X['month'].isin([6])]
+y_valid = train['sales'].loc[X['month'].isin([6])]
+w_valid = train['weight'].loc[X['month'].isin([6])]
 
 
 
@@ -518,7 +526,7 @@ def objective(trial):
         'metric': 'mae',  
         'boosting_type': 'gbdt',
         'n_estimators': trial.suggest_int('n_estimators', 200, 500, step=100),
-        'max_depth': trial.suggest_int('max_depth', 1, 32),  
+        'max_depth': trial.suggest_int('max_depth', 1, 32, step=2),  
         'learning_rate': trial.suggest_loguniform('learning_rate', 0.01, 0.1),  
         'num_leaves': trial.suggest_int('num_leaves', 12, 256, step=2), 
         #'feature_fraction': trial.suggest_uniform('feature_fraction', 0.6, 1.0),  
