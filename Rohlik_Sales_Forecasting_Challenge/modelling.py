@@ -521,14 +521,14 @@ remove_features = ['weight'] #+ remove_features
 
 
 features = [feature for feature in features_0 if feature not in remove_features]
-features = list(previous_features[(previous_features.Importance>=5200)]['Feature'])
+features = list(previous_features[(previous_features.Importance>=2000)&(previous_features.Feature!='random')]['Feature'])
 
 
 
 
 
 # Setup model name to tune and predict
-model_name = 'lgb_with_random_6_parameters'
+model_name = 'lgb_with_random_16_parameters'
 
 
 # define weighted MAE
