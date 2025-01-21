@@ -514,21 +514,21 @@ train.head()
 features_0 = [col for col in test.columns if (test[col].dtype != 'object' and test[col].dtype != 'datetime64[ns]')]
 
 # remove features based on previous model importance
-previous_features = pd.read_csv(model_path + "lgb_with_random_49_parameters_features_24.4546.csv")
-remove_features = list(previous_features[(previous_features.Importance<=500)]['Feature'])
+previous_features = pd.read_csv(model_path + "lgb_with_random_26_parameters_features_24.8880.csv")
+#remove_features = list(previous_features[(previous_features.Importance<=5200)]['Feature'])
 
-remove_features = ['weight'] + remove_features
+remove_features = ['weight'] #+ remove_features
 
 
 features = [feature for feature in features_0 if feature not in remove_features]
-
+features = list(previous_features[(previous_features.Importance>=5200)]['Feature'])
 
 
 
 
 
 # Setup model name to tune and predict
-model_name = 'lgb_with_random_26_parameters'
+model_name = 'lgb_with_random_6_parameters'
 
 
 # define weighted MAE
@@ -603,7 +603,7 @@ def objective(trial):
 # Run Optuna study
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(direction="minimize")
-study.optimize(objective, timeout=3600*3) # 3600*n hour
+study.optimize(objective, timeout=3600*2) # 3600*n hour
 
 # Print the best hyperparameters and score
 print("Best hyperparameters:", study.best_params)
