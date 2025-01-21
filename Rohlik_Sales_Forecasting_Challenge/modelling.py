@@ -454,7 +454,7 @@ total = feature_engineering(total)
 
 
 # Perform target encoding 
-def target_encoding(df, cat_cols, target_variable, weight=0): # weight=0 -> no smooth
+def target_encoding(df, cat_cols, target_variable, weight=1): # weight=0 -> no smooth
 
     for col in cat_cols:
         weight = weight
@@ -468,7 +468,7 @@ def target_encoding(df, cat_cols, target_variable, weight=0): # weight=0 -> no s
 
     return df
 
-total = target_encoding(total, ['product_unique_id'], 'sales')
+total = target_encoding(total, ['product_unique_id','unique_id','warehouse'], 'sales')
 
 
 
@@ -508,10 +508,10 @@ train.head()
 
 
 # intial features with only numeric columns
-features = [col for col in test.columns if (test[col].dtype != 'object' and test[col].dtype != 'datetime64[ns]')]
+features_0 = [col for col in test.columns if (test[col].dtype != 'object' and test[col].dtype != 'datetime64[ns]')]
 
-
-
+remove_features = ['weight']
+features = [feature for feature in features_0 if feature not in remove_features]
 
 
 
@@ -591,7 +591,7 @@ def objective(trial):
 # Run Optuna study
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(direction="minimize")
-study.optimize(objective, timeout=3600*3) # 3600*n hour
+study.optimize(objective, timeout=3600*6) # 3600*n hour
 
 # Print the best hyperparameters and score
 print("Best hyperparameters:", study.best_params)
@@ -613,16 +613,16 @@ print(f"Best parameters saved to {file_name}")
 
 
 
-# best_params = {'n_estimators': 500,
-#      'max_depth': 19,
-#      'learning_rate': 0.0830361280686556,
-#      'num_leaves': 255,
-#      'feature_fraction': 0.6447449374663567,
-#      'bagging_fraction': 0.7696843249694738,
-#      'bagging_freq': 11,
-#      'lambda_l1': 0.017680527407702887,
-#      'lambda_l2': 0.004257637413705428}
-
+# best_params = {'n_estimators': 400,
+#  'max_depth': 23,
+#  'learning_rate': 0.08734481710573429,
+#  'num_leaves': 244,
+#  'feature_fraction': 0.8,
+#  'bagging_fraction': 1.0,
+#  'bagging_freq': 4,
+#  'lambda_l1': 0.004142441924636233,
+#  'lambda_l2': 0.015581993078955678}
+# valid wmae: 24.748462567694936
 
 # Model fitting and prediction
 model =lgb.LGBMRegressor(device='gpu', gpu_use_dp=True, objective='l1', **best_params) # from Hyper param tuning
@@ -690,3 +690,12 @@ test['id'] = test['unique_id'].astype(str) + "_" + test['date'].astype(str)
 submission = test[['id','sales_hat']]
 submission.to_csv(model_path + f"{model_name}_submission_{wmae:.4f}.csv",index=False)
 
+
+# correct id
+CORRET = True
+if CORRET:
+    test_0 = pd.read_csv(PATH + 'sales_test.csv', parse_dates=['date'])
+    test_0['id'] = test_0['unique_id'].astype(str) + "_" + test_0['date'].astype(str)
+    submission = submission.reset_index(drop=True)
+    submission['id'] = test_0['id']
+    submission.to_csv(model_path + f"{model_name}_submission_{wmae:.4f}_fix.csv",index=False)
