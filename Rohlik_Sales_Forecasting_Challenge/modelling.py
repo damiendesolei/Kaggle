@@ -38,6 +38,9 @@ import optuna
 
 
 
+model_path = r'G:\\kaggle\Rohlik_Sales_Forecasting_Challenge\model\\'
+
+
 def reduce_mem_usage(df, float16_as32=True):
     #memory_usage()是df每列的内存使用量,sum是对它们求和, B->KB->MB
     start_mem = df.memory_usage().sum() / 1024**2
@@ -510,13 +513,22 @@ train.head()
 # intial features with only numeric columns
 features_0 = [col for col in test.columns if (test[col].dtype != 'object' and test[col].dtype != 'datetime64[ns]')]
 
-remove_features = ['weight']
+# remove features based on previous model importance
+previous_features = pd.read_csv(model_path + "lgb_with_random_49_parameters_features_24.4546.csv")
+remove_features = list(previous_features[(previous_features.Importance<=500)]['Feature'])
+
+remove_features = ['weight'] + remove_features
+
+
 features = [feature for feature in features_0 if feature not in remove_features]
 
 
 
+
+
+
 # Setup model name to tune and predict
-model_name = 'lgb_with_random_49_parameters'
+model_name = 'lgb_with_random_26_parameters'
 
 
 # define weighted MAE
@@ -591,7 +603,7 @@ def objective(trial):
 # Run Optuna study
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(direction="minimize")
-study.optimize(objective, timeout=3600*6) # 3600*n hour
+study.optimize(objective, timeout=3600*3) # 3600*n hour
 
 # Print the best hyperparameters and score
 print("Best hyperparameters:", study.best_params)
@@ -602,7 +614,6 @@ best_params = study.best_params
 best_score = study.best_value
 
 # Format the file name with the best score
-model_path = r'G:\\kaggle\Rohlik_Sales_Forecasting_Challenge\model\\'
 file_name = model_path + model_name + f"_mae_{best_score:.4f}.csv"
 
 # Save the best parameters to a CSV file
@@ -688,7 +699,7 @@ test.loc[test['sales_hat'] < 0, 'sales_hat'] = 0
 # Create id
 test['id'] = test['unique_id'].astype(str) + "_" + test['date'].astype(str)
 submission = test[['id','sales_hat']]
-submission.to_csv(model_path + f"{model_name}_submission_{wmae:.4f}.csv",index=False)
+#submission.to_csv(model_path + f"{model_name}_submission_{wmae:.4f}.csv",index=False)
 
 
 # correct id
@@ -698,4 +709,4 @@ if CORRET:
     test_0['id'] = test_0['unique_id'].astype(str) + "_" + test_0['date'].astype(str)
     submission = submission.reset_index(drop=True)
     submission['id'] = test_0['id']
-    submission.to_csv(model_path + f"{model_name}_submission_{wmae:.4f}_fix.csv",index=False)
+    submission.to_csv(model_path + f"{model_name}_submission_{wmae:.4f}.csv",index=False)
