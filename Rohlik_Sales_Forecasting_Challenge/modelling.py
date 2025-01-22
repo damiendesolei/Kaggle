@@ -514,14 +514,14 @@ train.head()
 features_0 = [col for col in test.columns if (test[col].dtype != 'object' and test[col].dtype != 'datetime64[ns]')]
 
 # remove features based on previous model importance
-#previous_features = pd.read_csv(model_path + "lgb_with_random_26_parameters_features_24.8880.csv")
+previous_features = pd.read_csv(model_path + "lgb_with_random_26_parameters_features_24.8880.csv")
 #remove_features = list(previous_features[(previous_features.Importance<=5200)]['Feature'])
 
 remove_features = ['weight'] #+ remove_features
 
 
 features = [feature for feature in features_0 if feature not in remove_features]
-#features = list(previous_features[(previous_features.Importance>=2000)&(previous_features.Feature!='random')]['Feature'])
+features = list(previous_features[(previous_features.Importance>=2000)&(previous_features.Feature!='random')]['Feature'])
 
 
 
@@ -625,15 +625,15 @@ print(f"Best parameters saved to {file_name}")
 
 
 best_params = {'n_estimators': 500, 
-               'max_depth': 11, 
-               'learning_rate': 0.0944969482690178, 
-               'num_leaves': 256, 
+               'max_depth': 31, 
+               'learning_rate': 0.09972980792211734, 
+               'num_leaves': 252, 
                'feature_fraction': 0.9, 
-               'bagging_fraction': 0.9, 
-               'bagging_freq': 6, 
-               'lambda_l1': 0.002434989957002633, 
-               'lambda_l2': 0.007530221679747134}
-# Best mae: 16.84194203479482
+               'bagging_fraction': 1.0, 
+               'bagging_freq': 10, 
+               'lambda_l1': 0.008260674698336301, 
+               'lambda_l2': 0.00654722606235462}
+# Best mae: 16.794985707160265
 
 # Model fitting and prediction
 model =lgb.LGBMRegressor(device='gpu', gpu_use_dp=True, objective='l1', **best_params) # from Hyper param tuning
