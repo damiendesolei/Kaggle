@@ -514,21 +514,21 @@ train.head()
 features_0 = [col for col in test.columns if (test[col].dtype != 'object' and test[col].dtype != 'datetime64[ns]')]
 
 # remove features based on previous model importance
-previous_features = pd.read_csv(model_path + "lgb_with_random_26_parameters_features_24.8880.csv")
+#previous_features = pd.read_csv(model_path + "lgb_with_random_26_parameters_features_24.8880.csv")
 #remove_features = list(previous_features[(previous_features.Importance<=5200)]['Feature'])
 
 remove_features = ['weight'] #+ remove_features
 
 
 features = [feature for feature in features_0 if feature not in remove_features]
-features = list(previous_features[(previous_features.Importance>=2000)&(previous_features.Feature!='random')]['Feature'])
+#features = list(previous_features[(previous_features.Importance>=2000)&(previous_features.Feature!='random')]['Feature'])
 
 
 
 
 
 # Setup model name to tune and predict
-model_name = 'lgb_with_random_16_parameters'
+model_name = f'lgb_with_random_{len(features)}_parameters'
 
 
 # define weighted MAE
@@ -624,16 +624,16 @@ print(f"Best parameters saved to {file_name}")
 
 
 
-# best_params = {'n_estimators': 400,
-#  'max_depth': 23,
-#  'learning_rate': 0.08734481710573429,
-#  'num_leaves': 244,
-#  'feature_fraction': 0.8,
-#  'bagging_fraction': 1.0,
-#  'bagging_freq': 4,
-#  'lambda_l1': 0.004142441924636233,
-#  'lambda_l2': 0.015581993078955678}
-# valid wmae: 24.748462567694936
+best_params = {'n_estimators': 500, 
+               'max_depth': 11, 
+               'learning_rate': 0.0944969482690178, 
+               'num_leaves': 256, 
+               'feature_fraction': 0.9, 
+               'bagging_fraction': 0.9, 
+               'bagging_freq': 6, 
+               'lambda_l1': 0.002434989957002633, 
+               'lambda_l2': 0.007530221679747134}
+# Best mae: 16.84194203479482
 
 # Model fitting and prediction
 model =lgb.LGBMRegressor(device='gpu', gpu_use_dp=True, objective='l1', **best_params) # from Hyper param tuning
