@@ -429,20 +429,20 @@ def feature_engineering(df):
         for col in ['is_holiday','weekend']:
             df[col+f"_shift{gap}"]=df.groupby(['warehouse','unique_id','product_unique_id'])[col].shift(gap)
 
-    # for col in ['total_orders','sell_price_main','total_type_discount']:#'total_orders*sell_price_main'
-    #     for agg in ['std','skew','max']:#,'median']:
-    #         df[f'{agg}_{col}_each_name_WU_per_day']=df.groupby(['date','warehouse','unique_id','name_0','name_1'])[col].transform(agg)
-    #         df[f'{agg}_{col}_each_name0_WU_per_day']=df.groupby(['date','warehouse','unique_id','name_0'])[col].transform(agg)
-    #         df[f'{agg}_{col}_each_L1_WU_per_day']=df.groupby(['date','warehouse','unique_id','L1_category_name_en'])[col].transform(agg)
-    #         df[f'{agg}_{col}_each_name0_W_per_day']=df.groupby(['date','warehouse','name_0'])[col].transform(agg)
-    #         df[f'{agg}_{col}_each_name0_per_day']=df.groupby(['date','name_0'])[col].transform(agg)
+    for col in ['total_orders','sell_price_main','total_type_discount']:#'total_orders*sell_price_main'
+        for agg in ['std','skew','max']:#,'median']:
+            df[f'{agg}_{col}_each_name_WU_per_day']=df.groupby(['date','warehouse','unique_id','name_0','name_1'])[col].transform(agg)
+            df[f'{agg}_{col}_each_name0_WU_per_day']=df.groupby(['date','warehouse','unique_id','name_0'])[col].transform(agg)
+            df[f'{agg}_{col}_each_L1_WU_per_day']=df.groupby(['date','warehouse','unique_id','L1_category_name_en'])[col].transform(agg)
+            df[f'{agg}_{col}_each_name0_W_per_day']=df.groupby(['date','warehouse','name_0'])[col].transform(agg)
+            df[f'{agg}_{col}_each_name0_per_day']=df.groupby(['date','name_0'])[col].transform(agg)
             
-    #         for gap in [1]:
-    #             df[f'{agg}_{col}_each_name_WU_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name_WU_per_day'].diff(gap)
-    #             df[f'{agg}_{col}_each_name0_WU_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name0_WU_per_day'].diff(gap)
-    #             df[f'{agg}_{col}_each_L1_WU_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_L1_WU_per_day'].diff(gap)
-    #             df[f'{agg}_{col}_each_name0_W_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name0_W_per_day'].diff(gap)
-    #             df[f'{agg}_{col}_each_name0_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name0_per_day'].diff(gap)
+            for gap in [1]:
+                df[f'{agg}_{col}_each_name_WU_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name_WU_per_day'].diff(gap)
+                df[f'{agg}_{col}_each_name0_WU_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name0_WU_per_day'].diff(gap)
+                df[f'{agg}_{col}_each_L1_WU_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_L1_WU_per_day'].diff(gap)
+                df[f'{agg}_{col}_each_name0_W_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name0_W_per_day'].diff(gap)
+                df[f'{agg}_{col}_each_name0_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name0_per_day'].diff(gap)
   
                 
     df=df.sort_values(['index']).reset_index(drop=True)
@@ -471,7 +471,7 @@ def target_encoding(df, cat_cols, target_variable, weight=1): # weight=0 -> no s
 
     return df
 
-total = target_encoding(total, ['product_unique_id','unique_id','warehouse'], 'sales')
+# total = target_encoding(total, ['product_unique_id','unique_id','warehouse'], 'sales')
 
 
 
@@ -625,15 +625,15 @@ print(f"Best parameters saved to {file_name}")
 
 
 best_params = {'n_estimators': 500, 
-               'max_depth': 15, 
-               'learning_rate': 0.08686582712724614, 
-               'num_leaves': 196, 
+               'max_depth': 25, 
+               'learning_rate': 0.09203406970620505, 
+               'num_leaves': 256, 
                'feature_fraction': 0.8, 
                'bagging_fraction': 0.9, 
-               'bagging_freq': 4, 
-               'lambda_l1': 0.09188542473378472, 
-               'lambda_l2': 0.0014300061327799922}
-# Best mae: 16.756787941572284
+               'bagging_freq': 10, 
+               'lambda_l1': 0.012824123275244188, 
+               'lambda_l2': 0.009134426643775687}
+# Best mae: 17.227789643945822
 
 # Model fitting and prediction
 model =lgb.LGBMRegressor(device='gpu', gpu_use_dp=True, objective='l1', **best_params) # from Hyper param tuning
