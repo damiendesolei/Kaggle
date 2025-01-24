@@ -10,6 +10,8 @@ warnings.filterwarnings("ignore")
 
 import os
 import datetime as dt
+from datetime import datetime, timedelta
+
 
 import joblib 
 #import itertools
@@ -20,7 +22,7 @@ import polars as pl
 import numpy as np 
 #import stats
 import scipy
-from datetime import datetime, timedelta
+
 
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import TimeSeriesSplit, train_test_split
@@ -121,9 +123,163 @@ train = train.merge(inventory, how='left', on =['unique_id','warehouse'])
 test = test.merge(inventory, how='left', on =['unique_id','warehouse'])
 
 
+
+
+
+# Holidays 
+# https://www.kaggle.com/code/meryentr/rohlik-sales-lightgbm-lb-20-75
+holidays_prague = [ 
+    (['01/01/2020', '01/01/2021', '01/01/2022', '01/01/2023', '01/01/2024'], 'New Years Day'),
+    (['04/10/2020', '04/02/2021', '04/15/2022', '04/07/2023', '03/29/2024'], 'Good Friday'),
+    (['04/12/2020', '04/04/2021', '04/17/2022', '04/09/2023', '03/31/2024'], 'Easter Day'),#loss
+    (['04/13/2020', '04/05/2021', '04/18/2022', '04/10/2023', '04/01/2024'], 'Easter Monday'),
+    (['05/01/2020', '05/01/2021', '05/01/2022', '05/01/2023', '05/01/2024'], 'Labour Day'),
+    (['05/08/2020', '05/08/2021', '05/08/2022', '05/08/2023', '05/08/2024'], 'Liberation Day'),
+    (['05/10/2020', '05/09/2021', '05/08/2022', '05/14/2023', '05/12/2024'], "Mother Day"), #loss
+    (['07/05/2020', '07/05/2021', '07/05/2022', '07/05/2023', '07/05/2024'], 'St. Cyril and Methodius Day'),
+    (['07/06/2020', '07/06/2021', '07/06/2022', '07/06/2023', '07/06/2024'], 'Jan Hus Day'),
+    (['09/28/2020', '09/28/2021', '09/28/2022', '09/28/2023', '09/28/2024'], 'Statehood Day'),
+    (['10/28/2020', '10/28/2021', '10/28/2022', '10/28/2023', '10/28/2024'], 'Independent Czechoslovak State Day'),
+    (['11/17/2020', '11/17/2021', '11/17/2022', '11/17/2023', '11/17/2024'], 'Struggle for Freedom and Democracy Day'),
+    (['12/24/2020', '12/24/2021', '12/24/2022', '12/24/2023', '12/24/2024'], 'Christmas Eve'),
+    (['12/25/2020', '12/25/2021', '12/25/2022', '12/25/2023', '12/25/2024'], 'Christmas Day'),
+    (['12/26/2020', '12/26/2021', '12/26/2022', '12/26/2023', '12/26/2024'], 'St. Stephens Day')
+]
+
+
+holidays_brno = [
+    (['01/01/2020', '01/01/2021', '01/01/2022', '01/01/2023', '01/01/2024'], 'New Years Day'),
+    (['04/10/2020', '04/02/2021', '04/15/2022', '04/07/2023', '03/29/2024'], 'Good Friday'),
+    (['04/12/2020', '04/04/2021', '04/17/2022', '04/09/2023', '03/31/2024'], 'Easter Day'),#loss
+    (['04/13/2020', '04/05/2021', '04/18/2022', '04/10/2023', '04/01/2024'], 'Easter Monday'),
+    (['05/01/2020', '05/01/2021', '05/01/2022', '05/01/2023', '05/01/2024'], 'Labour Day'),
+    (['05/08/2020', '05/08/2021', '05/08/2022', '05/08/2023', '05/08/2024'], 'Liberation Day'),
+    (['05/10/2020', '05/09/2021', '05/08/2022', '05/14/2023', '05/12/2024'], "Mother Day"), #loss
+    (['07/05/2020', '07/05/2021', '07/05/2022', '07/05/2023', '07/05/2024'], 'St. Cyril and Methodius Day'),
+    (['07/06/2020', '07/06/2021', '07/06/2022', '07/06/2023', '07/06/2024'], 'Jan Hus Day'),
+    (['09/28/2020', '09/28/2021', '09/28/2022', '09/28/2023', '09/28/2024'], 'Statehood Day'),
+    (['10/28/2020', '10/28/2021', '10/28/2022', '10/28/2023', '10/28/2024'], 'Independent Czechoslovak State Day'),
+    (['11/17/2020', '11/17/2021', '11/17/2022', '11/17/2023', '11/17/2024'], 'Struggle for Freedom and Democracy Day'),
+    (['12/24/2020', '12/24/2021', '12/24/2022', '12/24/2023', '12/24/2024'], 'Christmas Eve'),
+    (['12/25/2020', '12/25/2021', '12/25/2022', '12/25/2023', '12/25/2024'], 'Christmas Day'),
+    (['12/26/2020', '12/26/2021', '12/26/2022', '12/26/2023', '12/26/2024'], 'St. Stephens Day')
+]
+
+
+holidays_budapest = [
+    (['01/01/2020', '01/01/2021', '01/01/2022', '01/01/2023', '01/01/2024'], 'New Years Day'),
+    (['03/15/2020', '03/15/2021', '03/15/2022', '03/15/2023', '03/15/2024'], 'National Day'),
+    (['04/10/2020', '04/02/2021', '04/15/2022', '04/07/2023', '03/29/2024'], 'Good Friday'),
+    (['04/13/2020', '04/05/2021', '04/18/2022', '04/10/2023', '04/01/2024'], 'Easter Monday'),
+    (['05/01/2020', '05/01/2021', '05/01/2022', '05/01/2023', '05/01/2024'], 'Labour Day'),
+    (['06/01/2020', '05/24/2021', '06/06/2022', '05/29/2023', '05/20/2024'], 'Whit Monday'),
+    (['08/20/2020', '08/20/2021', '08/20/2022', '08/20/2023', '08/20/2024'], 'St. Stephens Day'),
+    (['10/23/2020', '10/23/2021', '10/23/2022', '10/23/2023', '10/23/2024'], 'Republic Day'),
+    (['11/01/2020', '11/01/2021', '11/01/2022', '11/01/2023', '11/01/2024'], 'All Saints Day'),
+    (['12/25/2020', '12/25/2021', '12/25/2022', '12/25/2023', '12/25/2024'], 'Christmas Day'),
+    (['12/26/2020', '12/26/2021', '12/26/2022', '12/26/2023', '12/26/2024'], 'Second Day of Christmas')
+]
+   
+  
+holidays_munich = [
+    (['01/01/2020', '01/01/2021', '01/01/2022', '01/01/2023', '01/01/2024'], 'New Years Day'),
+    (['01/06/2020', '01/06/2021', '01/06/2022', '01/06/2023', '01/06/2024'], 'Epiphany'),
+    (['04/10/2020', '04/02/2021', '04/15/2022', '04/07/2023', '03/29/2024'], 'Good Friday'),
+    (['04/11/2020', '04/03/2021', '04/16/2022', '04/08/2023', '03/30/2024'], 'Holy Saturday'),#loss
+    (['04/13/2020', '04/05/2021', '04/18/2022', '04/10/2023', '04/01/2024'], 'Easter Monday'),
+    (['05/01/2020', '05/01/2021', '05/01/2022', '05/01/2023', '05/01/2024'], 'Labour Day'),
+    (['05/10/2020', '05/09/2021', '05/08/2022', '05/14/2023', '05/12/2024'], 'Mother Day'),#loss
+    (['05/21/2020', '05/13/2021', '05/26/2022', '05/18/2023', '05/09/2024'], 'Ascension Day'),
+    (['06/01/2020', '05/24/2021', '06/06/2022', '05/29/2023', '05/20/2024'], 'Whit Monday'),
+    (['06/11/2020', '06/03/2021', '06/16/2022', '06/08/2023', '05/30/2024'], 'Corpus Christi'),
+    (['08/15/2020', '08/15/2021', '08/15/2022', '08/15/2023', '08/15/2024'], 'Assumption Day'),
+    (['10/03/2020', '10/03/2021', '10/03/2022', '10/03/2023', '10/03/2024'], 'German Unity Day'),
+    (['11/01/2020', '11/01/2021', '11/01/2022', '11/01/2023', '11/01/2024'], 'All Saints Day'),
+    (['12/25/2020', '12/25/2021', '12/25/2022', '12/25/2023', '12/25/2024'], 'Christmas Day'),
+    (['12/26/2020', '12/26/2021', '12/26/2022', '12/26/2023', '12/26/2024'], 'St. Stephens Day')
+]
+
+
+holidays_frankfurt = [
+    (['01/01/2020', '01/01/2021', '01/01/2022', '01/01/2023', '01/01/2024'], 'New Years Day'),
+    (['01/06/2020', '01/06/2021', '01/06/2022', '01/06/2023', '01/06/2024'], 'Epiphany'),
+    (['04/10/2020', '04/02/2021', '04/15/2022', '04/07/2023', '03/29/2024'], 'Good Friday'),
+    (['04/11/2020', '04/03/2021', '04/16/2022', '04/08/2023', '03/30/2024'], 'Holy Saturday'),#loss
+    (['04/13/2020', '04/05/2021', '04/18/2022', '04/10/2023', '04/01/2024'], 'Easter Monday'),
+    (['05/01/2020', '05/01/2021', '05/01/2022', '05/01/2023', '05/01/2024'], 'Labour Day'),
+    (['05/10/2020', '05/09/2021', '05/08/2022', '05/14/2023', '05/12/2024'], 'Mother Day'),#loss
+    (['05/21/2020', '05/13/2021', '05/26/2022', '05/18/2023', '05/09/2024'], 'Ascension Day'),
+    (['06/01/2020', '05/24/2021', '06/06/2022', '05/29/2023', '05/20/2024'], 'Whit Monday'),
+    (['06/11/2020', '06/03/2021', '06/16/2022', '06/08/2023', '05/30/2024'], 'Corpus Christi'),
+    (['08/15/2020', '08/15/2021', '08/15/2022', '08/15/2023', '08/15/2024'], 'Assumption Day'),
+    (['10/03/2020', '10/03/2021', '10/03/2022', '10/03/2023', '10/03/2024'], 'German Unity Day'),
+    (['11/01/2020', '11/01/2021', '11/01/2022', '11/01/2023', '11/01/2024'], 'All Saints Day'),
+    (['12/25/2020', '12/25/2021', '12/25/2022', '12/25/2023', '12/25/2024'], 'Christmas Day'),
+    (['12/26/2020', '12/26/2021', '12/26/2022', '12/26/2023', '12/26/2024'], 'St. Stephens Day')
+]
+
+
+def fill_loss_holidays(df_fill, warehouses, holidays):
+    df = df_fill.copy()
+    
+    for item in holidays:
+        dates, holiday_name = item
+        generated_dates = [datetime.strptime(date, '%m/%d/%Y').strftime('%Y-%m-%d') for date in dates]
+        
+        for generated_date in generated_dates:
+            df.loc[(df['warehouse'].isin(warehouses)) & (df['date'] == generated_date), 'holiday'] = 1
+            df.loc[(df['warehouse'].isin(warehouses)) & (df['date'] == generated_date), 'holiday_name'] = holiday_name
+    
+    return df
+
+calendar = fill_loss_holidays(calendar, ['Prague_1', 'Prague_2', 'Prague_3'], holidays=holidays_prague)
+calendar = fill_loss_holidays(calendar, ['Brno_1'], holidays_brno)
+calendar = fill_loss_holidays(calendar, ['Munich_1'], holidays_munich)
+calendar = fill_loss_holidays(calendar, ['Frankfurt_1'], holidays_frankfurt)
+calendar = fill_loss_holidays(calendar, ['Budapest_1'], holidays_budapest)
+
+
+# Separte out each warehouse for further process
+Prague_1 = calendar.query('date >= "2020-08-01 00:00:00" and warehouse =="Prague_1"')
+Prague_2 = calendar.query('date >= "2020-08-01 00:00:00" and warehouse =="Prague_2"')
+Prague_3 = calendar.query('date >= "2020-08-01 00:00:00" and warehouse =="Prague_3"')
+Brno_1 = calendar.query('date >= "2020-08-01 00:00:00" and warehouse =="Brno_1"')
+Munich_1 = calendar.query('date >= "2020-08-01 00:00:00" and warehouse =="Munich_1"')
+Frankfurt_1 = calendar.query('date >= "2020-08-01 00:00:00" and warehouse =="Frankfurt_1"')
+Budapest_1 = calendar.query('date >= "2020-08-01 00:00:00" and warehouse =="Budapest_1"')
+
+
+def process_calendar(df):
+    df = df.sort_values('date').reset_index(drop=True)
+    
+    df['next_holiday_date'] = df.loc[df['holiday'] == 1, 'date'].shift(-1)
+    df['next_holiday_date'] = df['next_holiday_date'].bfill()
+    df['days_to_holiday'] = (df['next_holiday_date'] - df['date']).dt.days
+    df.drop(columns=['next_holiday_date'], inplace=True)
+    df['next_shops_closed_date'] = df.loc[df['shops_closed'] == 1, 'date'].shift(-1)
+    df['next_shops_closed_date'] = df['next_shops_closed_date'].bfill()
+    df['days_to_shops_closed'] = (df['next_shops_closed_date'] - df['date']).dt.days
+    df.drop(columns=['next_shops_closed_date'], inplace=True)
+    df['day_after_closing'] = (
+        (df['shops_closed'] == 0) & (df['shops_closed'].shift(1) == 1)
+    ).astype(int)
+    
+    df['long_weekend'] = (
+        (df['shops_closed'] == 1) & (df['shops_closed'].shift(1) == 1)
+    ).astype(int)
+    
+    df['weekday'] = df['date'].dt.weekday 
+    return df
+
+dfs = ['Frankfurt_1', 'Prague_2', 'Brno_1', 'Munich_1', 'Prague_3', 'Prague_1', 'Budapest_1']
+processed_dfs = [process_calendar(globals()[df]) for df in dfs]
+calendar_extended = pd.concat(processed_dfs).sort_values('date').reset_index(drop=True)
+
+
+
 # Join with Calendar
-train = train.merge(calendar, how='left', on =['date','warehouse'])
-test = test.merge(calendar, how='left', on =['date','warehouse'])
+train = train.merge(calendar_extended, how='left', on =['date','warehouse'])
+test = test.merge(calendar_extended, how='left', on =['date','warehouse'])
 
 
 # Join with Weight
@@ -183,115 +339,31 @@ total = add_date_features(total)
 
 
 
-# Holidays 
-# https://www.kaggle.com/code/yunsuxiaozi/rsfc-yunbase
-holidays_prague = [ 
-    (['01/01/2020', '01/01/2021', '01/01/2022', '01/01/2023', '01/01/2024'], 'New Years Day'),
-    (['04/10/2020', '04/02/2021', '04/15/2022', '04/07/2023', '03/29/2024'], 'Good Friday'),
-    (['04/13/2020', '04/05/2021', '04/18/2022', '04/10/2023', '04/01/2024'], 'Easter Monday'),
-    (['05/01/2020', '05/01/2021', '05/01/2022', '05/01/2023', '05/01/2024'], 'Labour Day'),
-    (['05/08/2020', '05/08/2021', '05/08/2022', '05/08/2023', '05/08/2024'], 'Liberation Day'),
-    (['07/05/2020', '07/05/2021', '07/05/2022', '07/05/2023', '07/05/2024'], 'St. Cyril and Methodius Day'),
-    (['07/06/2020', '07/06/2021', '07/06/2022', '07/06/2023', '07/06/2024'], 'Jan Hus Day'),
-    (['09/28/2020', '09/28/2021', '09/28/2022', '09/28/2023', '09/28/2024'], 'Statehood Day'),
-    (['10/28/2020', '10/28/2021', '10/28/2022', '10/28/2023', '10/28/2024'], 'Independent Czechoslovak State Day'),
-    (['11/17/2020', '11/17/2021', '11/17/2022', '11/17/2023', '11/17/2024'], 'Struggle for Freedom and Democracy Day'),
-    (['12/24/2020', '12/24/2021', '12/24/2022', '12/24/2023', '12/24/2024'], 'Christmas Eve'),
-    (['12/25/2020', '12/25/2021', '12/25/2022', '12/25/2023', '12/25/2024'], 'Christmas Day'),
-    (['12/26/2020', '12/26/2021', '12/26/2022', '12/26/2023', '12/26/2024'], 'St. Stephens Day'),
-]
 
 
-holidays_brno = [
-    (['01/01/2020', '01/01/2021', '01/01/2022', '01/01/2023', '01/01/2024'], 'New Years Day'),
-    (['04/10/2020', '04/02/2021', '04/15/2022', '04/07/2023', '03/29/2024'], 'Good Friday'),
-    (['04/13/2020', '04/05/2021', '04/18/2022', '04/10/2023', '04/01/2024'], 'Easter Monday'),
-    (['05/01/2020', '05/01/2021', '05/01/2022', '05/01/2023', '05/01/2024'], 'Labour Day'),
-    (['05/08/2020', '05/08/2021', '05/08/2022', '05/08/2023', '05/08/2024'], 'Liberation Day'),
-    (['07/05/2020', '07/05/2021', '07/05/2022', '07/05/2023', '07/05/2024'], 'St. Cyril and Methodius Day'),
-    (['07/06/2020', '07/06/2021', '07/06/2022', '07/06/2023', '07/06/2024'], 'Jan Hus Day'),
-    (['09/28/2020', '09/28/2021', '09/28/2022', '09/28/2023', '09/28/2024'], 'Statehood Day'),
-    (['10/28/2020', '10/28/2021', '10/28/2022', '10/28/2023', '10/28/2024'], 'Independent Czechoslovak State Day'),
-    (['11/17/2020', '11/17/2021', '11/17/2022', '11/17/2023', '11/17/2024'], 'Struggle for Freedom and Democracy Day'),
-    (['12/24/2020', '12/24/2021', '12/24/2022', '12/24/2023', '12/24/2024'], 'Christmas Eve'),
-    (['12/25/2020', '12/25/2021', '12/25/2022', '12/25/2023', '12/25/2024'], 'Christmas Day'),
-    (['12/26/2020', '12/26/2021', '12/26/2022', '12/26/2023', '12/26/2024'], 'St. Stephens Day'),
-]
-
-
-holidays_budapest = [
-    (['01/01/2020', '01/01/2021', '01/01/2022', '01/01/2023', '01/01/2024'], 'New Years Day'),
-    (['03/15/2020', '03/15/2021', '03/15/2022', '03/15/2023', '03/15/2024'], 'National Day (1848 Revolution Memorial)'),
-    (['04/10/2020', '04/02/2021', '04/15/2022', '04/07/2023', '03/29/2024'], 'Good Friday'),
-    (['04/13/2020', '04/05/2021', '04/18/2022', '04/10/2023', '04/01/2024'], 'Easter Monday'),
-    (['05/01/2020', '05/01/2021', '05/01/2022', '05/01/2023', '05/01/2024'], 'Labour Day'),
-    (['06/01/2020', '05/24/2021', '06/06/2022', '05/29/2023', '05/20/2024'], 'Whit Monday'),
-    (['08/20/2020', '08/20/2021', '08/20/2022', '08/20/2023', '08/20/2024'], 'St. Stephens Day'),
-    (['10/23/2020', '10/23/2021', '10/23/2022', '10/23/2023', '10/23/2024'], 'Republic Day'),
-    (['11/01/2020', '11/01/2021', '11/01/2022', '11/01/2023', '11/01/2024'], 'All Saints Day'),
-    (['12/25/2020', '12/25/2021', '12/25/2022', '12/25/2023', '12/25/2024'], 'Christmas Day'),
-    (['12/26/2020', '12/26/2021', '12/26/2022', '12/26/2023', '12/26/2024'], 'Second Day of Christmas')
-]
-   
-  
-holidays_munich = [
-    (['01/01/2020', '01/01/2021', '01/01/2022', '01/01/2023', '01/01/2024'], 'New Years Day'),
-    (['01/06/2020', '01/06/2021', '01/06/2022', '01/06/2023', '01/06/2024'], 'Epiphany'),
-    (['04/10/2020', '04/02/2021', '04/15/2022', '04/07/2023', '03/29/2024'], 'Good Friday'),
-    (['04/13/2020', '04/05/2021', '04/18/2022', '04/10/2023', '04/01/2024'], 'Easter Monday'),
-    (['05/01/2020', '05/01/2021', '05/01/2022', '05/01/2023', '05/01/2024'], 'Labour Day'),
-    (['05/21/2020', '05/13/2021', '05/26/2022', '05/18/2023', '05/09/2024'], 'Ascension Day'),
-    (['06/01/2020', '05/24/2021', '06/06/2022', '05/29/2023', '05/20/2024'], 'Whit Monday'),
-    (['06/11/2020', '06/03/2021', '06/16/2022', '06/08/2023', '05/30/2024'], 'Corpus Christi'),
-    (['08/15/2020', '08/15/2021', '08/15/2022', '08/15/2023', '08/15/2024'], 'Assumption Day'),
-    (['10/03/2020', '10/03/2021', '10/03/2022', '10/03/2023', '10/03/2024'], 'German Unity Day'),
-    (['11/01/2020', '11/01/2021', '11/01/2022', '11/01/2023', '11/01/2024'], 'All Saints Day'),
-    (['12/25/2020', '12/25/2021', '12/25/2022', '12/25/2023', '12/25/2024'], 'Christmas Day'),
-    (['12/26/2020', '12/26/2021', '12/26/2022', '12/26/2023', '12/26/2024'], 'St. Stephens Day'),
-]
-
-
-holidays_frankfurt = [
-    (['01/01/2020', '01/01/2021', '01/01/2022', '01/01/2023', '01/01/2024'], 'New Years Day'),
-    (['01/06/2020', '01/06/2021', '01/06/2022', '01/06/2023', '01/06/2024'], 'Epiphany'),
-    (['04/10/2020', '04/02/2021', '04/15/2022', '04/07/2023', '03/29/2024'], 'Good Friday'),
-    (['04/13/2020', '04/05/2021', '04/18/2022', '04/10/2023', '04/01/2024'], 'Easter Monday'),
-    (['05/01/2020', '05/01/2021', '05/01/2022', '05/01/2023', '05/01/2024'], 'Labour Day'),
-    (['05/21/2020', '05/13/2021', '05/26/2022', '05/18/2023', '05/09/2024'], 'Ascension Day'),
-    (['06/01/2020', '05/24/2021', '06/06/2022', '05/29/2023', '05/20/2024'], 'Whit Monday'),
-    (['06/11/2020', '06/03/2021', '06/16/2022', '06/08/2023', '05/30/2024'], 'Corpus Christi'),
-    (['08/15/2020', '08/15/2021', '08/15/2022', '08/15/2023', '08/15/2024'], 'Assumption Day'),
-    (['10/03/2020', '10/03/2021', '10/03/2022', '10/03/2023', '10/03/2024'], 'German Unity Day'),
-    (['11/01/2020', '11/01/2021', '11/01/2022', '11/01/2023', '11/01/2024'], 'All Saints Day'),
-    (['12/25/2020', '12/25/2021', '12/25/2022', '12/25/2023', '12/25/2024'], 'Christmas Day'),
-    (['12/26/2020', '12/26/2021', '12/26/2022', '12/26/2023', '12/26/2024'], 'St. Stephens Day'),
-
-]
-
-
-def fill_holidays(df_fill, warehouses, holidays):
-    df = df_fill.copy()
-    for item in holidays:
-        dates, holiday_name = item
-        generated_dates = [datetime.strptime(date, '%m/%d/%Y').strftime('%Y-%m-%d') for date in dates]
+# def fill_holidays(df_fill, warehouses, holidays):
+#     df = df_fill.copy()
+#     for item in holidays:
+#         dates, holiday_name = item
+#         generated_dates = [datetime.strptime(date, '%m/%d/%Y').strftime('%Y-%m-%d') for date in dates]
         
-        for generated_date in generated_dates:
-            df.loc[(df['warehouse'].isin(warehouses)) & (df['date'] == generated_date), 'holiday'] = 1
-            df.loc[(df['warehouse'].isin(warehouses)) & (df['date'] == generated_date), 'holiday_name'] = holiday_name
+#         for generated_date in generated_dates:
+#             df.loc[(df['warehouse'].isin(warehouses)) & (df['date'] == generated_date), 'holiday'] = 1
+#             df.loc[(df['warehouse'].isin(warehouses)) & (df['date'] == generated_date), 'holiday_name'] = holiday_name
     
-    #add features
-    #df['long_weekend'] = ((df['shops_closed'] == 1) & (df['shops_closed'].shift(1) == 1)).astype(np.int8)
+#     #add features
+#     #df['long_weekend'] = ((df['shops_closed'] == 1) & (df['shops_closed'].shift(1) == 1)).astype(np.int8)
     
-    return df
+#     return df
 
 # check = train[['date','warehouse','holiday_name','holiday','shops_closed','winter_school_holidays','school_holidays']]
 # check = check[train['holiday_name'].notna()]
-total = fill_holidays(total, ['Prague_1', 'Prague_2', 'Prague_3'], holidays_prague)
-total = fill_holidays(total, ['Brno_1'], holidays_brno)
-total = fill_holidays(total, ['Munich_1'], holidays_munich)
-total = fill_holidays(total, ['Frankfurt_1'], holidays_frankfurt)
-total = fill_holidays(total, ['Budapest_1'], holidays_budapest)
-print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} total.shape:{total.shape}")
+# total = fill_holidays(total, ['Prague_1', 'Prague_2', 'Prague_3'], holidays_prague)
+# total = fill_holidays(total, ['Brno_1'], holidays_brno)
+# total = fill_holidays(total, ['Munich_1'], holidays_munich)
+# total = fill_holidays(total, ['Frankfurt_1'], holidays_frankfurt)
+# total = fill_holidays(total, ['Budapest_1'], holidays_budapest)
+# print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} total.shape:{total.shape}")
 
 
 
@@ -424,10 +496,10 @@ def feature_engineering(df):
     df['dollar_discount'] = df['total_type_discount'] * df['sell_price_main']
 
 
-    print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} time diff and shift feature >>>")
-    for gap in [1, 2]:
-        for col in ['is_holiday','weekend']:
-            df[col+f"_shift{gap}"]=df.groupby(['warehouse','unique_id','product_unique_id'])[col].shift(gap)
+    # print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} time diff and shift feature >>>")
+    # for gap in [1, 2]:
+    #     for col in ['is_holiday','weekend']:
+    #         df[col+f"_shift{gap}"]=df.groupby(['warehouse','unique_id','product_unique_id'])[col].shift(gap)
 
     # for col in ['total_orders','sell_price_main','total_type_discount']:#'total_orders*sell_price_main'
     #     for agg in ['std','skew','max']:#,'median']:
@@ -478,7 +550,7 @@ def target_encoding(df, cat_cols, target_variable, weight=10): # weight=0 -> no 
 
     return df
 
-total = target_encoding(total, ['product_unique_id','unique_id','warehouse'], 'sales')
+total = target_encoding(total, ['product_unique_id','unique_id','warehouse'], 'sales', weight=10)
 
 
 
@@ -631,16 +703,16 @@ print(f"Best parameters saved to {file_name}")
 
 
 
-best_params = {'n_estimators': 500, 
-               'max_depth': 17, 
-               'learning_rate': 0.09984374689282284, 
-               'num_leaves': 256, 
-               'feature_fraction': 0.9, 
-               'bagging_fraction': 1.0, 
-               'bagging_freq': 10, 
-               'lambda_l1': 0.046129269846374735, 
-               'lambda_l2': 0.07193361763345359}
-# Best mae: 16.389738883798906
+best_params = {'n_estimators': 2000, 
+               'max_depth': 31, 
+               'learning_rate': 0.09697965943515242, 
+               'num_leaves': 124, 
+               'feature_fraction': 1.0, 
+               'bagging_fraction': 0.9, 
+               'reg_alpha': 0.0013710477199070105, 
+               'reg_lambda': 0.0014265108801871157}
+# Best mae: 15.791685290663143
+
 
 # Model fitting and prediction
 model =lgb.LGBMRegressor(device='gpu', gpu_use_dp=True, objective='l1', **best_params) # from Hyper param tuning
