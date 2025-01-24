@@ -424,10 +424,10 @@ def feature_engineering(df):
     df['dollar_discount'] = df['total_type_discount'] * df['sell_price_main']
 
 
-    # print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} time diff and shift feature >>>")
-    # for gap in [1, 2]:
-    #     for col in ['is_holiday','weekend']:
-    #         df[col+f"_shift{gap}"]=df.groupby(['warehouse','unique_id','product_unique_id'])[col].shift(gap)
+    print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} time diff and shift feature >>>")
+    for gap in [1, 2]:
+        for col in ['is_holiday','weekend']:
+            df[col+f"_shift{gap}"]=df.groupby(['warehouse','unique_id','product_unique_id'])[col].shift(gap)
 
     # for col in ['total_orders','sell_price_main','total_type_discount']:#'total_orders*sell_price_main'
     #     for agg in ['std','skew','max']:#,'median']:
@@ -450,9 +450,16 @@ def feature_engineering(df):
     
     return df
 
-
-
 total = feature_engineering(total)
+
+
+
+# https://www.kaggle.com/code/darkswordmg/rohlik-2024-2nd-place-solution-single-lgbm?scriptVersionId=194105779
+# Create 2 new columns "day_before_holiday" and "day_after_holiday"
+total['day_before_holiday'] = total['holiday'].shift(-1).fillna(0)
+total['day_after_holiday'] = total['holiday'].shift().fillna(0)
+total['day_before_holiday'] = total['day_before_holiday'].astype(int)
+total['day_after_holiday'] = total['day_after_holiday'].astype(int)
 
 
 
@@ -625,15 +632,15 @@ print(f"Best parameters saved to {file_name}")
 
 
 best_params = {'n_estimators': 500, 
-               'max_depth': 11, 
-               'learning_rate': 0.09443799034339893, 
-               'num_leaves': 246, 
-               'feature_fraction': 1.0, 
-               'bagging_fraction': 0.9, 
-               'bagging_freq': 3, 
-               'lambda_l1': 0.002362362999764519, 
-               'lambda_l2': 0.01103732987483334}
-# Best mae: 16.526713421391403
+               'max_depth': 17, 
+               'learning_rate': 0.09984374689282284, 
+               'num_leaves': 256, 
+               'feature_fraction': 0.9, 
+               'bagging_fraction': 1.0, 
+               'bagging_freq': 10, 
+               'lambda_l1': 0.046129269846374735, 
+               'lambda_l2': 0.07193361763345359}
+# Best mae: 16.389738883798906
 
 # Model fitting and prediction
 model =lgb.LGBMRegressor(device='gpu', gpu_use_dp=True, objective='l1', **best_params) # from Hyper param tuning
