@@ -522,14 +522,21 @@ def feature_engineering(df):
     
     return df
 
-
-
 total = feature_engineering(total)
 
 
 
+# https://www.kaggle.com/code/darkswordmg/rohlik-2024-2nd-place-solution-single-lgbm?scriptVersionId=194105779
+# Create 2 new columns "day_before_holiday" and "day_after_holiday"
+total['day_before_holiday'] = total['holiday'].shift(-1).fillna(0)
+total['day_after_holiday'] = total['holiday'].shift().fillna(0)
+total['day_before_holiday'] = total['day_before_holiday'].astype(int)
+total['day_after_holiday'] = total['day_after_holiday'].astype(int)
+
+
+
 # Perform target encoding 
-def target_encoding(df, cat_cols, target_variable, weight=1): # weight=0 -> no smooth
+def target_encoding(df, cat_cols, target_variable, weight=10): # weight=0 -> no smooth
 
     for col in cat_cols:
         weight = weight
@@ -705,6 +712,7 @@ best_params = {'n_estimators': 2000,
                'reg_alpha': 0.0013710477199070105, 
                'reg_lambda': 0.0014265108801871157}
 # Best mae: 15.791685290663143
+
 
 # Model fitting and prediction
 model =lgb.LGBMRegressor(device='gpu', gpu_use_dp=True, objective='l1', **best_params) # from Hyper param tuning
