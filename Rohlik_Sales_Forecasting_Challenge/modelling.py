@@ -528,10 +528,10 @@ total = feature_engineering(total)
 
 # https://www.kaggle.com/code/darkswordmg/rohlik-2024-2nd-place-solution-single-lgbm?scriptVersionId=194105779
 # Create 2 new columns "day_before_holiday" and "day_after_holiday"
-total['day_before_holiday'] = total['holiday'].shift(-1).fillna(0)
-total['day_after_holiday'] = total['holiday'].shift().fillna(0)
-total['day_before_holiday'] = total['day_before_holiday'].astype(int)
-total['day_after_holiday'] = total['day_after_holiday'].astype(int)
+# total['day_before_holiday'] = total['holiday'].shift(-1).fillna(0)
+# total['day_after_holiday'] = total['holiday'].shift().fillna(0)
+# total['day_before_holiday'] = total['day_before_holiday'].astype(int)
+# total['day_after_holiday'] = total['day_after_holiday'].astype(int)
 
 
 
@@ -703,15 +703,15 @@ print(f"Best parameters saved to {file_name}")
 
 
 
-best_params = {'n_estimators': 2000, 
-               'max_depth': 31, 
-               'learning_rate': 0.09697965943515242, 
-               'num_leaves': 124, 
-               'feature_fraction': 1.0, 
-               'bagging_fraction': 0.9, 
-               'reg_alpha': 0.0013710477199070105, 
-               'reg_lambda': 0.0014265108801871157}
-# Best mae: 15.791685290663143
+best_params = {'n_estimators': 5400, 
+               'max_depth': 23, 
+               'learning_rate': 0.09783068383732003, 
+               'num_leaves': 90, 
+               'feature_fraction': 0.8514990697934044, 
+               'bagging_fraction': 0.6154800801257034, 
+               'reg_alpha': 0.0012835923472284106, 
+               'reg_lambda': 0.0043804689620727776}
+# Best mae: 15.30495681337923
 
 
 # Model fitting and prediction
