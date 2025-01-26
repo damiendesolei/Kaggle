@@ -495,7 +495,11 @@ def feature_engineering(df):
     
     df['dollar_discount'] = df['total_type_discount'] * df['sell_price_main']
 
-
+    #https://www.kaggle.com/code/meryentr/rohlik-sales-lightgbm-lb-20-75
+    df['total_orders_']=df['total_orders']/df['sell_price_main']
+    df['total_orders_discount']=df['total_orders_']/df["total_type_discount"]
+    df['total_orders_sell_price_main']=df['sell_price_main']/df["total_type_discount"]
+    
     # print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} time diff and shift feature >>>")
     # for gap in [1, 2]:
     #     for col in ['is_holiday','weekend']:
@@ -642,11 +646,9 @@ def objective(trial):
         'max_depth': trial.suggest_int('max_depth', 1, 32, step=2),  
         'learning_rate': trial.suggest_loguniform('learning_rate', 0.01, 0.1),  
         'num_leaves': trial.suggest_int('num_leaves', 12, 256, step=2), 
-        #'feature_fraction': trial.suggest_uniform('feature_fraction', 0.6, 1.0),  
-        #'bagging_fraction': trial.suggest_uniform('bagging_fraction', 0.6, 1.0),  
-        'feature_fraction': trial.suggest_categorical('feature_fraction', [0.6, 0.7, 0.8, 0.9, 1.0]),
-        'bagging_fraction': trial.suggest_categorical('bagging_fraction', [0.6, 0.7, 0.8, 0.9, 1.0]),
-        'bagging_freq': trial.suggest_int('bagging_freq', 2, 12),  
+        'feature_fraction': trial.suggest_uniform('feature_fraction', 0.6, 1.0),  
+        'bagging_fraction': trial.suggest_uniform('bagging_fraction', 0.6, 1.0),  
+        #'bagging_freq': trial.suggest_int('bagging_freq', 2, 12),  
         "lambda_l1": trial.suggest_loguniform("lambda_l1", 0.001, 0.1),
         "lambda_l2": trial.suggest_loguniform("lambda_l2", 0.001, 0.1),
         "device_type": "gpu",  
@@ -703,15 +705,15 @@ print(f"Best parameters saved to {file_name}")
 
 
 
-best_params = {'n_estimators': 5400, 
-               'max_depth': 23, 
-               'learning_rate': 0.09783068383732003, 
-               'num_leaves': 90, 
-               'feature_fraction': 0.8514990697934044, 
-               'bagging_fraction': 0.6154800801257034, 
-               'reg_alpha': 0.0012835923472284106, 
-               'reg_lambda': 0.0043804689620727776}
-# Best mae: 15.30495681337923
+best_params = {'n_estimators': 6200, 
+               'max_depth': 15, 
+               'learning_rate': 0.047601523729709404, 
+               'num_leaves': 106, 
+               'feature_fraction': 0.7529328053700415, 
+               'bagging_fraction': 0.7152215103744222, 
+               'reg_alpha': 0.08926109016182883, 
+               'reg_lambda': 0.0038927333257791365}
+# Best mae: 15.466090858184723
 
 
 # Model fitting and prediction
