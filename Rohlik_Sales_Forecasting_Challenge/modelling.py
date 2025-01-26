@@ -108,7 +108,7 @@ print(f'{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} original train df dime
 
 test_id = test['unique_id'].unique() #only use unique_id in testset
 train = train[train['unique_id'].isin(test_id)]
-#train = train[train.date>='2021-01-01 00:00:00'] # only use post-covid data
+train = train[train.date>='2021-01-01 00:00:00'] # only use post-covid data
 print(f'{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} filtered train df dimention is {train.shape}')
 
 
@@ -619,20 +619,25 @@ def weighted_mae(y_true, y_pred, weight):
     wmae = np.sum(weight * np.abs(y_true-y_pred)) / np.sum(weight)
     return 'wmae', wmae, False # True = higher is better
 
+# Sort the train by date
+train = train.sort_values(by=['date'], ascending=True)
+
 
 #  Train test split
 X = train[features]
 y = train['sales']
 w = train['weight']
 
-X_train, X_valid, y_train, y_valid, w_train, w_valid = train_test_split(X, y, w, test_size=0.25, random_state=2025)
-# X_train = train[features].loc[~X['month'].isin([6])]
-# y_train = train['sales'].loc[~X['month'].isin([6])]
-# w_train = train['weight'].loc[~X['month'].isin([6])]
 
-# X_valid = train[features].loc[X['month'].isin([6])]
-# y_valid = train['sales'].loc[X['month'].isin([6])]
-# w_valid = train['weight'].loc[X['month'].isin([6])]
+#X_train, X_valid, y_train, y_valid, w_train, w_valid = train_test_split(X, y, w, test_size=0.20, random_state=2025)
+#X_train, X_valid, y_train, y_valid, w_train, w_valid = TimeSeriesSplit(X, y, w, test_size=0.20)
+X_train = train[features][train.date<'2024-05-14 00:00:00']
+y_train = train['sales'][train.date<'2024-05-14 00:00:00']
+w_train = train['weight'][train.date<'2024-05-14 00:00:00']
+
+X_valid = train[features][train.date>='2024-05-14 00:00:00']
+y_valid = train['sales'][train.date>='2024-05-14 00:00:00']
+w_valid = train['weight'][train.date>='2024-05-14 00:00:00']
 
 
 
@@ -642,7 +647,7 @@ def objective(trial):
         'objective': 'regression',  
         'metric': 'mae',  
         'boosting_type': 'gbdt',
-        'n_estimators': trial.suggest_int('n_estimators', 300, 500, step=100),
+        'n_estimators': trial.suggest_int('n_estimators', 4000, 6000, step=200),
         'max_depth': trial.suggest_int('max_depth', 1, 32, step=2),  
         'learning_rate': trial.suggest_loguniform('learning_rate', 0.01, 0.1),  
         'num_leaves': trial.suggest_int('num_leaves', 12, 256, step=2), 
@@ -684,7 +689,7 @@ def objective(trial):
 # Run Optuna study
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(direction="minimize")
-study.optimize(objective, timeout=3600*2) # 3600*n hour
+study.optimize(objective, timeout=3600*2, n_jobs=4) # 3600*n hour
 
 # Print the best hyperparameters and score
 print("Best hyperparameters:", study.best_params)
@@ -705,14 +710,14 @@ print(f"Best parameters saved to {file_name}")
 
 
 
-best_params = {'n_estimators': 6200, 
-               'max_depth': 15, 
-               'learning_rate': 0.047601523729709404, 
-               'num_leaves': 106, 
-               'feature_fraction': 0.7529328053700415, 
-               'bagging_fraction': 0.7152215103744222, 
-               'reg_alpha': 0.08926109016182883, 
-               'reg_lambda': 0.0038927333257791365}
+# best_params = {'n_estimators': 6200, 
+#                'max_depth': 15, 
+#                'learning_rate': 0.047601523729709404, 
+#                'num_leaves': 106, 
+#                'feature_fraction': 0.7529328053700415, 
+#                'bagging_fraction': 0.7152215103744222, 
+#                'reg_alpha': 0.08926109016182883, 
+#                'reg_lambda': 0.0038927333257791365}
 # Best mae: 15.466090858184723
 
 
