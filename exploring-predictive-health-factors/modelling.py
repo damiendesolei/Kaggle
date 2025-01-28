@@ -37,18 +37,58 @@ train = pd.read_csv(PATH+'train.csv')
 test = pd.read_csv(PATH+'test.csv')
 
 
+# Fill in nan for Weight
+train['Weight_kg'] = train['Weight_kg'].fillna(
+    train.groupby(['Exercise_Frequency','Exercise_Type'])['Weight_kg'].transform('mean')
+)
+
+test['Weight_kg'] = test['Weight_kg'].fillna(
+    test.groupby(['Exercise_Frequency','Exercise_Type'])['Weight_kg'].transform('mean')
+)
+
 
 # Map categorical variable to numeric
-integer_map = {'Yes': 1,
-               'Yes, diagnosed by a doctor': 1,
-               'Yes Significantly': 2,
+integer_map = {np.nan: 0,
                'No': 0,
-               'No, Yes, not diagnosed by a doctor': 0,
-               'Somewhat': 0,
-               np.nan: 0}
+               'Yes': 1,
+}
 
 
-exercise_frequency = {'Never': 0,
+hirsutism_dict = {np.nan: 0,
+                  'No': 0,
+                  'No, Yes, not diagnosed by a doctor': 0,
+                  'Yes': 1,
+                  'Yes, diagnosed by a doctor': 1
+}
+
+
+hormonal_dict = {np.nan: 0,           
+                 'No': 0,
+                 'No, Yes, not diagnosed by a doctor': 0,
+                 'Yes': 1,
+                 'Yes Significantly': 2
+}
+
+
+conception_dict = {np.nan: 0,
+                   'No': 0,
+                   'No, Yes, not diagnosed by a doctor': 0,
+                   'Yes': 1,
+                   'Yes, diagnosed by a doctor': 1,
+                   'Somewhat': 0
+}
+
+
+insulin_dict = {np.nan: 0,
+                'No': 0,
+                'No, Yes, not diagnosed by a doctor': 0,
+                'Yes': 1,
+                'Yes Significantly': 2
+}
+
+
+exercise_frequency = {np.nan: 0,
+                      'Never': 0,
                       'Rarely': 1,
                       
                       '1-2 Times a Week': 2,
@@ -64,8 +104,8 @@ exercise_frequency = {'Never': 0,
                       '1/2 Times a Week': 2,
                       
                       '30-35': 0,
-                      '6-8 hours': 0,
-                      np.nan: 0}
+                      '6-8 hours': 0
+}
 
 
 exercise_duration = {'Not Applicable': 0,
@@ -87,7 +127,8 @@ exercise_duration = {'Not Applicable': 0,
                      np.nan: 0}
 
 
-sleep_hours = {'Less than 6 hours': 0,
+sleep_hours = {np.nan: 0,
+               'Less than 6 hours': 0,
                '3-4 hours': 1,               
                '6-8 hours': 1,
                '9-12 hours': 2,
@@ -96,7 +137,7 @@ sleep_hours = {'Less than 6 hours': 0,
                '6-8 Times a Week': 1, #suspect typo
                '6-12 hours': 1,
                '20 minutes': 0,
-               np.nan: 0}
+}
 
 
 exercise_benefit = {'Not at All': 0,
@@ -135,49 +176,50 @@ exercise_type = {'No Exercise': 0,
                  np.nan: 0}
 
 
-age = {'15-20': 0,
-       'Less than 20)': 0,
-       'Less than 20': 0,
-       'Less than 20-25': 0,
-       '20': 0,
-       '22-25': 1,
-       '20-25': 1,
-       '25-25': 1,
-       '25-30': 2,
-       '30-25': 2,
-       '30-40': 3,
-       '30-35': 3,
-       '30-30': 3,
-       '35-44': 4,
-       '45 and above': 5,
-       '45-49': 5,
-       '50-60': 6,
-          
-       np.nan: 0}
+age_dict = {'15-20': 0,
+            'Less than 20)': 0,
+            'Less than 20': 0,
+            'Less than 20-25': 0,
+            '20': 0,
+            '22-25': 1,
+            '20-25': 1,
+            '25-25': 1,
+            '25-30': 2,
+            '30-25': 2,
+            '30-40': 3,
+            '30-35': 3,
+            '30-30': 3,
+            '35-44': 4,
+            '45 and above': 5,
+            '45-49': 5,
+            '50-60': 6,
+              
+            np.nan: 0
+}
 
 
 def initial_feature_map(df):
     
-    df['Age']=df['Age'].apply(lambda x:age[x])
+    df['Age']=df['Age'].replace(age_dict)
     
-    df['Hyperandrogenism']=df['Hyperandrogenism'].apply(lambda x:integer_map[x])
-    df['Hirsutism']=df['Hirsutism'].apply(lambda x:integer_map[x])
-    df['Hormonal_Imbalance']=df['Hormonal_Imbalance'].apply(lambda x:integer_map[x])
-    df['Conception_Difficulty']=df['Conception_Difficulty'].apply(lambda x:integer_map[x])
-    df['Insulin_Resistance']=df['Insulin_Resistance'].apply(lambda x:integer_map[x])
+    df['Hyperandrogenism']=df['Hyperandrogenism'].replace(integer_map)
+    df['Hirsutism']=df['Hirsutism'].replace(hirsutism_dict)
+    df['Hormonal_Imbalance']=df['Hormonal_Imbalance'].replace(hormonal_dict)
+    df['Conception_Difficulty']=df['Conception_Difficulty'].replace(conception_dict)
+    df['Insulin_Resistance']=df['Insulin_Resistance'].replace(insulin_dict)
     
-    df['Exercise_Frequency']=df['Exercise_Frequency'].apply(lambda x:exercise_frequency[x])
-    df['Exercise_Duration']=df['Exercise_Duration'].apply(lambda x:exercise_duration[x])
-    df['Exercise_Type']=df['Exercise_Type'].apply(lambda x:exercise_type[x])
+    df['Exercise_Frequency']=df['Exercise_Frequency'].replace(exercise_frequency)
+    df['Exercise_Duration']=df['Exercise_Duration'].replace(exercise_duration)
+    df['Exercise_Type']=df['Exercise_Type'].replace(exercise_type)
     
-    df['Sleep_Hours']=df['Sleep_Hours'].apply(lambda x:sleep_hours[x])
+    df['Sleep_Hours']=df['Sleep_Hours'].replace(sleep_hours)
     
-    df['Exercise_Benefit']=df['Exercise_Benefit'].apply(lambda x:exercise_benefit[x])
+    df['Exercise_Benefit']=df['Exercise_Benefit'].replace(exercise_benefit)
 
     return df
 
 
-train['PCOS']=train['PCOS'].apply(lambda x:integer_map[x])
+train['PCOS']=train['PCOS'].replace(integer_map)
 train = initial_feature_map(train)
 test = initial_feature_map(test)
 
@@ -276,7 +318,7 @@ def objective(trial):
 # Run Optuna study
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(direction="maximize")
-study.optimize(objective, timeout=3600*0.1, n_jobs=1) # 3600*n hour
+study.optimize(objective, timeout=3600*0.3, n_jobs=1) # 3600*n hour
 
 # Print the best hyperparameters and score
 print("Best hyperparameters:", study.best_params)
