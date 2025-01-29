@@ -29,7 +29,7 @@ import matplotlib.pyplot as plt
 
 
 # If the local directory exists, use it; otherwise, use the Kaggle input directory
-PATH = '/kaggle/input/exploring-predictive-health-factors' if os.path.exists('/kaggle/input/exploring-predictive-health-factors') else r'G:\\kaggle\exploring-predictive-health-factors\\'
+PATH = '/kaggle/input/exploring-predictive-health-factors/' if os.path.exists('/kaggle/input/exploring-predictive-health-factors/') else r'G:\\kaggle\exploring-predictive-health-factors\\'
 
 
 # Read in data
@@ -39,18 +39,36 @@ test = pd.read_csv(PATH+'test.csv')
 
 # Fill in nan for Weight
 train['Weight_kg'] = train['Weight_kg'].fillna(
-    train.groupby(['Exercise_Frequency','Exercise_Type'])['Weight_kg'].transform('mean')
+    train.groupby(['Age','Exercise_Frequency','Exercise_Type'])['Weight_kg'].transform('mean')
 )
 
 test['Weight_kg'] = test['Weight_kg'].fillna(
-    test.groupby(['Exercise_Frequency','Exercise_Type'])['Weight_kg'].transform('mean')
+    test.groupby(['Age','Exercise_Frequency','Exercise_Type'])['Weight_kg'].transform('mean')
+)
+
+# Fill in nan for Hyperandrogenism
+train['Hyperandrogenism'] = train['Hyperandrogenism'].fillna(
+    train.groupby(['Age', 'Hormonal_Imbalance','Hirsutism'])['Hyperandrogenism'].transform(
+        lambda x: x.mode().iloc[0] if not x.mode().empty else x)
+
+)
+
+test['Hyperandrogenism'] = test['Hyperandrogenism'].fillna(
+    test.groupby(['Age', 'Hormonal_Imbalance','Hirsutism'])['Hyperandrogenism'].transform(
+        lambda x: x.mode().iloc[0] if not x.mode().empty else x)
 )
 
 
+
 # Map categorical variable to numeric
-integer_map = {np.nan: 0,
-               'No': 0,
-               'Yes': 1,
+target_map = {'No': 0,
+              'Yes': 1
+}
+
+
+hyperandrogenism = {np.nan: 0,
+                    'No': 0,
+                    'Yes': 1
 }
 
 
@@ -66,7 +84,7 @@ hormonal_dict = {np.nan: 0,
                  'No': 0,
                  'No, Yes, not diagnosed by a doctor': 0,
                  'Yes': 1,
-                 'Yes Significantly': 2
+                 'Yes Significantly': 1
 }
 
 
@@ -202,7 +220,7 @@ def initial_feature_map(df):
     
     df['Age']=df['Age'].replace(age_dict)
     
-    df['Hyperandrogenism']=df['Hyperandrogenism'].replace(integer_map)
+    df['Hyperandrogenism']=df['Hyperandrogenism'].replace(hyperandrogenism)
     df['Hirsutism']=df['Hirsutism'].replace(hirsutism_dict)
     df['Hormonal_Imbalance']=df['Hormonal_Imbalance'].replace(hormonal_dict)
     df['Conception_Difficulty']=df['Conception_Difficulty'].replace(conception_dict)
@@ -219,7 +237,7 @@ def initial_feature_map(df):
     return df
 
 
-train['PCOS']=train['PCOS'].replace(integer_map)
+train['PCOS']=train['PCOS'].replace(target_map)
 train = initial_feature_map(train)
 test = initial_feature_map(test)
 
@@ -265,7 +283,7 @@ def objective(trial):
         'metric': 'auc',  
         'boosting_type': 'gbdt',
         'n_estimators': trial.suggest_int('n_estimators', 100, 500, step=100),
-        'max_depth': trial.suggest_int('max_depth', 1, 12, step=1),  
+        'max_depth': trial.suggest_int('max_depth', 3, 24, step=1),  
         'learning_rate': trial.suggest_loguniform('learning_rate', 0.01, 0.1),  
         'num_leaves': trial.suggest_int('num_leaves', 2, 128, step=1), 
         'feature_fraction': trial.suggest_float('feature_fraction', 0.6, 1.0, step=0.1),
