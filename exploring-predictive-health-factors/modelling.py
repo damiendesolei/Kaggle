@@ -29,7 +29,7 @@ import matplotlib.pyplot as plt
 
 
 # If the local directory exists, use it; otherwise, use the Kaggle input directory
-PATH = '/kaggle/input/exploring-predictive-health-factors/' if os.path.exists('/kaggle/input/exploring-predictive-health-factors/') else r'G:\\kaggle\exploring-predictive-health-factors\\'
+PATH = '/kaggle/input/exploring-predictive-health-factors' if os.path.exists('/kaggle/input/exploring-predictive-health-factors') else r'G:\\kaggle\exploring-predictive-health-factors\\'
 
 
 # Read in data
@@ -37,76 +37,18 @@ train = pd.read_csv(PATH+'train.csv')
 test = pd.read_csv(PATH+'test.csv')
 
 
-# Fill in nan for Weight
-train['Weight_kg'] = train['Weight_kg'].fillna(
-    train.groupby(['Age','Exercise_Frequency','Exercise_Type'])['Weight_kg'].transform('mean')
-)
-
-test['Weight_kg'] = test['Weight_kg'].fillna(
-    test.groupby(['Age','Exercise_Frequency','Exercise_Type'])['Weight_kg'].transform('mean')
-)
-
-# Fill in nan for Hyperandrogenism
-train['Hyperandrogenism'] = train['Hyperandrogenism'].fillna(
-    train.groupby(['Age', 'Hormonal_Imbalance','Hirsutism'])['Hyperandrogenism'].transform(
-        lambda x: x.mode().iloc[0] if not x.mode().empty else x)
-
-)
-
-test['Hyperandrogenism'] = test['Hyperandrogenism'].fillna(
-    test.groupby(['Age', 'Hormonal_Imbalance','Hirsutism'])['Hyperandrogenism'].transform(
-        lambda x: x.mode().iloc[0] if not x.mode().empty else x)
-)
-
-
 
 # Map categorical variable to numeric
-target_map = {'No': 0,
-              'Yes': 1
-}
+integer_map = {'Yes': 1,
+               'Yes, diagnosed by a doctor': 1,
+               'Yes Significantly': 2,
+               'No': 0,
+               'No, Yes, not diagnosed by a doctor': 0,
+               'Somewhat': 0,
+               np.nan: 0}
 
 
-hyperandrogenism = {np.nan: 0,
-                    'No': 0,
-                    'Yes': 1
-}
-
-
-hirsutism_dict = {np.nan: 0,
-                  'No': 0,
-                  'No, Yes, not diagnosed by a doctor': 0,
-                  'Yes': 1,
-                  'Yes, diagnosed by a doctor': 1
-}
-
-
-hormonal_dict = {np.nan: 0,           
-                 'No': 0,
-                 'No, Yes, not diagnosed by a doctor': 0,
-                 'Yes': 1,
-                 'Yes Significantly': 1
-}
-
-
-conception_dict = {np.nan: 0,
-                   'No': 0,
-                   'No, Yes, not diagnosed by a doctor': 0,
-                   'Yes': 1,
-                   'Yes, diagnosed by a doctor': 1,
-                   'Somewhat': 0
-}
-
-
-insulin_dict = {np.nan: 0,
-                'No': 0,
-                'No, Yes, not diagnosed by a doctor': 0,
-                'Yes': 1,
-                'Yes Significantly': 2
-}
-
-
-exercise_frequency = {np.nan: 0,
-                      'Never': 0,
+exercise_frequency = {'Never': 0,
                       'Rarely': 1,
                       
                       '1-2 Times a Week': 2,
@@ -122,8 +64,8 @@ exercise_frequency = {np.nan: 0,
                       '1/2 Times a Week': 2,
                       
                       '30-35': 0,
-                      '6-8 hours': 0
-}
+                      '6-8 hours': 0,
+                      np.nan: 0}
 
 
 exercise_duration = {'Not Applicable': 0,
@@ -145,8 +87,7 @@ exercise_duration = {'Not Applicable': 0,
                      np.nan: 0}
 
 
-sleep_hours = {np.nan: 0,
-               'Less than 6 hours': 0,
+sleep_hours = {'Less than 6 hours': 0,
                '3-4 hours': 1,               
                '6-8 hours': 1,
                '9-12 hours': 2,
@@ -155,7 +96,7 @@ sleep_hours = {np.nan: 0,
                '6-8 Times a Week': 1, #suspect typo
                '6-12 hours': 1,
                '20 minutes': 0,
-}
+               np.nan: 0}
 
 
 exercise_benefit = {'Not at All': 0,
@@ -194,50 +135,49 @@ exercise_type = {'No Exercise': 0,
                  np.nan: 0}
 
 
-age_dict = {'15-20': 0,
-            'Less than 20)': 0,
-            'Less than 20': 0,
-            'Less than 20-25': 0,
-            '20': 0,
-            '22-25': 1,
-            '20-25': 1,
-            '25-25': 1,
-            '25-30': 2,
-            '30-25': 2,
-            '30-40': 3,
-            '30-35': 3,
-            '30-30': 3,
-            '35-44': 4,
-            '45 and above': 5,
-            '45-49': 5,
-            '50-60': 6,
-              
-            np.nan: 0
-}
+age = {'15-20': 0,
+       'Less than 20)': 0,
+       'Less than 20': 0,
+       'Less than 20-25': 0,
+       '20': 0,
+       '22-25': 1,
+       '20-25': 1,
+       '25-25': 1,
+       '25-30': 2,
+       '30-25': 2,
+       '30-40': 3,
+       '30-35': 3,
+       '30-30': 3,
+       '35-44': 4,
+       '45 and above': 5,
+       '45-49': 5,
+       '50-60': 6,
+          
+       np.nan: 0}
 
 
 def initial_feature_map(df):
     
-    df['Age']=df['Age'].replace(age_dict)
+    df['Age']=df['Age'].apply(lambda x:age[x])
     
-    df['Hyperandrogenism']=df['Hyperandrogenism'].replace(hyperandrogenism)
-    df['Hirsutism']=df['Hirsutism'].replace(hirsutism_dict)
-    df['Hormonal_Imbalance']=df['Hormonal_Imbalance'].replace(hormonal_dict)
-    df['Conception_Difficulty']=df['Conception_Difficulty'].replace(conception_dict)
-    df['Insulin_Resistance']=df['Insulin_Resistance'].replace(insulin_dict)
+    df['Hyperandrogenism']=df['Hyperandrogenism'].apply(lambda x:integer_map[x])
+    df['Hirsutism']=df['Hirsutism'].apply(lambda x:integer_map[x])
+    df['Hormonal_Imbalance']=df['Hormonal_Imbalance'].apply(lambda x:integer_map[x])
+    df['Conception_Difficulty']=df['Conception_Difficulty'].apply(lambda x:integer_map[x])
+    df['Insulin_Resistance']=df['Insulin_Resistance'].apply(lambda x:integer_map[x])
     
-    df['Exercise_Frequency']=df['Exercise_Frequency'].replace(exercise_frequency)
-    df['Exercise_Duration']=df['Exercise_Duration'].replace(exercise_duration)
-    df['Exercise_Type']=df['Exercise_Type'].replace(exercise_type)
+    df['Exercise_Frequency']=df['Exercise_Frequency'].apply(lambda x:exercise_frequency[x])
+    df['Exercise_Duration']=df['Exercise_Duration'].apply(lambda x:exercise_duration[x])
+    df['Exercise_Type']=df['Exercise_Type'].apply(lambda x:exercise_type[x])
     
-    df['Sleep_Hours']=df['Sleep_Hours'].replace(sleep_hours)
+    df['Sleep_Hours']=df['Sleep_Hours'].apply(lambda x:sleep_hours[x])
     
-    df['Exercise_Benefit']=df['Exercise_Benefit'].replace(exercise_benefit)
+    df['Exercise_Benefit']=df['Exercise_Benefit'].apply(lambda x:exercise_benefit[x])
 
     return df
 
 
-train['PCOS']=train['PCOS'].replace(target_map)
+train['PCOS']=train['PCOS'].apply(lambda x:integer_map[x])
 train = initial_feature_map(train)
 test = initial_feature_map(test)
 
@@ -283,7 +223,7 @@ def objective(trial):
         'metric': 'auc',  
         'boosting_type': 'gbdt',
         'n_estimators': trial.suggest_int('n_estimators', 100, 500, step=100),
-        'max_depth': trial.suggest_int('max_depth', 3, 24, step=1),  
+        'max_depth': trial.suggest_int('max_depth', 1, 12, step=1),  
         'learning_rate': trial.suggest_loguniform('learning_rate', 0.01, 0.1),  
         'num_leaves': trial.suggest_int('num_leaves', 2, 128, step=1), 
         'feature_fraction': trial.suggest_float('feature_fraction', 0.6, 1.0, step=0.1),
@@ -336,7 +276,7 @@ def objective(trial):
 # Run Optuna study
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(direction="maximize")
-study.optimize(objective, timeout=3600*0.3, n_jobs=1) # 3600*n hour
+study.optimize(objective, timeout=3600*0.1, n_jobs=1) # 3600*n hour
 
 # Print the best hyperparameters and score
 print("Best hyperparameters:", study.best_params)
@@ -347,7 +287,7 @@ best_params = study.best_params
 best_score = study.best_value
 
 # Format the file name with the best score
-file_name = model_path + model_name + f"_mae_{best_score:.4f}.csv"
+file_name = model_path + model_name + f"_auc_{best_score:.4f}.csv"
 
 # Save the best parameters to a CSV file
 df_param = pd.DataFrame([best_params])  # Convert to DataFrame
@@ -357,14 +297,14 @@ print(f"Best parameters saved to {file_name}")
 
 
 
-# best_params = {'n_estimators': 400,
-#       'max_depth': 2,
-#       'learning_rate': 0.0736307161560456,
-#       'num_leaves': 60,
-#       'feature_fraction': 0.7,
-#       'bagging_fraction': 0.8,
-#       'lambda_l1': 0.06435445123914581,
-#       'lambda_l2': 0.039695211960611654}
+best_params = {'n_estimators': 400,
+      'max_depth': 2,
+      'learning_rate': 0.0736307161560456,
+      'num_leaves': 60,
+      'feature_fraction': 0.7,
+      'bagging_fraction': 0.8,
+      'lambda_l1': 0.06435445123914581,
+      'lambda_l2': 0.039695211960611654}
 # Best AUC: 0.9305892903392904
 
 
