@@ -15,7 +15,7 @@ pd.set_option('display.max_columns', None)
 import numpy as np
 
 
-from sklearn.model_selection import cross_val_score, KFold
+from sklearn.model_selection import cross_val_score, KFold, StratifiedKFold
 from sklearn.model_selection import TimeSeriesSplit, train_test_split
 from sklearn.metrics import roc_auc_score
 
@@ -26,6 +26,7 @@ import optuna
 
 import joblib 
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 
 # If the local directory exists, use it; otherwise, use the Kaggle input directory
@@ -36,6 +37,16 @@ PATH = '/kaggle/input/exploring-predictive-health-factors' if os.path.exists('/k
 train = pd.read_csv(PATH+'train.csv')
 test = pd.read_csv(PATH+'test.csv')
 
+
+
+# Fill in nan for Weight
+# train['Weight_kg'] = train['Weight_kg'].fillna(
+#     train.groupby(['Age','Exercise_Frequency','Exercise_Type'])['Weight_kg'].transform('mean')
+# )
+
+# test['Weight_kg'] = test['Weight_kg'].fillna(
+#     test.groupby(['Age','Exercise_Frequency','Exercise_Type'])['Weight_kg'].transform('mean')
+# )
 
 
 # Map categorical variable to numeric
@@ -178,6 +189,8 @@ def initial_feature_map(df):
 
 
 train['PCOS']=train['PCOS'].apply(lambda x:integer_map[x])
+train_0 = train
+
 train = initial_feature_map(train)
 test = initial_feature_map(test)
 
@@ -215,165 +228,251 @@ X_valid = X_valid.reset_index(drop=True)
 y_train = y_train.reset_index(drop=True)
 y_valid = y_valid.reset_index(drop=True)
 
+
+TUNE = False
+if TUNE:
 # Hyper parameter tuning
-def objective(trial):
-    # Define hyperparameters
-    param = {
-        'objective': 'regression',  
-        'metric': 'auc',  
-        'boosting_type': 'gbdt',
-        'n_estimators': trial.suggest_int('n_estimators', 100, 500, step=100),
-        'max_depth': trial.suggest_int('max_depth', 1, 12, step=1),  
-        'learning_rate': trial.suggest_loguniform('learning_rate', 0.01, 0.1),  
-        'num_leaves': trial.suggest_int('num_leaves', 2, 128, step=1), 
-        'feature_fraction': trial.suggest_float('feature_fraction', 0.6, 1.0, step=0.1),
-        'bagging_fraction': trial.suggest_float('bagging_fraction', 0.6, 1.0, step=0.1),
-        #'bagging_freq': trial.suggest_int('bagging_freq', 2, 12),  
-        "lambda_l1": trial.suggest_loguniform("lambda_l1", 0.001, 0.1),
-        "lambda_l2": trial.suggest_loguniform("lambda_l2", 0.001, 0.1),
-        "device_type": "cpu",  
-        "seed" : 2025
-    }
+    def objective(trial):
+        # Define hyperparameters
+        param = {
+            'objective': 'regression',  
+            'metric': 'auc',  
+            'boosting_type': 'gbdt',
+            'n_estimators': trial.suggest_int('n_estimators', 100, 500, step=100),
+            'max_depth': trial.suggest_int('max_depth', 1, 12, step=1),  
+            'learning_rate': trial.suggest_loguniform('learning_rate', 0.01, 0.1),  
+            'num_leaves': trial.suggest_int('num_leaves', 2, 128, step=1), 
+            'feature_fraction': trial.suggest_float('feature_fraction', 0.6, 1.0, step=0.1),
+            'bagging_fraction': trial.suggest_float('bagging_fraction', 0.6, 1.0, step=0.1),
+            #'bagging_freq': trial.suggest_int('bagging_freq', 2, 12),  
+            "lambda_l1": trial.suggest_loguniform("lambda_l1", 0.001, 0.1),
+            "lambda_l2": trial.suggest_loguniform("lambda_l2", 0.001, 0.1),
+            "device_type": "cpu",  
+            "seed" : 2025
+        }
+    
+    
+        # Set up Stratified K-Fold cross-validation
+        kf = KFold(n_splits=5, shuffle=True, random_state=2025)
+        scores = []
+    
+        for train_idx, val_idx in kf.split(X_train, y_train):
+            # Split data into training and validation sets
+            X_train_fold, X_val_fold = X_train.iloc[train_idx], X_train.iloc[val_idx]
+            y_train_fold, y_val_fold = y_train.iloc[train_idx], y_train.iloc[val_idx]
+            
+            # Create LightGBM Dataset
+            train_set = lgb.Dataset(X_train_fold, label=y_train_fold)
+            val_set = lgb.Dataset(X_val_fold, label=y_val_fold, reference=train_set)
+            
+            # Train LightGBM model
+            model = lgb.train(
+                params=param,
+                train_set=train_set,
+                valid_sets=[val_set],
+                callbacks=[
+                    lgb.early_stopping(100),
+                    lgb.log_evaluation(10)
+                ]
+            )
+    
+            # Predict on validation set
+            y_pred = model.predict(X_val_fold)
+    
+            # Calculate RMSE (or another regression metric)
+            auc = roc_auc_score(y_val_fold, y_pred)
+            scores.append(auc)    
+    
+    
+        mean_auc = np.mean(scores)
+    
+        return mean_auc
+    
+    
+    # Run Optuna study
+    print("Start running hyper parameter tuning..")
+    study = optuna.create_study(direction="maximize")
+    study.optimize(objective, timeout=3600*2, n_jobs=1) # 3600*n hour
+    
+    # Print the best hyperparameters and score
+    print("Best hyperparameters:", study.best_params)
+    print("Best AUC:", study.best_value)
+    
+    # Get the best parameters and score
+    best_params = study.best_params
+    best_score = study.best_value
+    
+    # Format the file name with the best score
+    file_name = model_path + model_name + f"_auc_{best_score:.4f}.csv"
+    
+    # Save the best parameters to a CSV file
+    df_param = pd.DataFrame([best_params])  # Convert to DataFrame
+    df_param.to_csv(file_name, index=False)  # Save to CSV
+    
+    print(f"Best parameters saved to {file_name}")
 
 
-    # Set up Stratified K-Fold cross-validation
-    kf = KFold(n_splits=5, shuffle=True, random_state=2025)
-    scores = []
-
-    for train_idx, val_idx in kf.split(X_train, y_train):
-        # Split data into training and validation sets
-        X_train_fold, X_val_fold = X_train.iloc[train_idx], X_train.iloc[val_idx]
-        y_train_fold, y_val_fold = y_train.iloc[train_idx], y_train.iloc[val_idx]
-        
-        # Create LightGBM Dataset
-        train_set = lgb.Dataset(X_train_fold, label=y_train_fold)
-        val_set = lgb.Dataset(X_val_fold, label=y_val_fold, reference=train_set)
-        
-        # Train LightGBM model
-        model = lgb.train(
-            params=param,
-            train_set=train_set,
-            valid_sets=[val_set],
-            callbacks=[
-                lgb.early_stopping(100),
-                lgb.log_evaluation(10)
-            ]
-        )
-
-        # Predict on validation set
-        y_pred = model.predict(X_val_fold)
-
-        # Calculate RMSE (or another regression metric)
-        auc = roc_auc_score(y_val_fold, y_pred)
-        scores.append(auc)    
-
-
-    mean_auc = np.mean(scores)
-
-    return mean_auc
-
-
-# Run Optuna study
-print("Start running hyper parameter tuning..")
-study = optuna.create_study(direction="maximize")
-study.optimize(objective, timeout=3600*0.1, n_jobs=1) # 3600*n hour
-
-# Print the best hyperparameters and score
-print("Best hyperparameters:", study.best_params)
-print("Best AUC:", study.best_value)
-
-# Get the best parameters and score
-best_params = study.best_params
-best_score = study.best_value
-
-# Format the file name with the best score
-file_name = model_path + model_name + f"_auc_{best_score:.4f}.csv"
-
-# Save the best parameters to a CSV file
-df_param = pd.DataFrame([best_params])  # Convert to DataFrame
-df_param.to_csv(file_name, index=False)  # Save to CSV
-
-print(f"Best parameters saved to {file_name}")
-
-
-
-best_params = {'n_estimators': 400,
-      'max_depth': 2,
-      'learning_rate': 0.0736307161560456,
-      'num_leaves': 60,
-      'feature_fraction': 0.7,
-      'bagging_fraction': 0.8,
-      'lambda_l1': 0.06435445123914581,
-      'lambda_l2': 0.039695211960611654}
+if not TUNE:
+    best_params = {'n_estimators': 400,
+          'max_depth': 2,
+          'learning_rate': 0.0736307161560456,
+          'num_leaves': 60,
+          'feature_fraction': 0.7,
+          'bagging_fraction': 0.8,
+          'lambda_l1': 0.06435445123914581,
+          'lambda_l2': 0.039695211960611654}
 # Best AUC: 0.9305892903392904
 
 
-# Model fitting and prediction
-model =lgb.LGBMRegressor(device='cpu', gpu_use_dp=True, objective='binary', **best_params) # from Hyper param tuning
+# # Model fitting and prediction
+# model =lgb.LGBMRegressor(device='cpu', gpu_use_dp=True, objective='binary', **best_params) # from Hyper param tuning
 
 
-# Train LightGBM model with early stopping and evaluation logging
-model.fit(X_train, y_train,  
-          eval_metric='auc'
-          #eval_set=[(X_valid, y_valid)], 
-          #callbacks=[
-          #    lgb.early_stopping(100), 
-          #    lgb.log_evaluation(10)
-          #]
-          )
+# # Train LightGBM model with early stopping and evaluation logging
+# model.fit(X_train, y_train,  
+#           eval_metric='auc'
+#           #eval_set=[(X_valid, y_valid)], 
+#           #callbacks=[
+#           #    lgb.early_stopping(100), 
+#           #    lgb.log_evaluation(10)
+#           #]
+#           )
 
 
-# Append the trained model to the list
-#models.append(model)
+# # Append the trained model to the list
+# #models.append(model)
 
-# Test on the local validation set
-y_pred = model.predict(X_valid)
-valid_auc = roc_auc_score(y_valid, y_pred)
-print(f"valid auc: {valid_auc}")
-#valid auc: 0.7875
+# # Test on the local validation set
+# y_pred = model.predict(X_valid)
+# valid_auc = roc_auc_score(y_valid, y_pred)
+# print(f"valid auc: {valid_auc}")
+# #valid auc: 0.7875
   
 
 
-# Check the prediction error
-CHECK = True
-if CHECK:
-    tr = pd.read_csv(PATH+'train.csv')
-    X_tr, X_val, y_tr, y_val = train_test_split(tr[features], tr['PCOS'], test_size=0.10, stratify=y, random_state=2025)
-    X_val['PCOS'] = y_val
-    X_val['pred'] = y_pred
-    X_val.to_csv(model_path + f'{model_name}_error_{valid_auc:.5f}.csv', index=False)
+# # Check the prediction error
+# CHECK = True
+# if CHECK:
+#     tr = pd.read_csv(PATH+'train.csv')
+#     X_tr, X_val, y_tr, y_val = train_test_split(tr[features], tr['PCOS'], test_size=0.10, stratify=y, random_state=2025)
+#     X_val['PCOS'] = y_val
+#     X_val['pred'] = y_pred
+#     X_val.to_csv(model_path + f'{model_name}_error_{valid_auc:.5f}.csv', index=False)
 
     
-# Save the trained model to a file
-joblib.dump(model, model_path + f'{model_name}_auc_{valid_auc:.5f}.model')
+# # Save the trained model to a file
+# joblib.dump(model, model_path + f'{model_name}_auc_{valid_auc:.5f}.model')
 
 
 
 
-# assess the feature importance
-lgb.plot_importance(model, max_num_features=25)  # Limit to top 30 features
+# # assess the feature importance
+# lgb.plot_importance(model, max_num_features=25)  # Limit to top 30 features
+# plt.show()
+    
+
+# # Create a DataFrame
+# lgb_feature_importance= pd.DataFrame({
+#     'Feature': model.feature_name_,
+#     'Importance': model.feature_importances_
+# })
+
+# lgb_feature_importance = lgb_feature_importance.sort_values('Importance', ascending=False).reset_index(drop=True)
+# lgb_feature_importance.to_csv(model_path + f'{model_name}_features_{valid_auc:.4f}.csv', index=False)
+
+
+
+
+
+
+# # Predict and submit
+# test['PCOS'] = model.predict(test[features])
+
+
+# submission = test[['ID','PCOS']]
+# submission.to_csv(model_path + f"{model_name}_submission_{valid_auc:.4f}.csv",index=False)
+
+# Load the training data
+#X = train[features]
+X = X_train
+#y = train['PCOS']
+y = y_train
+
+# Initialize StratifiedKFold for cross-validation
+skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=2024)
+
+# Initialize variables for OOF predictions, test predictions, and feature importances
+oof_predictions = np.zeros(len(X))
+test_predictions = np.zeros(len(test))  # Ensure 'test' DataFrame is loaded
+feature_importances = []
+models = []
+valid_aucs = []
+
+
+# Cross-validation loop
+for fold, (train_idx, valid_idx) in enumerate(skf.split(X, y)):
+    print(f"Training fold {fold + 1}")
+    X_train_fold, X_valid_fold = X.iloc[train_idx], X.iloc[valid_idx]
+    y_train_fold, y_valid_fold = y.iloc[train_idx], y.iloc[valid_idx]
+
+    # Initialize and train the model
+    model = lgb.LGBMRegressor(device='cpu', gpu_use_dp=True, objective='binary', **best_params)
+    model.fit(X_train_fold, y_train_fold, eval_metric='auc')
+
+    # Generate validation predictions
+    y_pred_valid = model.predict(X_valid_fold)
+    fold_auc = roc_auc_score(y_valid_fold, y_pred_valid)
+    valid_aucs.append(fold_auc)
+    oof_predictions[valid_idx] = y_pred_valid
+
+    # Generate test predictions and accumulate
+    test_pred = model.predict(test[features])
+    test_predictions += test_pred / skf.n_splits
+
+    # Save model and feature importance
+    joblib.dump(model, f"{model_path}{model_name}_fold{fold+1}_auc_{fold_auc:.5f}.model")
+    models.append(model)
+    
+    # Collect feature importances
+    fold_importance = pd.DataFrame({
+        'Feature': model.feature_name_,
+        'Importance': model.feature_importances_,
+        'Fold': fold + 1
+    })
+    feature_importances.append(fold_importance)
+
+    print(f"Fold {fold + 1} AUC: {fold_auc:.5f}")
+
+# Calculate overall metrics
+overall_auc = roc_auc_score(y, oof_predictions)
+print(f"Average Validation AUC: {np.mean(valid_aucs):.5f}")
+print(f"Overall OOF AUC: {overall_auc:.5f}")
+
+
+# Save OOF predictions and true values
+oof_df = X.copy()
+oof_df['PCOS'] = y
+oof_df['pred'] = oof_predictions
+oof_df.to_csv(f"{model_path}{model_name}_oof_predictions_auc_{overall_auc:.5f}.csv", index=False)
+
+
+# Aggregate and save feature importances
+feature_importances_df = pd.concat(feature_importances)
+average_importance = feature_importances_df.groupby('Feature')['Importance'].mean().reset_index()
+average_importance = average_importance.sort_values('Importance', ascending=False)
+average_importance.to_csv(f"{model_path}{model_name}_average_feature_importance.csv", index=False)
+
+
+# Plot average feature importance
+plt.figure(figsize=(10, 6))
+sns.barplot(x='Importance', y='Feature', data=average_importance.head(25))
+plt.title('Top Features (Average Importance)')
+plt.tight_layout()
+#plt.savefig(f"{model_path}{model_name}_average_feature_importance.png")
 plt.show()
-    
-
-# Create a DataFrame
-lgb_feature_importance= pd.DataFrame({
-    'Feature': model.feature_name_,
-    'Importance': model.feature_importances_
-})
-
-lgb_feature_importance = lgb_feature_importance.sort_values('Importance', ascending=False).reset_index(drop=True)
-lgb_feature_importance.to_csv(model_path + f'{model_name}_features_{valid_auc:.4f}.csv', index=False)
 
 
-
-
-
-
-# Predict and submit
-test['PCOS'] = model.predict(test[features])
-
-
-submission = test[['ID','PCOS']]
-submission.to_csv(model_path + f"{model_name}_submission_{valid_auc:.4f}.csv",index=False)
-
-
+# Generate submission with averaged test predictions
+test['PCOS'] = test_predictions
+submission = test[['ID', 'PCOS']]
+submission.to_csv(f"{model_path}{model_name}_submission_cv_auc_{overall_auc:.4f}.csv", index=False)
