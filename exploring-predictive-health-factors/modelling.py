@@ -40,13 +40,16 @@ test = pd.read_csv(PATH+'test.csv')
 
 
 # Fill in nan for Weight
-# train['Weight_kg'] = train['Weight_kg'].fillna(
-#     train.groupby(['Age','Exercise_Frequency','Exercise_Type'])['Weight_kg'].transform('mean')
-# )
+train['Weight_kg'] = train['Weight_kg'].fillna(
+    train.groupby(['Age','Sleep_Hours','Exercise_Frequency','Exercise_Duration','Hyperandrogenism'])['Weight_kg'].transform('mean')
+)
 
-# test['Weight_kg'] = test['Weight_kg'].fillna(
-#     test.groupby(['Age','Exercise_Frequency','Exercise_Type'])['Weight_kg'].transform('mean')
-# )
+test['Weight_kg'] = test['Weight_kg'].fillna(
+    test.groupby(['Age','Sleep_Hours','Exercise_Frequency','Exercise_Duration','Hyperandrogenism'])['Weight_kg'].transform('mean')
+)
+# CHeck
+train.Weight_kg.isna().sum()
+test.Weight_kg.isna().sum()
 
 
 # Map categorical variable to numeric
@@ -292,7 +295,7 @@ if TUNE:
     # Run Optuna study
     print("Start running hyper parameter tuning..")
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, timeout=3600*2, n_jobs=1) # 3600*n hour
+    study.optimize(objective, timeout=3600*4, n_jobs=1) # 3600*n hour
     
     # Print the best hyperparameters and score
     print("Best hyperparameters:", study.best_params)
@@ -313,84 +316,17 @@ if TUNE:
 
 
 if not TUNE:
-    best_params = {'n_estimators': 400,
-          'max_depth': 2,
-          'learning_rate': 0.0736307161560456,
-          'num_leaves': 60,
+    best_params = {'n_estimators': 1000,
+          'max_depth': 7,
+          'learning_rate': 0.07739013828942828,
+          'num_leaves': 16,
           'feature_fraction': 0.7,
-          'bagging_fraction': 0.8,
-          'lambda_l1': 0.06435445123914581,
-          'lambda_l2': 0.039695211960611654}
+          'bagging_fraction': 1.0,
+          'bagging_freq': 4,
+          'lambda_l1': 0.06068864950357595,
+          'lambda_l2': 0.0016166088098895205}
 # Best AUC: 0.9305892903392904
 
-
-# # Model fitting and prediction
-# model =lgb.LGBMRegressor(device='cpu', gpu_use_dp=True, objective='binary', **best_params) # from Hyper param tuning
-
-
-# # Train LightGBM model with early stopping and evaluation logging
-# model.fit(X_train, y_train,  
-#           eval_metric='auc'
-#           #eval_set=[(X_valid, y_valid)], 
-#           #callbacks=[
-#           #    lgb.early_stopping(100), 
-#           #    lgb.log_evaluation(10)
-#           #]
-#           )
-
-
-# # Append the trained model to the list
-# #models.append(model)
-
-# # Test on the local validation set
-# y_pred = model.predict(X_valid)
-# valid_auc = roc_auc_score(y_valid, y_pred)
-# print(f"valid auc: {valid_auc}")
-# #valid auc: 0.7875
-  
-
-
-# # Check the prediction error
-# CHECK = True
-# if CHECK:
-#     tr = pd.read_csv(PATH+'train.csv')
-#     X_tr, X_val, y_tr, y_val = train_test_split(tr[features], tr['PCOS'], test_size=0.10, stratify=y, random_state=2025)
-#     X_val['PCOS'] = y_val
-#     X_val['pred'] = y_pred
-#     X_val.to_csv(model_path + f'{model_name}_error_{valid_auc:.5f}.csv', index=False)
-
-    
-# # Save the trained model to a file
-# joblib.dump(model, model_path + f'{model_name}_auc_{valid_auc:.5f}.model')
-
-
-
-
-# # assess the feature importance
-# lgb.plot_importance(model, max_num_features=25)  # Limit to top 30 features
-# plt.show()
-    
-
-# # Create a DataFrame
-# lgb_feature_importance= pd.DataFrame({
-#     'Feature': model.feature_name_,
-#     'Importance': model.feature_importances_
-# })
-
-# lgb_feature_importance = lgb_feature_importance.sort_values('Importance', ascending=False).reset_index(drop=True)
-# lgb_feature_importance.to_csv(model_path + f'{model_name}_features_{valid_auc:.4f}.csv', index=False)
-
-
-
-
-
-
-# # Predict and submit
-# test['PCOS'] = model.predict(test[features])
-
-
-# submission = test[['ID','PCOS']]
-# submission.to_csv(model_path + f"{model_name}_submission_{valid_auc:.4f}.csv",index=False)
 
 # Load the training data
 #X = train[features]
