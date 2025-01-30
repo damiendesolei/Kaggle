@@ -41,11 +41,11 @@ test = pd.read_csv(PATH+'test.csv')
 
 # Fill in nan for Weight
 train['Weight_kg'] = train['Weight_kg'].fillna(
-    train.groupby(['Age','Sleep_Hours','Exercise_Frequency','Exercise_Duration','Hyperandrogenism'])['Weight_kg'].transform('mean')
+    train.groupby(['Hyperandrogenism','Exercise_Frequency','Exercise_Type'])['Weight_kg'].transform('mean')
 )
 
 test['Weight_kg'] = test['Weight_kg'].fillna(
-    test.groupby(['Age','Sleep_Hours','Exercise_Frequency','Exercise_Duration','Hyperandrogenism'])['Weight_kg'].transform('mean')
+    test.groupby(['Hyperandrogenism','Exercise_Frequency','Exercise_Type'])['Weight_kg'].transform('mean')
 )
 # CHeck
 train.Weight_kg.isna().sum()
@@ -218,6 +218,7 @@ model_name = f'lgb_{len(features)}_parameters'
 model_path = r'G:\\kaggle\exploring-predictive-health-factors\model\\'
 
 
+
 # Split the data into train and valiation
 X = train[features]
 y = train['PCOS']
@@ -232,8 +233,9 @@ y_train = y_train.reset_index(drop=True)
 y_valid = y_valid.reset_index(drop=True)
 
 
-TUNE = False
-if TUNE:
+
+STUDY = False
+if STUDY:
 # Hyper parameter tuning
     def objective(trial):
         # Define hyperparameters
@@ -251,6 +253,7 @@ if TUNE:
             "lambda_l1": trial.suggest_loguniform("lambda_l1", 0.001, 0.1),
             "lambda_l2": trial.suggest_loguniform("lambda_l2", 0.001, 0.1),
             "device_type": "cpu",  
+            "verbose": -1,
             "seed" : 2025
         }
     
@@ -315,7 +318,7 @@ if TUNE:
     print(f"Best parameters saved to {file_name}")
 
 
-if not TUNE:
+if not STUDY:
     best_params = {'n_estimators': 1000,
           'max_depth': 7,
           'learning_rate': 0.07739013828942828,
