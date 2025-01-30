@@ -47,9 +47,9 @@ train['Weight_kg'] = train['Weight_kg'].fillna(
 test['Weight_kg'] = test['Weight_kg'].fillna(
     test.groupby(['Hyperandrogenism','Exercise_Frequency','Exercise_Type'])['Weight_kg'].transform('mean')
 )
-# CHeck
-train.Weight_kg.isna().sum()
-test.Weight_kg.isna().sum()
+# Check nan
+print(f'Train has {train.Weight_kg.isna().sum()} nan in Weight_kg')
+print(f'Test has {test.Weight_kg.isna().sum()} nan in Weight_kg')
 
 
 # Map categorical variable to numeric
@@ -240,7 +240,7 @@ if STUDY:
     def objective(trial):
         # Define hyperparameters
         param = {
-            'objective': 'regression',  
+            'objective': 'binary',  
             'metric': 'auc',  
             'boosting_type': 'gbdt',
             'n_estimators': trial.suggest_int('n_estimators', 100, 500, step=100),
