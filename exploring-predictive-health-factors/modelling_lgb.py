@@ -235,15 +235,17 @@ y_valid = y_valid.reset_index(drop=True)
 
 
 STUDY = False
+N_HOUR = 0.5
+
 if STUDY:
 # Hyper parameter tuning
     def objective(trial):
         # Define hyperparameters
         param = {
-            'objective': 'binary',  
+            'objective': 'regression',  
             'metric': 'auc',  
             'boosting_type': 'gbdt',
-            'n_estimators': trial.suggest_int('n_estimators', 100, 500, step=100),
+            'n_estimators': trial.suggest_int('n_estimators', 400, 1400, step=100),
             'max_depth': trial.suggest_int('max_depth', 1, 12, step=1),  
             'learning_rate': trial.suggest_loguniform('learning_rate', 0.01, 0.1),  
             'num_leaves': trial.suggest_int('num_leaves', 2, 128, step=1), 
@@ -253,7 +255,7 @@ if STUDY:
             "lambda_l1": trial.suggest_loguniform("lambda_l1", 0.001, 0.1),
             "lambda_l2": trial.suggest_loguniform("lambda_l2", 0.001, 0.1),
             "device_type": "cpu",  
-            "verbose": -1,
+            #"verbose": -1,
             "seed" : 2025
         }
     
@@ -298,7 +300,7 @@ if STUDY:
     # Run Optuna study
     print("Start running hyper parameter tuning..")
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, timeout=3600*4, n_jobs=1) # 3600*n hour
+    study.optimize(objective, timeout=3600*N_HOUR, n_jobs=1) # 3600*n hour
     
     # Print the best hyperparameters and score
     print("Best hyperparameters:", study.best_params)
