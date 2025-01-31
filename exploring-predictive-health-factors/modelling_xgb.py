@@ -348,23 +348,24 @@ models = []
 valid_aucs = []
 
 # Convert best_params to XGBoost classifier parameters
-xgb_params = {
-    'n_estimators': best_params['n_estimators'],
-    'max_depth': best_params['max_depth'],
-    'learning_rate': best_params['learning_rate'],
-    #'max_leaves': best_params['max_leaves'],
-    'colsample_bytree': best_params['colsample_bytree'],
-    'subsample': best_params['subsample'],
-    'reg_alpha': best_params['alpha'],
-    'reg_lambda': best_params['lambda'],
-    'tree_method': 'exact',
-    #'grow_policy': 'lossguide',
-    'objective': 'binary:logistic',
-    'eval_metric': 'auc',
-    'random_state': 2025,
-    'verbosity': 0,
-    'use_label_encoder': False
-}
+if STUDY:
+    xgb_params = {
+        'n_estimators': best_params['n_estimators'],
+        'max_depth': best_params['max_depth'],
+        'learning_rate': best_params['learning_rate'],
+        #'max_leaves': best_params['max_leaves'],
+        'colsample_bytree': best_params['colsample_bytree'],
+        'subsample': best_params['subsample'],
+        'reg_alpha': best_params['alpha'],
+        'reg_lambda': best_params['lambda'],
+        'tree_method': 'exact',
+        #'grow_policy': 'lossguide',
+        'objective': 'binary:logistic',
+        'eval_metric': 'auc',
+        'random_state': 2025,
+        'verbosity': 0,
+        'use_label_encoder': False
+    }
 
 # Cross-validation loop
 for fold, (train_idx, valid_idx) in enumerate(skf.split(X, y)):
