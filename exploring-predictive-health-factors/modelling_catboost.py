@@ -47,9 +47,27 @@ train['Weight_kg'] = train['Weight_kg'].fillna(
 test['Weight_kg'] = test['Weight_kg'].fillna(
     test.groupby(['Hyperandrogenism','Exercise_Frequency','Exercise_Type'])['Weight_kg'].transform('mean')
 )
+
 # Check nan
 print(f'Train has {train.Weight_kg.isna().sum()} nan in Weight_kg')
 print(f'Test has {test.Weight_kg.isna().sum()} nan in Weight_kg')
+
+
+# Fill in na for Hyperandrogenism
+# train['Hyperandrogenism'] = train['Hyperandrogenism'].fillna(
+#     train.groupby(['Age','Hirsutism','Sleep_Hours','Exercise_Benefit'])['Hyperandrogenism'].transform(
+#         lambda x: x.mode()[0] if not x.mode().empty else x)
+# )
+
+# test['Hyperandrogenism'] = test['Hyperandrogenism'].fillna(
+#     test.groupby(['Age','Hirsutism','Sleep_Hours','Exercise_Benefit'])['Hyperandrogenism'].transform(
+#         lambda x: x.mode()[0] if not x.mode().empty else x)
+# )
+
+# Check nan
+print(f'Train has {train.Hyperandrogenism.isna().sum()} nan in Hyperandrogenism')
+print(f'Test has {test.Hyperandrogenism.isna().sum()} nan in Hyperandrogenism')
+
 
 
 # Map categorical variable to numeric
@@ -209,6 +227,7 @@ remove_features = ['ID'] #+ remove_features
 
 # Fetures for modelling
 features = [feature for feature in features_0 if feature not in remove_features]
+#features = ['Hyperandrogenism','Insulin_Resistance','Hormonal_Imbalance','Hirsutism']
 
 
 
@@ -236,7 +255,7 @@ y_valid = y_valid.reset_index(drop=True)
 
 
 STUDY = True
-N_HOUR = 2
+N_HOUR = 0.5
 
 if STUDY:
 # Hyper parameter tuning
@@ -276,7 +295,7 @@ if STUDY:
             model.fit(
                 train_pool,
                 eval_set=val_pool,
-                early_stopping_rounds=100,
+                #early_stopping_rounds=100,
                 use_best_model=True
             )
     
@@ -293,7 +312,7 @@ if STUDY:
     # Run Optuna study
     print("Start running hyper parameter tuning..")
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, timeout=3600*N_HOUR, n_jobs=1)
+    study.optimize(objective, timeout=3600*N_HOUR, n_jobs=3)
     
     # Print the best hyperparameters and score
     print("Best hyperparameters:", study.best_params)
@@ -373,7 +392,7 @@ for fold, (train_idx, valid_idx) in enumerate(skf.split(X, y)):
     model.fit(
         X_train_fold, y_train_fold,
         eval_set=(X_valid_fold, y_valid_fold),
-        early_stopping_rounds=100,
+        #early_stopping_rounds=100,
         verbose=10
     )
 
