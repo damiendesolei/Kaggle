@@ -236,7 +236,7 @@ y_valid = y_valid.reset_index(drop=True)
 
 
 STUDY = True
-N_HOUR = 0.2
+N_HOUR = 2
 
 if STUDY:
 # Hyper parameter tuning
@@ -315,7 +315,7 @@ if STUDY:
 
 if not STUDY:
     best_params = {
-        'loss_function': 'Logloss',
+        'loss_function': 'CrossEntropy', #CrossEntropy is better for ranking (than Logloss), e.g. AUC
         'eval_metric': 'AUC',
         'iterations': 300,
         'depth': 2,
@@ -345,22 +345,22 @@ models = []
 valid_aucs = []
 
 # Cross-validation loop modified for CatBoost
-# Convert best_params to CatBoost classifier parameters
-cat_params = {
-    'loss_function': 'Logloss',
-    'eval_metric': 'AUC',
-    'iterations': best_params.get('iterations'),
-    'depth': best_params.get('depth'),
-    'learning_rate': best_params.get('learning_rate'),
-    'l2_leaf_reg': best_params.get('l2_leaf_reg'),
-    'random_strength': best_params.get('random_strength'),
-    'colsample_bylevel': best_params.get('colsample_bylevel'),
-    'subsample': best_params.get('subsample'),
-    'min_data_in_leaf': best_params.get('min_data_in_leaf'),
-    'leaf_estimation_iterations': best_params.get('leaf_estimation_iterations'),
-    'random_seed': 2025,
-    'verbose': False
-}
+if STUDY:
+    cat_params = {
+        'loss_function': 'Logloss',
+        'eval_metric': 'AUC',
+        'iterations': best_params.get('iterations'),
+        'depth': best_params.get('depth'),
+        'learning_rate': best_params.get('learning_rate'),
+        'l2_leaf_reg': best_params.get('l2_leaf_reg'),
+        'random_strength': best_params.get('random_strength'),
+        'colsample_bylevel': best_params.get('colsample_bylevel'),
+        'subsample': best_params.get('subsample'),
+        'min_data_in_leaf': best_params.get('min_data_in_leaf'),
+        'leaf_estimation_iterations': best_params.get('leaf_estimation_iterations'),
+        'random_seed': 2025,
+        'verbose': False
+    }
 
 # Cross-validation loop
 for fold, (train_idx, valid_idx) in enumerate(skf.split(X, y)):
