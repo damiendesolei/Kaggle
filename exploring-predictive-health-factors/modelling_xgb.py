@@ -54,6 +54,7 @@ print(f'Test has {test.Weight_kg.isna().sum()} nan in Weight_kg')
 
 
 # Fill in na for Hyperandrogenism
+# Fill nan for Hyperandrogenism
 train['Hyperandrogenism'] = train['Hyperandrogenism'].fillna(
     train.groupby(['Age','Hormonal_Imbalance','Exercise_Duration'])['Hyperandrogenism'].transform(lambda x: x.mode().iloc[0] if not x.mode().empty else None)
 )
@@ -61,7 +62,6 @@ train['Hyperandrogenism'] = train['Hyperandrogenism'].fillna(
 test['Hyperandrogenism'] = test['Hyperandrogenism'].fillna(
     test.groupby(['Age','Hormonal_Imbalance','Exercise_Duration'])['Hyperandrogenism'].transform(lambda x: x.mode().iloc[0] if not x.mode().empty else None)
 )
-
 
 # Check nan
 print(f'Train has {train.Hyperandrogenism.isna().sum()} nan in Hyperandrogenism')
@@ -260,12 +260,13 @@ if STUDY:
     # Hyper parameter tuning
     def objective(trial):
         # Define hyperparameters
-        n_estimators = trial.suggest_int('n_estimators', 300, 800, step=100)
+        n_estimators = trial.suggest_int('n_estimators', 100, 500, step=100)
         param = {
             'objective': 'binary:logistic',
             'eval_metric': 'auc',
             'tree_method': 'exact',
             #'grow_policy': 'lossguide',
+            
             'max_depth': trial.suggest_int('max_depth', 1, 12, step=1),
             'learning_rate': trial.suggest_loguniform('learning_rate', 0.01, 0.1),
             #'max_leaves': trial.suggest_int('max_leaves', 2, 128, step=1),
@@ -273,8 +274,10 @@ if STUDY:
             'subsample': trial.suggest_float('subsample', 0.6, 1.0, step=0.1),
             'alpha': trial.suggest_loguniform("alpha", 0.001, 0.1),
             'lambda': trial.suggest_loguniform("lambda", 0.001, 0.1),
+            
             'seed': 2025,
-            #'verbosity': 0,
+            'verbosity': 0,
+            "disable_default_eval_metric": 1,  # Disable default eval metric logs
         }
     
         # Set up K-Fold cross-validation
@@ -296,8 +299,8 @@ if STUDY:
                 dtrain=dtrain,
                 num_boost_round=n_estimators,
                 evals=[(dvalid, 'eval')],
-                early_stopping_rounds=100,
-                verbose_eval=10
+                #early_stopping_rounds=100,
+                verbose_eval=0
             )
     
             # Predict on validation set
