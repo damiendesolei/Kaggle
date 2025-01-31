@@ -47,9 +47,26 @@ train['Weight_kg'] = train['Weight_kg'].fillna(
 test['Weight_kg'] = test['Weight_kg'].fillna(
     test.groupby(['Hyperandrogenism','Exercise_Frequency','Exercise_Type'])['Weight_kg'].transform('mean')
 )
+
 # Check nan
 print(f'Train has {train.Weight_kg.isna().sum()} nan in Weight_kg')
 print(f'Test has {test.Weight_kg.isna().sum()} nan in Weight_kg')
+
+
+# Fill in na for Hyperandrogenism
+train['Hyperandrogenism'] = train['Hyperandrogenism'].fillna(
+    train.groupby(['Age','Hormonal_Imbalance','Exercise_Duration'])['Hyperandrogenism'].transform(lambda x: x.mode().iloc[0] if not x.mode().empty else None)
+)
+
+test['Hyperandrogenism'] = test['Hyperandrogenism'].fillna(
+    test.groupby(['Age','Hormonal_Imbalance','Exercise_Duration'])['Hyperandrogenism'].transform(lambda x: x.mode().iloc[0] if not x.mode().empty else None)
+)
+
+
+# Check nan
+print(f'Train has {train.Hyperandrogenism.isna().sum()} nan in Hyperandrogenism')
+print(f'Test has {test.Hyperandrogenism.isna().sum()} nan in Hyperandrogenism')
+
 
 
 # Map categorical variable to numeric
@@ -198,6 +215,8 @@ train = initial_feature_map(train)
 test = initial_feature_map(test)
 
 
+# one-hot encode Hyperandrogenism
+#train['Hyperandrogenism_Yes'] = np.where(train['Hyperandrogenism'] == 1, 1, 0)
 
 
 
@@ -234,14 +253,14 @@ y_valid = y_valid.reset_index(drop=True)
 
 
 
-STUDY = True
+STUDY = False
 N_HOUR = 1
 
 if STUDY:
     # Hyper parameter tuning
     def objective(trial):
         # Define hyperparameters
-        n_estimators = trial.suggest_int('n_estimators', 100, 500, step=100)
+        n_estimators = trial.suggest_int('n_estimators', 300, 800, step=100)
         param = {
             'objective': 'binary:logistic',
             'eval_metric': 'auc',
@@ -316,15 +335,14 @@ if STUDY:
 
 
 if not STUDY:
-    best_params = {
-        'n_estimators': 200,
-        'max_depth': 3,
-        'learning_rate': 0.011499901161471435,
-        'colsample_bytree': 1.0,
-        'subsample': 0.6,
-        'alpha': 0.011301942632755068,
-        'lambda': 0.004014742292940403,
-        'tree_method': 'exact',
+    xgb_params = {
+        'n_estimators': 500, 
+        'max_depth': 2, 
+        'learning_rate': 0.012376787407810667, 
+        'colsample_bytree': 0.7, 
+        'subsample': 1.0, 
+        'alpha': 0.012847356155418035, 
+        'lambda': 0.002437123748008193,
         #'grow_policy': 'lossguide',
         'objective': 'binary:logistic',
         'eval_metric': 'auc',
