@@ -224,27 +224,29 @@ X = train[features]
 y = train['PCOS']
 
 # Reserve 10% of data as local validation
-X_train, X_valid, y_train, y_valid = train_test_split(X, y, test_size=0.10, stratify=y, random_state=2025)
+X_train, X_resrv, y_train, y_resrv = train_test_split(X, y, test_size=0.10, stratify=y, random_state=2025)
 
 # Reset index
 X_train = X_train.reset_index(drop=True)
-X_valid = X_valid.reset_index(drop=True)
+X_resrv = X_resrv.reset_index(drop=True)
 y_train = y_train.reset_index(drop=True)
-y_valid = y_valid.reset_index(drop=True)
+y_resrv = y_resrv.reset_index(drop=True)
 
 
 
-STUDY = False
-N_HOUR = 0.5
+STUDY = True
+N_HOUR = 2
 
 if STUDY:
 # Hyper parameter tuning
     def objective(trial):
         # Define hyperparameters
         param = {
-            'objective': 'regression',  
             'metric': 'auc',  
             'boosting_type': 'gbdt',
+            'device_type': 'cpu', 
+
+            'objective': trial.suggest_categorical('objective',['regression','binary']),
             'n_estimators': trial.suggest_int('n_estimators', 400, 1400, step=100),
             'max_depth': trial.suggest_int('max_depth', 1, 12, step=1),  
             'learning_rate': trial.suggest_loguniform('learning_rate', 0.01, 0.1),  
@@ -254,8 +256,8 @@ if STUDY:
             #'bagging_freq': trial.suggest_int('bagging_freq', 2, 12),  
             "lambda_l1": trial.suggest_loguniform("lambda_l1", 0.001, 0.1),
             "lambda_l2": trial.suggest_loguniform("lambda_l2", 0.001, 0.1),
-            "device_type": "cpu",  
-            #"verbose": -1,
+            
+            "verbose": -1,
             "seed" : 2025
         }
     
@@ -277,11 +279,11 @@ if STUDY:
             model = lgb.train(
                 params=param,
                 train_set=train_set,
-                valid_sets=[val_set],
-                callbacks=[
-                    lgb.early_stopping(100),
-                    lgb.log_evaluation(10)
-                ]
+                valid_sets=[val_set]#,
+                # callbacks=[
+                #     lgb.early_stopping(100),
+                #     lgb.log_evaluation(10)
+                # ]
             )
     
             # Predict on validation set
@@ -300,7 +302,7 @@ if STUDY:
     # Run Optuna study
     print("Start running hyper parameter tuning..")
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, timeout=3600*N_HOUR, n_jobs=1) # 3600*n hour
+    study.optimize(objective, timeout=3600*N_HOUR, n_jobs=4) # 3600*n hour
     
     # Print the best hyperparameters and score
     print("Best hyperparameters:", study.best_params)
@@ -345,6 +347,7 @@ skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=2024)
 # Initialize variables for OOF predictions, test predictions, and feature importances
 oof_predictions = np.zeros(len(X))
 test_predictions = np.zeros(len(test))  # Ensure 'test' DataFrame is loaded
+resrv_predictions = np.zeros(len(X_resrv))
 feature_importances = []
 models = []
 valid_aucs = []
@@ -357,7 +360,7 @@ for fold, (train_idx, valid_idx) in enumerate(skf.split(X, y)):
     y_train_fold, y_valid_fold = y.iloc[train_idx], y.iloc[valid_idx]
 
     # Initialize and train the model
-    model = lgb.LGBMRegressor(device='cpu', gpu_use_dp=True, objective='binary', **best_params)
+    model = lgb.LGBMRegressor(device='cpu', gpu_use_dp=True, **best_params)
     model.fit(X_train_fold, y_train_fold, eval_metric='auc')
 
     # Generate validation predictions
@@ -369,6 +372,10 @@ for fold, (train_idx, valid_idx) in enumerate(skf.split(X, y)):
     # Generate test predictions and accumulate
     test_pred = model.predict(test[features])
     test_predictions += test_pred / skf.n_splits
+    
+    # Generate reserved predictions
+    resrv_pred = model.predict(X_resrv[features])
+    resrv_predictions += resrv_pred / skf.n_splits
 
     # Save model and feature importance
     joblib.dump(model, f"{model_path}{model_name}_fold{fold+1}_auc_{fold_auc:.5f}.model")
@@ -395,6 +402,12 @@ oof_df = X.copy()
 oof_df['PCOS'] = y
 oof_df['pred'] = oof_predictions
 oof_df.to_csv(f"{model_path}{model_name}_oof_predictions_auc_{overall_auc:.5f}.csv", index=False)
+
+
+# Generate reserved predictions
+X_resrv['pred_lgb'] = resrv_predictions
+X_resrv['PCOS'] = y_resrv
+X_resrv.to_csv(f"{model_path}{model_name}_reserved_cv_auc_{overall_auc:.4f}.csv", index=False)
 
 
 # Aggregate and save feature importances
