@@ -65,8 +65,8 @@ print(f'Test has {test.Weight_kg.isna().sum()} nan in Weight_kg')
 # )
 
 # Check nan
-print(f'Train has {train.Hyperandrogenism.isna().sum()} nan in Hyperandrogenism')
-print(f'Test has {test.Hyperandrogenism.isna().sum()} nan in Hyperandrogenism')
+# print(f'Train has {train.Hyperandrogenism.isna().sum()} nan in Hyperandrogenism')
+# print(f'Test has {test.Hyperandrogenism.isna().sum()} nan in Hyperandrogenism')
 
 
 
@@ -254,7 +254,7 @@ y_valid = y_valid.reset_index(drop=True)
 
 
 
-STUDY = True
+STUDY = False
 N_HOUR = 0.5
 
 if STUDY:
@@ -264,6 +264,7 @@ if STUDY:
         param = {
             'loss_function': 'Logloss',
             'eval_metric': 'AUC',
+            
             'iterations': trial.suggest_int('iterations', 100, 500, step=100),
             'depth': trial.suggest_int('depth', 1, 12, step=1),
             'learning_rate': trial.suggest_loguniform('learning_rate', 0.01, 0.1),
@@ -273,8 +274,10 @@ if STUDY:
             'subsample': trial.suggest_float('subsample', 0.6, 1.0, step=0.1),
             'min_data_in_leaf': trial.suggest_int('min_data_in_leaf', 1, 100),
             'leaf_estimation_iterations': trial.suggest_int('leaf_estimation_iterations', 1, 10),
+            
             'random_seed': 2025,
-            'verbose': False,
+            #'verbose': False,
+            "logging_level": "Silent"  # Suppress CatBoost logs
         }
     
         # Set up K-Fold cross-validation
@@ -333,20 +336,20 @@ if STUDY:
 
 
 if not STUDY:
-    best_params = {
-        'loss_function': 'CrossEntropy', #CrossEntropy is better for ranking (than Logloss), e.g. AUC
+    cat_params = {
+        'loss_function': 'Logloss', #CrossEntropy is better for ranking (than Logloss), e.g. AUC
         'eval_metric': 'AUC',
-        'iterations': 300,
-        'depth': 2,
-        'learning_rate': 0.04370073010091179,
-        'l2_leaf_reg': 0.0012590154651107581,
-        'random_strength': 0.0012672346739973062,
-        'colsample_bylevel': 0.6,
+        'iterations': 500,
+        'depth': 3,
+        'learning_rate': 0.030531031117255,
+        'l2_leaf_reg': 0.00117453128255437,
+        'random_strength': 0.00123862022140678,
+        'colsample_bylevel': 0.9,
         'subsample': 0.6,
         'min_data_in_leaf': 3,
-        'leaf_estimation_iterations': 4,
+        'leaf_estimation_iterations': 5,
         'random_seed': 2025,
-        'verbose': False,
+        "logging_level": "Silent"  # Suppress CatBoost logs
     }
 
 # Load the training data
@@ -393,7 +396,7 @@ for fold, (train_idx, valid_idx) in enumerate(skf.split(X, y)):
         X_train_fold, y_train_fold,
         eval_set=(X_valid_fold, y_valid_fold),
         #early_stopping_rounds=100,
-        verbose=10
+        #verbose=10
     )
 
     # Generate validation predictions
