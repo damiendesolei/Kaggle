@@ -24,10 +24,12 @@ from datetime import datetime, timedelta
 
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import TimeSeriesSplit, train_test_split
+from sklearn.metrics import mean_absolute_error
 
 import lightgbm as lgb
 #from sklearn.metrics import r2_score
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 
 from tqdm import tqdm, tqdm_notebook
@@ -102,12 +104,12 @@ PATH = '/kaggle/input/rohlik-sales-forecasting-challenge' if os.path.exists('/ka
 # Read in the files
 train = pd.read_csv(PATH + 'sales_train.csv', parse_dates=['date'])
 test = pd.read_csv(PATH + 'sales_test.csv', parse_dates=['date'])
-print(f'{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} original train df dimention is {train.shape}')
+print(f'original train df dimention is {train.shape}')
 
 test_id = test['unique_id'].unique() #only use unique_id in testset
 train = train[train['unique_id'].isin(test_id)]
-#train = train[train.date>='2021-01-01 00:00:00'] # only use post-covid data
-print(f'{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} filtered train df dimention is {train.shape}')
+train = train[train.date>='2023-01-01 00:00:00'] # only use post-covid data
+print(f'filtered train df dimention is {train.shape}')
 
 
 # Read in other files
@@ -141,6 +143,7 @@ total = pd.concat((train, test))
 
 # date related features
 
+# date related features
 def add_date_features(df):
     df['year'] = df['date'].dt.year
     #df['month'] = df['date'].dt.month
@@ -354,7 +357,7 @@ def get_food_type(food):
             "Soybean sprout", "Soil", "Cantaloupe", "Green Bean", "Persimmon", 
             "Cress", "Pepperoni", "Gooseberry", "Currant", "Flower"],
         
-         "Bakery":[
+         "bakery":[
            "Bread", "Pastry", "Roll", "Baguette", "Toust", "Croissant", "Tortilla",
            "Donut", "Snack", "Cake", "Pretzel", "Cracker", "Muffin", "Bagel",
            "Breadcrumb", "Pita", "Rice Cake", "Bun", "Waffle", "Biscuit",
@@ -367,6 +370,7 @@ def get_food_type(food):
         if food in food_list:
             return food_type
     return 'other'
+
 
 
 # Feature Engineering
@@ -424,25 +428,25 @@ def feature_engineering(df):
     df['dollar_discount'] = df['total_type_discount'] * df['sell_price_main']
 
 
-    # print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} time diff and shift feature >>>")
-    # for gap in [1, 2]:
-    #     for col in ['is_holiday','weekend']:
-    #         df[col+f"_shift{gap}"]=df.groupby(['warehouse','unique_id','product_unique_id'])[col].shift(gap)
+    print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} time diff and shift feature >>>")
+    for gap in [1, 2]:
+        for col in ['is_holiday','weekend']:
+            df[col+f"_shift{gap}"]=df.groupby(['warehouse','unique_id','product_unique_id'])[col].shift(gap)
 
-    # for col in ['total_orders','sell_price_main','total_type_discount']:#'total_orders*sell_price_main'
-    #     for agg in ['std','skew','max']:#,'median']:
-    #         df[f'{agg}_{col}_each_name_WU_per_day']=df.groupby(['date','warehouse','unique_id','name_0','name_1'])[col].transform(agg)
-    #         df[f'{agg}_{col}_each_name0_WU_per_day']=df.groupby(['date','warehouse','unique_id','name_0'])[col].transform(agg)
-    #         df[f'{agg}_{col}_each_L1_WU_per_day']=df.groupby(['date','warehouse','unique_id','L1_category_name_en'])[col].transform(agg)
-    #         df[f'{agg}_{col}_each_name0_W_per_day']=df.groupby(['date','warehouse','name_0'])[col].transform(agg)
-    #         df[f'{agg}_{col}_each_name0_per_day']=df.groupby(['date','name_0'])[col].transform(agg)
+    for col in ['total_orders','sell_price_main','total_type_discount']:#'total_orders*sell_price_main'
+        for agg in ['std','skew','max']:#,'median']:
+            df[f'{agg}_{col}_each_name_WU_per_day']=df.groupby(['date','warehouse','unique_id','name_0','name_1'])[col].transform(agg)
+            df[f'{agg}_{col}_each_name0_WU_per_day']=df.groupby(['date','warehouse','unique_id','name_0'])[col].transform(agg)
+            df[f'{agg}_{col}_each_L1_WU_per_day']=df.groupby(['date','warehouse','unique_id','L1_category_name_en'])[col].transform(agg)
+            df[f'{agg}_{col}_each_name0_W_per_day']=df.groupby(['date','warehouse','name_0'])[col].transform(agg)
+            df[f'{agg}_{col}_each_name0_per_day']=df.groupby(['date','name_0'])[col].transform(agg)
             
-    #         for gap in [1]:
-    #             df[f'{agg}_{col}_each_name_WU_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name_WU_per_day'].diff(gap)
-    #             df[f'{agg}_{col}_each_name0_WU_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name0_WU_per_day'].diff(gap)
-    #             df[f'{agg}_{col}_each_L1_WU_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_L1_WU_per_day'].diff(gap)
-    #             df[f'{agg}_{col}_each_name0_W_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name0_W_per_day'].diff(gap)
-    #             df[f'{agg}_{col}_each_name0_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name0_per_day'].diff(gap)
+            for gap in [1]:
+                df[f'{agg}_{col}_each_name_WU_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name_WU_per_day'].diff(gap)
+                df[f'{agg}_{col}_each_name0_WU_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name0_WU_per_day'].diff(gap)
+                df[f'{agg}_{col}_each_L1_WU_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_L1_WU_per_day'].diff(gap)
+                df[f'{agg}_{col}_each_name0_W_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name0_W_per_day'].diff(gap)
+                df[f'{agg}_{col}_each_name0_per_day_diff{gap}']=df.groupby(['warehouse','unique_id','name_0','name_1'])[f'{agg}_{col}_each_name0_per_day'].diff(gap)
   
                 
     df=df.sort_values(['index']).reset_index(drop=True)
@@ -495,9 +499,11 @@ total.drop([col for col in total.columns if total[col].isna().mean()>0.98]+drop_
 train = total[:len(train)]
 test = total[len(train):].drop(['sales'], axis=1)
 
+
 # fill nan with -99
 train = train.fillna(-99)
 test = test.fillna(-99)
+
 
 # check objective columns
 # object_columns = [col for col in test.columns if test[col].dtype == 'object']
@@ -542,6 +548,12 @@ X = train[features]
 y = train['sales']
 w = train['weight']
 
+
+
+
+#################################################################################
+#GBM
+
 X_train, X_valid, y_train, y_valid, w_train, w_valid = train_test_split(X, y, w, test_size=0.25, random_state=2025)
 # X_train = train[features].loc[~X['month'].isin([6])]
 # y_train = train['sales'].loc[~X['month'].isin([6])]
@@ -554,159 +566,359 @@ X_train, X_valid, y_train, y_valid, w_train, w_valid = train_test_split(X, y, w,
 
 
 # Define the parameter space
+N_SPLITS = 3
+SPLIT_LENGTH = timedelta(weeks=4)  # Test size of 2 weeks as per requirement
+
+# Define the parameter space
 def objective(trial):
     param = {
         'objective': 'regression',  
         'metric': 'mae',  
         'boosting_type': 'gbdt',
-        'n_estimators': trial.suggest_int('n_estimators', 300, 500, step=100),
+        'device_type': 'cpu',  
+        'gpu_use_dp': True,
+
+        #'n_estimators': 800，
+        'n_estimators': trial.suggest_int('n_estimators', 800, 2000, step=200),
         'max_depth': trial.suggest_int('max_depth', 1, 32, step=2),  
         'learning_rate': trial.suggest_loguniform('learning_rate', 0.01, 0.1),  
-        'num_leaves': trial.suggest_int('num_leaves', 12, 256, step=2), 
+        'num_leaves': trial.suggest_int('num_leaves', 12, 128, step=2), 
         #'feature_fraction': trial.suggest_uniform('feature_fraction', 0.6, 1.0),  
         #'bagging_fraction': trial.suggest_uniform('bagging_fraction', 0.6, 1.0),  
-        'feature_fraction': trial.suggest_categorical('feature_fraction', [0.6, 0.7, 0.8, 0.9, 1.0]),
-        'bagging_fraction': trial.suggest_categorical('bagging_fraction', [0.6, 0.7, 0.8, 0.9, 1.0]),
+        'feature_fraction': trial.suggest_uniform("feature_fraction", 0.6, 1.0),
+        'bagging_fraction': trial.suggest_uniform("bagging_fraction", 0.6, 1.0),
         'bagging_freq': trial.suggest_int('bagging_freq', 2, 12),  
-        "lambda_l1": trial.suggest_loguniform("lambda_l1", 0.001, 0.1),
-        "lambda_l2": trial.suggest_loguniform("lambda_l2", 0.001, 0.1),
-        "device_type": "gpu",  
-        "seed" : 2025
+        "reg_alpha": trial.suggest_loguniform("reg_alpha", 0.001, 0.1),
+        "reg_lambda": trial.suggest_loguniform("reg_lambda", 0.001, 0.1),
 
+        'verbose': -1,
+        'seed' : 2025
     }
 
-    # Create a LightGBM dataset
-    dtrain = lgb.Dataset(X_train, y_train, weight=w_train)
-    dval = lgb.Dataset(X_valid, y_valid, weight=w_valid, reference=dtrain)
-
-    # Train LightGBM model
-    model = lgb.train(param,
-        dtrain,
-        valid_sets=[dval],
-        #feval=lambda y_pred, dval: r2_lgb(dval.get_label(), y_pred, dval.get_weight()),  # Use weights in the custom metric
-        callbacks=[
-            lgb.early_stopping(100), 
-            lgb.log_evaluation(10)]
-    )
-
-    # Use the best score (maximized R²) as the objective to minimize (negative sign)
-    #print(model.best_score["valid_0"])
-    best_score = model.best_score["valid_0"]["l1"]
-    return best_score
+    # Time series cross-validation
+    tscv = TimeSeriesSplit(n_splits=N_SPLITS, test_size=int(SPLIT_LENGTH.total_seconds()/(24*60*60)))
+    scores = []
     
-    y_pred = model.predict(X_valid)
-    wmae = weighted_mae(y_valid, y_pred, w_valid)  # WMAE for regression
+    for train_idx, val_idx in tscv.split(X_train):
+        # Split data into training and validation sets
+        X_train_fold, X_val_fold = X_train.iloc[train_idx], X_train.iloc[val_idx]
+        y_train_fold, y_val_fold = y_train.iloc[train_idx], y_train.iloc[val_idx]
+        w_train_fold, w_val_fold = w_train.iloc[train_idx], y_train.iloc[val_idx]
     
-    return wmae
+        # Create a LightGBM dataset
+        dtrain = lgb.Dataset(X_train_fold, y_train_fold, weight=w_train_fold)
+        dval = lgb.Dataset(X_val_fold, y_val_fold, weight=w_val_fold, reference=dtrain)
+
+        # Train LightGBM model
+        model = lgb.train(
+            params=param,
+            train_set=dtrain,
+            valid_sets=[dval]
+            #feval=lambda y_pred, dval: r2_lgb(dval.get_label(), y_pred, dval.get_weight()),  # Use weights in the custom metric
+            #callbacks=[
+            #    lgb.early_stopping(100), 
+            #    lgb.log_evaluation(10)]
+            ,callbacks=[lgb.early_stopping(100)]
+        )
+
+        # Predict on validation set
+        y_pred = model.predict(X_val_fold)
+    
+        mae = mean_absolute_error(y_val_fold, y_pred)  # WMAE for regression
+        scores.append(mae)  
+    
+    mean_mae = np.mean(scores)
+    
+    return mean_mae
+
 
 
 # Run Optuna study
-print("Start running hyper parameter tuning..")
-study = optuna.create_study(direction="minimize")
-study.optimize(objective, timeout=3600*2) # 3600*n hour
+RUN_STUDY = False
+HOURS = 11
+CORES = 1
 
-# Print the best hyperparameters and score
-print("Best hyperparameters:", study.best_params)
-print("Best mae:", study.best_value)
+# Run Optuna study
+if RUN_STUDY:
+    print("Start running hyper parameter tuning..")
+    study = optuna.create_study(direction="minimize")
+    study.optimize(objective, timeout=3600*HOURS, n_jobs=CORES) # 3600*n hour
+    
+    # Print the best hyperparameters and score
+    print("Best hyperparameters:", study.best_params)
+    print("Best mae:", study.best_value)
+    
+    # Get the best parameters and score
+    best_params = study.best_params
+    best_score = study.best_value
+    
+    # Format the file name with the best score
+    #file_name = model_path + model_name + f"_mae_{best_score:.4f}.csv"
+    file_name = model_name + f"_mae_{best_score:.4f}.csv"
+    
+    # Save the best parameters to a CSV file
+    df_param = pd.DataFrame([best_params])  # Convert to DataFrame
+    df_param.to_csv(file_name, index=False)  # Save to CSV
 
-# Get the best parameters and score
-best_params = study.best_params
-best_score = study.best_value
-
-# Format the file name with the best score
-file_name = model_path + model_name + f"_mae_{best_score:.4f}.csv"
-
-# Save the best parameters to a CSV file
-df_param = pd.DataFrame([best_params])  # Convert to DataFrame
-df_param.to_csv(file_name, index=False)  # Save to CSV
-
-print(f"Best parameters saved to {file_name}")
-
-
-
-best_params = {'n_estimators': 500, 
-               'max_depth': 11, 
-               'learning_rate': 0.09443799034339893, 
-               'num_leaves': 246, 
-               'feature_fraction': 1.0, 
-               'bagging_fraction': 0.9, 
-               'bagging_freq': 3, 
-               'lambda_l1': 0.002362362999764519, 
-               'lambda_l2': 0.01103732987483334}
-# Best mae: 16.526713421391403
-
-# Model fitting and prediction
-model =lgb.LGBMRegressor(device='gpu', gpu_use_dp=True, objective='l1', **best_params) # from Hyper param tuning
+    
+    print(best_params)
+    print(best_score)
 
 
+
+
+if not RUN_STUDY:
+    best_params = {
+        'n_estimators': 2000, 
+        'max_depth': 27, 
+        'learning_rate': 0.08988488085664166, 
+        'num_leaves': 110, 
+        'feature_fraction': 0.894398056028919, 
+        'bagging_fraction': 0.9861862466253017, 
+        'bagging_freq': 8, 
+        'reg_alpha': 0.014818238508412261, 
+        'reg_lambda': 0.023389783435784402
+    }
+best_score = 16.66126407699343
+
+    
+    
 # weighted mae for lgb - weight will not be passed by lgb directly.
 def weighted_mae_val(y_true, y_pred, sample_weight):
     wmae = np.average(np.abs(y_true-y_pred), weights=sample_weight)
-    return 'wmae', wmae, False # True = higher is better
+    return 'wmae', wmae, False # True = higher is better    
 
 
-# Train LightGBM model with early stopping and evaluation logging
-model.fit(X_train, y_train, w_train,  
-          eval_metric=[weighted_mae_val],
-          eval_set=[(X_valid, y_valid, w_valid)], 
-          callbacks=[
-              lgb.early_stopping(100), 
-              lgb.log_evaluation(10)
-          ])
+
+# Load the training data
+X = X_train
+y = y_train
+w = w_train
+
+# Initialize StratifiedKFold for cross-validation
+tscv = TimeSeriesSplit(n_splits=N_SPLITS, test_size=int(SPLIT_LENGTH.total_seconds()/(24*60*60)))
 
 
-# Append the trained model to the list
-#models.append(model)
+# Initialize variables for OOF predictions, test predictions, and feature importances
+oof_predictions = np.zeros(len(X))
+test_predictions = np.zeros(len(test))  # Ensure 'test' DataFrame is loaded
+feature_importances = []
+models = []
+valid_maes = []
 
-# Output the best weighted MAE
-wmae = min(model.evals_result_['valid_0']['wmae'])
-print(f"valid wmae: {wmae}")
-#valid_0's l1: 28.02	valid_0's wmae: 28.02
+
+
+# Cross-validation loop
+for fold, (train_idx, valid_idx) in enumerate(tscv.split(X, y, w)):
+    print(f"Training fold {fold + 1}")
+    X_train_fold, X_valid_fold = X.iloc[train_idx], X.iloc[valid_idx]
+    y_train_fold, y_valid_fold = y.iloc[train_idx], y.iloc[valid_idx]
+    w_train_fold, w_valid_fold = w.iloc[train_idx], w.iloc[valid_idx]
+
+    # Initialize and train the model
+    model = lgb.LGBMRegressor(gpu_use_dp=True, **best_params)
+    model.fit(X_train_fold, 
+              y_train_fold, 
+              eval_metric='mae'
+              #callbacks=[lgb.early_stopping(100)]
+             )
+
+    # Generate validation predictions
+    y_pred_valid = model.predict(X_valid_fold)
+    fold_mae = mean_absolute_error(y_valid_fold, y_pred_valid)
+    valid_maes.append(fold_mae)
+    oof_predictions[valid_idx] = y_pred_valid
+
+    # Generate test predictions and accumulate
+    test_pred = model.predict(test[features])
+    test_predictions += test_pred / tscv.n_splits
+
+    # Save model and feature importance
+    joblib.dump(model, f"{model_path}{model_name}_fold{fold+1}_auc_{fold_mae:.5f}.model")
+    models.append(model)
+    
+    # Collect feature importances
+    fold_importance = pd.DataFrame({
+        'Feature': model.feature_name_,
+        'Importance': model.feature_importances_,
+        'Fold': fold + 1
+    })
+    feature_importances.append(fold_importance)
+
+    print(f"Fold {fold + 1} AUC: {fold_mae:.5f}")
+    
+    
+
+
+# Calculate overall metrics
+overall_mae = mean_absolute_error(y, oof_predictions)
+print(f"Average Validation MAE: {np.mean(valid_maes):.5f}")
+print(f"Overall OOF MAE: {overall_mae:.5f}")
   
     
-# Save the trained model to a file
-joblib.dump(model, model_path + f'{model_name}_wmae_{wmae:.4f}.model')
+# Save OOF predictions and true values
+oof_df = X.copy()
+oof_df['sales'] = y
+oof_df['pred'] = oof_predictions
+oof_df.to_csv(f"{model_path}{model_name}_oof_predictions_mae_{overall_mae:.5f}.csv", index=False)
 
 
+# Aggregate and save feature importances
+feature_importances_df = pd.concat(feature_importances)
+average_importance = feature_importances_df.groupby('Feature')['Importance'].mean().reset_index()
+average_importance = average_importance.sort_values('Importance', ascending=False)
+average_importance.to_csv(f"{model_path}{model_name}_average_feature_importance.csv", index=False)
 
 
-
-
-#assess the feature importance
-lgb.plot_importance(model, max_num_features=25)  # Limit to top 30 features
+# Plot average feature importance
+plt.figure(figsize=(12, 11))
+sns.barplot(x='Importance', y='Feature', data=average_importance.head(55))
+plt.title('Top Features (Average Importance)')
+plt.tight_layout()
+#plt.savefig(f"{model_path}{model_name}_average_feature_importance.png")
 plt.show()
     
 
-
-# Create a DataFrame
-lgb_feature_importance= pd.DataFrame({
-    'Feature': model.feature_name_,
-    'Importance': model.feature_importances_
-})
-
-lgb_feature_importance = lgb_feature_importance.sort_values('Importance', ascending=False).reset_index(drop=True)
-lgb_feature_importance.to_csv(model_path + f'{model_name}_features_{wmae:.4f}.csv', index=False)
-
-
-
-
-
-
-# Predict and submit
-test['sales_hat'] = model.predict(test[features])
-test.loc[test['sales_hat'] < 0, 'sales_hat'] = 0
-
-# Create id
-test['id'] = test['unique_id'].astype(str) + "_" + test['date'].astype(str)
-submission = test[['id','sales_hat']]
-#submission.to_csv(model_path + f"{model_name}_submission_{wmae:.4f}.csv",index=False)
-
-
-# correct id
+# Generate submission with averaged test predictions
 CORRET = True
+submission = pd.DataFrame()
 if CORRET:
     test_0 = pd.read_csv(PATH + 'sales_test.csv', parse_dates=['date'])
     test_0['id'] = test_0['unique_id'].astype(str) + "_" + test_0['date'].astype(str)
-    submission = submission.reset_index(drop=True)
     submission['id'] = test_0['id']
-    submission.to_csv(model_path + f"{model_name}_submission_{wmae:.4f}.csv",index=False)
+    submission['sales'] = test_predictions
+    submission.loc[submission['sales'] < 0, 'sales'] = 0 # correct negative values
+    submission.to_csv(model_path + f"{model_name}_submission_{overall_mae:.4f}.csv",index=False)
+
+
+#Reprint Fitting REsults
+print(f"Best hyper mae: {best_score}")
+print(f"Average Validation MAE: {np.mean(valid_maes):.5f}")
+print(best_params)
+
+
+
+    
+    
+    
+    
+###############################################################################################    
+#Lasso
+
+import statsmodels.api as sm
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import TimeSeriesSplit
+from statsmodels.genmod.generalized_linear_model import GLM
+from statsmodels.genmod.families import Poisson
+from statsmodels.genmod.families.links import log
+
+
+# Initialize scaler
+scaler = StandardScaler()
+
+# Fit and transform the DataFrame
+X = pd.DataFrame(scaler.fit_transform(X), columns=X.columns, index=X.index)
+
+# Ensure X has an intercept term for statsmodels
+X = sm.add_constant(X)
+
+
+# Define weighted MAE function
+def weighted_mae(y_true, y_pred, weights):
+    return np.average(np.abs(y_true - y_pred), weights=weights)
+
+
+# Define splits and tuning limit
+N_SPLITS = 3
+SPLIT_LENGTH = timedelta(weeks=4)
+HOURS = 1
+CORES = 4
+
+# Define Optuna objective function
+def objective(trial):
+    alpha = trial.suggest_loguniform("alpha", 1e-4, 1.0)  # Alpha search space
+    #tscv = TimeSeriesSplit(n_splits=5)  # Time series cross-validation
+    tscv = TimeSeriesSplit(n_splits=N_SPLITS, test_size=int(SPLIT_LENGTH.total_seconds()/(24*60*60)))
+    
+    wmae_scores = []
+
+    for train_idx, test_idx in tscv.split(X):
+        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+        w_train, w_test = w.iloc[train_idx], w.iloc[test_idx]  # Use same split for weights
+
+        # Fit Lasso-regularized GLM
+        model = GLM(y_train, X_train, family=Poisson(link=log()))
+        result = model.fit_regularized(alpha=alpha, L1_wt=1.0)
+
+        # Predict using log-link transformation
+        y_pred = np.exp(X_test @ result.params)  # Convert from log-space to original scale
+
+        # Compute weighted MAE
+        wmae = weighted_mae(y_test, y_pred, w_test)
+        wmae_scores.append(wmae)
+
+    return np.mean(wmae_scores)  # Minimize average WMAE
+
+# Run Optuna optimization
+study = optuna.create_study(direction="minimize")  # Minimize WMAE
+study.optimize(objective, timeout=3600*HOURS, n_jobs=CORES)  # Run n HOURS
+
+# Best alpha from optimization
+best_alpha = study.best_params["alpha"]
+print(f"Best alpha: {best_alpha}")
+#Trial 1 finished with value: 72.24307522090697 and parameters: {'alpha': 0.00071874820494885}.
+
+# Fit final model with best alpha
+final_model = GLM(y, X, family=Poisson(link=log())).fit_regularized(alpha=best_alpha, L1_wt=1.0) #Lasso
+print("Final model coefficients:", final_model.params)
+final_coefficient = pd.DataFrame(final_model.params)
+final_coefficient.rename(columns={0: 'coefficient'}, inplace=True)
+final_coefficient.to_csv(r'GLM_coefficients.csv')
+
+
+# --- Feature Importance Visualization ---
+feature_importance_df = pd.DataFrame({
+    'feature': X.columns.tolist(),       
+    'coefficient': final_model.params,   
+    'abs_importance': abs(final_model.params)  
+})
+
+# sort
+feature_importance_df = feature_importance_df.sort_values(
+    by='abs_importance', 
+    ascending=False
+).reset_index(drop=True)
+
+# output
+print(feature_importance_df)
+feature_importance_df.to_csv(r'GLM_features.csv',index=False)
+
+
+
+# Make predictions
+X_test = test[features] 
+
+# Initialize scaler
+scaler = StandardScaler()
+
+# Fit and transform the DataFrame
+X_test = pd.DataFrame(scaler.fit_transform(X_test), columns=X_test.columns, index=X_test.index)
+
+# Ensure X has an intercept term for statsmodels
+X_test = sm.add_constant(X_test)
+
+# Predict
+test_predictions = final_model.predict(X_test)
+
+CORRET = True
+submission = pd.DataFrame()
+if CORRET:
+    test_0 = pd.read_csv(PATH + 'sales_test.csv', parse_dates=['date'])
+    test_0['id'] = test_0['unique_id'].astype(str) + "_" + test_0['date'].astype(str)
+    submission['id'] = test_0['id']
+    submission['sales'] = test_predictions
+    #submission.loc[submission['sales'] < 0, 'sales'] = 0 # correct negative values
+    submission.to_csv(model_path + f"GLM_submission.csv",index=False)
+    
+print(f"Best alpha: {best_alpha}")
