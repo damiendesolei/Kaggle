@@ -380,6 +380,23 @@ def feature_engineering(df):
     df=df.sort_values(['date']).reset_index(drop=True)
 
 
+    #https://www.kaggle.com/code/macarrony00/not-a-winner-but-maybe-some-inspiration
+    print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} generate demand feature >>>")
+    df["total_orders_median"] = df.groupby(["date", "warehouse"])["total_orders"].transform("median")
+    df["total_orders_med_diff"] = df["total_orders"] - df["total_orders_median"]
+    
+    # Calculate all time max and min demand for each warehouse
+    df_warehouse_limits = df.groupby("warehouse")["total_orders"].agg(["max", "min"])
+    
+    # warehouse demand should be between 0 and 1 based on the max and min demand of the warehouse
+    df["warehouse_demand"] = df.apply(
+        lambda x: (x["total_orders_median"] - df_warehouse_limits.loc[x["warehouse"], "min"]) / (
+            df_warehouse_limits.loc[x["warehouse"], "max"] - df_warehouse_limits.loc[x["warehouse"], "min"]
+        ),
+        axis=1,
+    )
+    
+
     print(f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} add autoregression feature >>>")
     for gap in [14, 20, 28, 35, 356, 364, 370]:
     #for gap in [14, 356]:
@@ -501,8 +518,8 @@ test = total[len(train):].drop(['sales'], axis=1)
 
 
 # fill nan with -99
-train = train.fillna(-99)
-test = test.fillna(-99)
+train = train.fillna(0)
+test = test.fillna(0)
 
 
 # check objective columns
@@ -530,6 +547,43 @@ features = [feature for feature in features_0 if feature not in remove_features]
 #features = list(previous_features[(previous_features.Importance>=2000)&(previous_features.Feature!='random')]['Feature'])
 
 
+
+# Overwrite features
+features = [
+    'skew_sell_price_main_each_name0_per_day','skew_sell_price_main_each_name0_per_day_diff1',
+    'max_sell_price_main_each_name0_per_day','skew_total_orders_each_name0_per_day',
+    'skew_total_orders_each_name0_per_day_diff1','std_sell_price_main_each_name0_per_day',
+    'max_sell_price_main_each_name0_W_per_day','skew_total_type_discount_each_name0_per_day',
+    'total_orders','type_0_discount','max_sell_price_main_each_name_WU_per_day','sell_price_main',
+    'skew_sell_price_main_each_name0_W_per_day_diff1',
+    'unique_id','skew_total_type_discount_each_name0_per_day_diff1','type_6_discount',
+    'std_total_type_discount_each_name0_per_day','skew_sell_price_main_each_name0_W_per_day',
+    'type_2_discount','std_total_type_discount_each_name0_W_per_day',
+    'max_sell_price_main_each_name0_per_day_diff1','std_total_orders_each_name0_per_day',
+    'std_sell_price_main_each_name0_W_per_day','std_total_type_discount_each_name0_per_day_diff1',
+    'max_total_orders_each_name_WU_per_day','warehouse_demand',
+    'max_total_type_discount_each_name0_W_per_day','max_total_orders_each_name0_W_per_day_diff1',
+    'max_total_type_discount_each_name0_per_day','is_holiday_shift1',
+    'std_sell_price_main_each_name0_per_day_diff1',
+    'quarter','weekend','type_4_discount','dayofyear','cos_month','weekend_shift1',
+    'max_total_orders_each_name0_per_day','max_total_type_discount_each_name_WU_per_day_diff1',
+    'cos_quarter','holiday','is_holiday_shift2','std_total_type_discount_each_name0_W_per_day_diff1',
+    'type_5_discount','product_unique_id','skew_total_type_discount_each_name0_W_per_day_diff1',
+    'max_total_orders_each_name_WU_per_day_diff1',
+    'max_total_orders_each_name0_W_per_day','sin_quarter','weekend_shift2','warehouse',
+    'sin_dayofweek','type_1_discount','school_holidays','month',
+    'max_sell_price_main_each_name0_W_per_day_diff1','max_total_type_discount_each_name0_per_day_diff1',
+    'total_orders_med_diff','is_holiday','shops_closed',
+    'max_total_type_discount_each_name_WU_per_day','sin_dayofyear','dayofmonth','weekofyear',
+    'sin_month','dayofweek','cos_dayofyear','sin_weekofyear','max_sell_price_main_each_name0_WU_per_day',
+    'total_type_discount','std_total_orders_each_name0_W_per_day','year','cos_day',
+    'max_total_orders_each_name0_per_day_diff1','sales_shift14','cos_weekofyear','random',
+    'sales_shift20','sales_shift356','std_total_orders_each_name0_W_per_day_diff1','sin_day',
+    'day','cos_dayofweek','dollar_discount',
+    'std_sell_price_main_each_name0_W_per_day_diff1','winter_school_holidays',
+    'max_total_type_discount_each_name0_WU_per_day_diff1',
+    'max_total_orders_each_name0_WU_per_day'
+]
 
 
 
@@ -829,14 +883,14 @@ def weighted_mae(y_true, y_pred, weights):
 
 
 # Define splits and tuning limit
-N_SPLITS = 3
+N_SPLITS = 2
 SPLIT_LENGTH = timedelta(weeks=4)
 HOURS = 1
-CORES = 4
+CORES = 6
 
 # Define Optuna objective function
 def objective(trial):
-    alpha = trial.suggest_loguniform("alpha", 1e-4, 1.0)  # Alpha search space
+    alpha = trial.suggest_loguniform("alpha", 1e-4, 0.001)  # Alpha search space
     #tscv = TimeSeriesSplit(n_splits=5)  # Time series cross-validation
     tscv = TimeSeriesSplit(n_splits=N_SPLITS, test_size=int(SPLIT_LENGTH.total_seconds()/(24*60*60)))
     
@@ -868,13 +922,15 @@ study.optimize(objective, timeout=3600*HOURS, n_jobs=CORES)  # Run n HOURS
 best_alpha = study.best_params["alpha"]
 print(f"Best alpha: {best_alpha}")
 #Trial 1 finished with value: 72.24307522090697 and parameters: {'alpha': 0.00071874820494885}.
+#Trial 0 finished with value: 155.0334097345299 and parameters: {'alpha': 0.00030314473673751}.
+#Trial 1 finished with value: 155.0336049737344 and parameters: {'alpha': 0.00014260255444454}.
 
 # Fit final model with best alpha
 final_model = GLM(y, X, family=Poisson(link=log())).fit_regularized(alpha=best_alpha, L1_wt=1.0) #Lasso
 print("Final model coefficients:", final_model.params)
 final_coefficient = pd.DataFrame(final_model.params)
 final_coefficient.rename(columns={0: 'coefficient'}, inplace=True)
-final_coefficient.to_csv(r'GLM_coefficients.csv')
+#final_coefficient.to_csv(r'GLM_coefficients.csv')
 
 
 # --- Feature Importance Visualization ---
