@@ -101,10 +101,27 @@ test = date_features(test)
 
 
 
+# Add Fourier features for seasonality
+reference_date = pd.Timestamp('2000-01-01')  # UNIX Epoch
+train['days_since_1970'] = (train['date'] - reference_date).dt.days
+test['days_since_1970'] = (test['date'] - reference_date).dt.days
+
+def add_fourier_terms(df, period, order):
+    for i in range(1, order + 1):
+        df[f'sin_year_{i}'] = np.sin(2 * np.pi * i * df['days_since_1970'] / period)
+        df[f'cos_year_{i}'] = np.cos(2 * np.pi * i * df['days_since_1970'] / period)
+    return df
+
+train = add_fourier_terms(train, period=365, order=3)
+test = add_fourier_terms(test, period=365, order=3)
+
+
+
+
 from sklearn.preprocessing import TargetEncoder
 print('<<< encoding series_name >>>')
 # set up smoothing
-encoder = TargetEncoder(smooth=20, target_type='continuous')
+encoder = TargetEncoder(smooth=5, target_type='continuous')
 encoder.fit(train[['series_name']], train['y_value'])
 
 # encode series_name
@@ -201,7 +218,7 @@ def objective(trial):
 # Run Optuna study
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(direction="minimize")
-study.optimize(objective, timeout=3600*1, n_jobs=4) # 3600*n hour
+study.optimize(objective, timeout=3600*6, n_jobs=4) # 3600*n hour
 
 # Print the best hyperparameters and score
 print("Best hyperparameters:", study.best_params)
