@@ -50,14 +50,14 @@ model_path = r'G:\\kaggle\hackathon-ia-prevision-du-commerce-local\model\\'
 train = pd.read_csv(PATH+'train.csv', parse_dates=['date'], index_col=['ID'])
 print("Train shape",train.shape)
 train = train[train.y_value>=0] # remove negative rows
-print("Train with positive y_value shape",train.shape)
+train = train[train.date>='2023-01-01 00:00:00'] # only use recent data
+print("Train shape post filter",train.shape)
 test = pd.read_csv(PATH+'test.csv', parse_dates=['date'], index_col=['ID'])
 print("Test shape",train.shape)
 
 
 
 
-train
 train.groupby(['series_name']).agg({'y_value': 'mean'})
 
 
@@ -103,13 +103,13 @@ test = date_features(test)
 
 # Add Fourier features for seasonality
 reference_date = pd.Timestamp('2000-01-01')  # UNIX Epoch
-train['days_since_1970'] = (train['date'] - reference_date).dt.days
-test['days_since_1970'] = (test['date'] - reference_date).dt.days
+train['days_since_2000'] = (train['date'] - reference_date).dt.days
+test['days_since_2000'] = (test['date'] - reference_date).dt.days
 
 def add_fourier_terms(df, period, order):
     for i in range(1, order + 1):
-        df[f'sin_year_{i}'] = np.sin(2 * np.pi * i * df['days_since_1970'] / period)
-        df[f'cos_year_{i}'] = np.cos(2 * np.pi * i * df['days_since_1970'] / period)
+        df[f'sin_year_{i}'] = np.sin(2 * np.pi * i * df['days_since_2000'] / period)
+        df[f'cos_year_{i}'] = np.cos(2 * np.pi * i * df['days_since_2000'] / period)
     return df
 
 train = add_fourier_terms(train, period=365, order=3)
@@ -120,13 +120,20 @@ test = add_fourier_terms(test, period=365, order=3)
 
 from sklearn.preprocessing import TargetEncoder
 print('<<< encoding series_name >>>')
+
+train['series_qtr'] = train['series_name'] + '_Q' + train['quarter'].astype(str)
+test['series_qtr'] = test['series_name'] + '_Q' + test['quarter'].astype(str)
+
+
 # set up smoothing
-encoder = TargetEncoder(smooth=5, target_type='continuous')
-encoder.fit(train[['series_name']], train['y_value'])
+
+
+encoder = TargetEncoder(smooth=2, target_type='continuous')
+encoder.fit(train[['series_qtr']], train['y_value'])
 
 # encode series_name
-train['series_name_te'] = encoder.transform(train[['series_name']]).flatten()
-test['series_name_te'] = encoder.transform(test[['series_name']]).flatten() #transform (not fit_transform)
+train['series_qtr_te'] = encoder.transform(train[['series_qtr']]).flatten()
+test['series_qtr_te'] = encoder.transform(test[['series_qtr']]).flatten() #transform (not fit_transform)
 
 
 
@@ -155,7 +162,7 @@ y_train = train['y_value']
 # Define TimeSeriesSplit parameters
 N_SPLITS = 5
 #SPLIT_LENGTH = timedelta(weeks=4)  # Test size of 2 weeks as per requirement
-
+N_HOURS = 0.25
 
 # Define the parameter space
 def objective(trial):
@@ -166,7 +173,9 @@ def objective(trial):
         'device_type': 'cpu', 
         'gpu_use_dp': True,
         
-        'n_estimators': trial.suggest_int('n_estimators', 100, 500, step=100),
+        'linear_tree': True,
+        
+        'n_estimators': trial.suggest_int('n_estimators', 300, 700, step=100),
         'max_depth': trial.suggest_int('max_depth', 2, 16, step=1),  
         'learning_rate': trial.suggest_loguniform('learning_rate', 0.01, 0.1),  
         'num_leaves': trial.suggest_int('num_leaves', 12, 128, step=1), 
@@ -218,7 +227,7 @@ def objective(trial):
 # Run Optuna study
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(direction="minimize")
-study.optimize(objective, timeout=3600*6, n_jobs=4) # 3600*n hour
+study.optimize(objective, timeout=3600*N_HOURS, n_jobs=4) # 3600*n hour
 
 # Print the best hyperparameters and score
 print("Best hyperparameters:", study.best_params)
@@ -243,15 +252,21 @@ print(f"Best parameters saved to {file_name}")
 STUDY=True
 if not STUDY:
     best_params = {
-        'n_estimators': 500, 
-        'max_depth': 11, 
-        'learning_rate': 0.09443799034339893, 
-        'num_leaves': 246, 
-        'feature_fraction': 1.0, 
-        'bagging_fraction': 0.9, 
-        'bagging_freq': 3, 
-        'lambda_l1': 0.002362362999764519, 
-        'lambda_l2': 0.01103732987483334
+        'objective': 'regression',  
+        'metric': 'mae',  
+        'boosting_type': 'gbdt',
+        'device_type': 'cpu', 
+        
+        #'linear_tree': True,
+        
+         'n_estimators': 400,
+         'max_depth': 2,
+         'learning_rate': 0.08692607383010294,
+         'num_leaves': 75,
+         'feature_fraction': 0.847425228674351,
+         'bagging_fraction': 0.8175683301880504,
+         'lambda_l1': 0.008422365379531225,
+         'lambda_l2': 0.003503958237043179
     }
     
     
@@ -283,7 +298,7 @@ for fold, (train_idx, valid_idx) in enumerate(tscv.split(X, y)):
     
 
     # Initialize and train the model
-    model = lgb.LGBMRegressor(gpu_use_dp=True, **best_params)
+    model = lgb.LGBMRegressor(**best_params)
     model.fit(X_train_fold, 
               y_train_fold, 
               eval_metric='mae'
@@ -347,7 +362,7 @@ plt.show()
 
 # CHeck predictions
 test_pred = pd.DataFrame(test_predictions)
-#test_pred
+#test_pred                                                                                                                 
 
 
 # Crete the submission
