@@ -202,7 +202,7 @@ def objective(trial):
         
         'linear_tree': True,
         
-        'n_estimators': trial.suggest_int('n_estimators', 400, 800, step=100),
+        'n_estimators': trial.suggest_int('n_estimators', 600, 1200, step=100),
         'max_depth': trial.suggest_int('max_depth', 2, 16, step=1),  
         'learning_rate': trial.suggest_loguniform('learning_rate', 0.01, 0.1),  
         'num_leaves': trial.suggest_int('num_leaves', 12, 128, step=1), 
