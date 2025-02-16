@@ -139,12 +139,15 @@ test = pd.get_dummies(test, columns=['series_qtr'], dtype=int)
 # test['series_qtr_te'] = encoder.transform(test[['series_qtr']]).flatten() #transform (not fit_transform)
 
 
+# check column difference
+print(f'{np.setdiff1d(train.columns, test.columns)} in train, but not in test')
+features_not_in_test = np.setdiff1d(train.columns, test.columns) 
 
 
 # intial features with only numeric columns
 features_0 = [col for col in test.columns if (test[col].dtype != 'object' and test[col].dtype != 'datetime64[ns]')]
 
-remove_features = ['series_name'] #+ remove_features
+remove_features = ['series_name'] + features_not_in_test
 
 features = [feature for feature in features_0 if feature not in remove_features]
 
