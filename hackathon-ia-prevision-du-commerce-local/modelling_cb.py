@@ -144,6 +144,20 @@ test['series_day_te'] = encoder.transform(test[['series_day']]).flatten() #trans
 
 
 
+### auto regression features
+
+# combine train and test
+total = pd.concat((train, test))
+
+print('<<< create lag features >>>')
+for gap in [30, 60, 90, 180, 356]:
+#for gap in [14, 356]:
+    total[f'y_shift_{gap}'] = total.groupby(['series_name'])['y_value'].shift(gap)
+
+#split train and test
+train = total[total.y_value.notna()]
+test = total[total.y_value.isna()]
+
 
 
 
@@ -151,10 +165,10 @@ test['series_day_te'] = encoder.transform(test[['series_day']]).flatten() #trans
 features_0 = [col for col in test.columns if (test[col].dtype != 'object' and test[col].dtype != 'datetime64[ns]')]
 
 # check column difference
-print(f'{np.setdiff1d(train.columns, test.columns)} in train, but not in test')
-features_not_in_test = np.setdiff1d(train.columns, test.columns) 
+#print(f'{np.setdiff1d(train.columns, test.columns)} in train, but not in test')
+#features_not_in_test = np.setdiff1d(train.columns, test.columns) 
 
-remove_features = ['series_name'] + features_not_in_test
+remove_features = ['series_name','y_value'] #+ features_not_in_test
 
 features = [feature for feature in features_0 if feature not in remove_features]
 
@@ -188,7 +202,7 @@ def objective(trial):
         
         'linear_tree': True,
         
-        'n_estimators': trial.suggest_int('n_estimators', 300, 700, step=100),
+        'n_estimators': trial.suggest_int('n_estimators', 400, 800, step=100),
         'max_depth': trial.suggest_int('max_depth', 2, 16, step=1),  
         'learning_rate': trial.suggest_loguniform('learning_rate', 0.01, 0.1),  
         'num_leaves': trial.suggest_int('num_leaves', 12, 128, step=1), 
