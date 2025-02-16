@@ -121,19 +121,28 @@ test = add_fourier_terms(test, period=365, order=3)
 from sklearn.preprocessing import TargetEncoder
 print('<<< encoding series_name >>>')
 
+# encode series_name + quarter
 train['series_qtr'] = train['series_name'] + '_Q' + train['quarter'].astype(str)
 test['series_qtr'] = test['series_name'] + '_Q' + test['quarter'].astype(str)
-
-
-# set up smoothing
-
 
 encoder = TargetEncoder(smooth=2, target_type='continuous')
 encoder.fit(train[['series_qtr']], train['y_value'])
 
-# encode series_name
 train['series_qtr_te'] = encoder.transform(train[['series_qtr']]).flatten()
 test['series_qtr_te'] = encoder.transform(test[['series_qtr']]).flatten() #transform (not fit_transform)
+
+
+# encode series_name + quarter
+train['series_day'] = train['series_name'] + '_D' + train['day'].astype(str)
+test['series_day'] = test['series_name'] + '_D' + test['day'].astype(str)
+
+encoder = TargetEncoder(smooth=2, target_type='continuous')
+encoder.fit(train[['series_day']], train['y_value'])
+
+train['series_day_te'] = encoder.transform(train[['series_day']]).flatten()
+test['series_day_te'] = encoder.transform(test[['series_day']]).flatten() #transform (not fit_transform)
+
+
 
 
 
@@ -141,7 +150,11 @@ test['series_qtr_te'] = encoder.transform(test[['series_qtr']]).flatten() #trans
 # intial features with only numeric columns
 features_0 = [col for col in test.columns if (test[col].dtype != 'object' and test[col].dtype != 'datetime64[ns]')]
 
-remove_features = ['series_name'] #+ remove_features
+# check column difference
+print(f'{np.setdiff1d(train.columns, test.columns)} in train, but not in test')
+features_not_in_test = np.setdiff1d(train.columns, test.columns) 
+
+remove_features = ['series_name'] + features_not_in_test
 
 features = [feature for feature in features_0 if feature not in remove_features]
 
@@ -162,7 +175,7 @@ y_train = train['y_value']
 # Define TimeSeriesSplit parameters
 N_SPLITS = 5
 #SPLIT_LENGTH = timedelta(weeks=4)  # Test size of 2 weeks as per requirement
-N_HOURS = 0.25
+N_HOURS = 1
 
 # Define the parameter space
 def objective(trial):
