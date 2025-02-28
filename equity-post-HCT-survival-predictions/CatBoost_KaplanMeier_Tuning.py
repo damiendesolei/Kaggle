@@ -281,10 +281,10 @@ def objective(trial):
         #'gpu_use_dp': True,
 
         #'n_estimators': 20_000,
-        'iterations': trial.suggest_int('iterations', 800, 800),
-        'depth': trial.suggest_int('depth', 1, 12, step=1),  
+        'iterations': trial.suggest_int('iterations', 800, 1000, step=100),
+        'depth': trial.suggest_int('depth', 2, 12, step=1),  
         'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.1, log=True),  
-        'min_data_in_leaf': trial.suggest_int('min_data_in_leaf', 2, 256, step=2),
+        'min_data_in_leaf': trial.suggest_int('min_data_in_leaf', 2, 512, step=2),
         
         #'colsample_bylevel': trial.suggest_float("colsample_bylevel", 0.6, 1.0), # Random Subspace Method (rsm not supported on GPU)
         #'subsample': trial.suggest_float("subsample", 0.6, 1.0),
