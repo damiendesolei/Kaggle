@@ -284,8 +284,8 @@ def objective(trial):
         'task_type': 'GPU',  
         #'gpu_use_dp': True,
 
-        #'n_estimators': 500,
-        'iterations': trial.suggest_int('iterations', 3000, 5000, step=200),
+        'n_estimators': 4000,
+        #'iterations': trial.suggest_int('iterations', 3000, 5000, step=200),
         'depth': trial.suggest_int('depth', 2, 12, step=1),   # max depth is 16
         'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.1, log=True),  
         'min_data_in_leaf': trial.suggest_int('min_data_in_leaf', 2, 256, step=2),
@@ -357,7 +357,7 @@ def objective(trial):
 
 
 # Run Optuna study
-N_HOUR = 11
+N_HOUR = 4
 CORES = 1
 
 print("Start running hyper parameter tuning..")
