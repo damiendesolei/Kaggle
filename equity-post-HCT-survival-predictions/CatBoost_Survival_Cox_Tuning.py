@@ -280,13 +280,13 @@ def objective(trial):
     
     param = {
         'loss_function': 'RMSE', 
-        'grow_policy': 'Lossguide',
+        'grow_policy': trial.suggest_categorical('grow_policy', ['Depthwise', 'Lossguide']),
         'task_type': 'GPU',  
         #'gpu_use_dp': True,
 
-        #'n_estimators': 20_000,
-        'iterations': trial.suggest_int('iterations', 500, 1500, step=100),
-        'depth': trial.suggest_int('depth', 1, 12, step=1),  
+        #'n_estimators': 500,
+        'iterations': trial.suggest_int('iterations', 3000, 5000, step=200),
+        'depth': trial.suggest_int('depth', 2, 12, step=1),   # max depth is 16
         'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.1, log=True),  
         'min_data_in_leaf': trial.suggest_int('min_data_in_leaf', 2, 256, step=2),
         
@@ -357,7 +357,7 @@ def objective(trial):
 
 
 # Run Optuna study
-N_HOUR = 17
+N_HOUR = 11
 CORES = 1
 
 print("Start running hyper parameter tuning..")
@@ -373,10 +373,11 @@ best_params = study.best_params
 best_score = study.best_value
 
 # Format the file name with the best score
+OUT_PATH = r'G:\\kaggle\equity-post-HCT-survival-predictions\models\\'
 file_name = f"Cb_with_Survival_Cox_mae_{best_score:.6f}.csv"
 
 # Save the best parameters to a CSV file
 df_param = pd.DataFrame([best_params])  # Convert to DataFrame
-df_param.to_csv(file_name, index=False)  # Save to CSV
+df_param.to_csv(OUT_PATH+file_name, index=False)  # Save to CSV
 
 print(f"Best parameters saved to {file_name}")
