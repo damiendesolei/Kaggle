@@ -280,13 +280,13 @@ def objective(trial):
     
     param = {
         'loss_function': 'RMSE', 
-        'grow_policy': trial.suggest_categorical('grow_policy', ['Depthwise', 'Lossguide']),
+        'grow_policy': 'Depthwise',#trial.suggest_categorical('grow_policy', ['Depthwise', 'Lossguide']),
         'task_type': 'GPU',  
         #'gpu_use_dp': True,
 
-        'n_estimators': 4000,
+        'n_estimators': 3000,
         #'iterations': trial.suggest_int('iterations', 3000, 5000, step=200),
-        'depth': trial.suggest_int('depth', 2, 12, step=1),   # max depth is 16
+        'depth': trial.suggest_int('depth', 2, 16, step=1),   # max depth is 16
         'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.1, log=True),  
         'min_data_in_leaf': trial.suggest_int('min_data_in_leaf', 2, 256, step=2),
         
@@ -342,7 +342,7 @@ def objective(trial):
         model = model.fit(
             dtrain,
             eval_set=dvalid,
-            early_stopping_rounds=100,
+            early_stopping_rounds=200,
             use_best_model=True
         )
         # Predict on validation set
