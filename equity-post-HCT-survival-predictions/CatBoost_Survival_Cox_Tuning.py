@@ -268,7 +268,7 @@ train.loc[train.efs==0,"efs_time2"] *= -1
 # Hyper parameter tuning
 import optuna
 from sklearn.metrics import mean_absolute_error
-from sklearn.model_selection import KFold
+from sklearn.model_selection import StratifiedKFold
 
 # from catboost import CatBoostRegressor, CatBoostClassifier
 import catboost as cb
@@ -284,11 +284,11 @@ def objective(trial):
         'task_type': 'GPU',  
         #'gpu_use_dp': True,
 
-        'n_estimators': 3000,
+        'n_estimators': 5000,
         #'iterations': trial.suggest_int('iterations', 3000, 5000, step=200),
-        'depth': trial.suggest_int('depth', 2, 16, step=1),   # max depth is 16
+        'depth': trial.suggest_int('depth', 8, 16, step=1),   # max depth is 16
         'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.1, log=True),  
-        'min_data_in_leaf': trial.suggest_int('min_data_in_leaf', 2, 256, step=2),
+        'min_data_in_leaf': trial.suggest_int('min_data_in_leaf', 128, 512, step=2),
         
         #'colsample_bylevel': trial.suggest_float("colsample_bylevel", 0.6, 1.0), # Random Subspace Method (rsm not supported on GPU)
         #'subsample': trial.suggest_float("subsample", 0.6, 1.0),
@@ -300,10 +300,10 @@ def objective(trial):
     }
 
     # Time series cross-validation
-    kf = KFold(n_splits=4, shuffle=True, random_state=2025)
+    skf = StratifiedKFold(n_splits=4, shuffle=False)
     scores = []
     
-    for i, (train_index, test_index) in enumerate(kf.split(train)):       
+    for i, (train_index, test_index) in enumerate(skf.split(train, train["efs"])):       
         #x_train = train.loc[train_index,FEATURES].copy()
         x_train = train.loc[train_index,FEATURES+["efs_time2"] ].copy()
         y_train = train.loc[train_index,"efs_time2"]
@@ -342,7 +342,7 @@ def objective(trial):
         model = model.fit(
             dtrain,
             eval_set=dvalid,
-            early_stopping_rounds=200,
+            early_stopping_rounds=100,
             use_best_model=True
         )
         # Predict on validation set
@@ -357,7 +357,7 @@ def objective(trial):
 
 
 # Run Optuna study
-N_HOUR = 4
+N_HOUR = 6
 CORES = 1
 
 print("Start running hyper parameter tuning..")
