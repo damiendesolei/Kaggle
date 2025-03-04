@@ -264,7 +264,7 @@ print(f"We have {len(lists2)} powerful combination of columns for Target Encodin
 # Hyper parameter tuning
 import optuna
 from sklearn.metrics import mean_absolute_error
-from sklearn.model_selection import KFold
+from sklearn.model_selection import StratifiedKFold
 
 # from catboost import CatBoostRegressor, CatBoostClassifier
 import catboost as cb
@@ -281,10 +281,10 @@ def objective(trial):
         #'gpu_use_dp': True,
 
         #'n_estimators': 20_000,
-        'iterations': trial.suggest_int('iterations', 800, 1000, step=100),
-        'depth': trial.suggest_int('depth', 2, 12, step=1),  
+        'iterations': trial.suggest_int('iterations', 800, 1200, step=200),
+        'depth': trial.suggest_int('depth', 2, 16, step=1),  
         'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.1, log=True),  
-        'min_data_in_leaf': trial.suggest_int('min_data_in_leaf', 2, 512, step=2),
+        'min_data_in_leaf': trial.suggest_int('min_data_in_leaf', 128, 512, step=2),
         
         #'colsample_bylevel': trial.suggest_float("colsample_bylevel", 0.6, 1.0), # Random Subspace Method (rsm not supported on GPU)
         #'subsample': trial.suggest_float("subsample", 0.6, 1.0),
@@ -296,10 +296,10 @@ def objective(trial):
     }
 
     # Time series cross-validation
-    kf = KFold(n_splits=4, shuffle=True, random_state=2025)
+    skf = StratifiedKFold(n_splits=4, shuffle=False)
     scores = []
     
-    for i, (train_index, test_index) in enumerate(kf.split(train)):       
+    for i, (train_index, test_index) in enumerate(skf.split(train, train["efs"])):       
         #x_train = train.loc[train_index,FEATURES].copy()
         x_train = train.loc[train_index,FEATURES+["y"] ].copy()
         y_train = train.loc[train_index,"y"]
@@ -353,7 +353,7 @@ def objective(trial):
 
 
 # Run Optuna study
-N_HOUR = 4
+N_HOUR = 4.5
 CORES = 1
 
 print("Start running hyper parameter tuning..")
