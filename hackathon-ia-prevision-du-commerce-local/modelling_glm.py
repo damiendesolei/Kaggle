@@ -43,7 +43,7 @@ warnings.simplefilter("ignore")  # Suppress all warnings
 
 
 PATH = r'G:\\kaggle\hackathon-ia-prevision-du-commerce-local\\'
-model_path = r'G:\\kaggle\hackathon-ia-prevision-du-commerce-local\model\\'
+MODEL_PATH = r'G:\\kaggle\hackathon-ia-prevision-du-commerce-local\model\\'
 
 
 
@@ -131,6 +131,10 @@ test = pd.get_dummies(test, columns=['series_qtr'], dtype=int)
 # set up smoothing
 
 
+# Drop and columns that contains Q1, Q2 and Q3 - since test do not contain them
+col_2_drop = [item for item in train.columns if any(keyword in item for keyword in ["Q1", "Q2", "Q3"])]
+train = train.drop(columns=col_2_drop)
+
 # encoder = TargetEncoder(smooth=2, target_type='continuous')
 # encoder.fit(train[['series_qtr']], train['y_value'])
 
@@ -152,7 +156,7 @@ remove_features = ['series_name'] + features_not_in_test
 features = [feature for feature in features_0 if feature not in remove_features]
 
 # Setup model name to tune and predict
-model_name = f'glm_cv_{len(features)}_parameters'
+model_name = f'glm_{len(features)}_parameters'
 
 
 
@@ -175,41 +179,49 @@ X = sm.add_constant(X)
 
 
 # Define splits and tuning limit
-N_SPLITS = 5
+#N_SPLITS = 5
 #SPLIT_LENGTH = timedelta(weeks=6)
-HOURS = 1
-CORES = 4
+
+# Use Nov 2024 for test -> 1 fold
+train_idx = train.query('date<="2024-10-31"').index.to_numpy() 
+test_idx = train.query('date>"2024-10-31"').index.to_numpy() 
+
+
+
+
+
+HOURS = 0.5
+CORES = 1
 
 # Define Optuna objective function
 def objective(trial):
     alpha = trial.suggest_float("alpha", 1e-4, 1, log=True)  # Alpha search space
-    tscv = TimeSeriesSplit(n_splits=5)  # Time series cross-validation
-    #tscv = TimeSeriesSplit(n_splits=N_SPLITS, test_size=int(SPLIT_LENGTH.total_seconds()/(24*60*60)))
-    
+    #tscv = TimeSeriesSplit(n_splits=5)  # Time series cross-validation
+   
     mae_scores = []
 
-    for train_idx, test_idx in tscv.split(X):
-        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
-        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
-        #w_train, w_test = w.iloc[train_idx], w.iloc[test_idx]  # Use same split for weights
+#for train_idx, test_idx in zip(train_index, test_index):#tscv.split(X):
+    X_train, X_test = X.loc[train_idx], X.loc[test_idx]
+    y_train, y_test = y.loc[train_idx], y.loc[test_idx]
+    #w_train, w_test = w.iloc[train_idx], w.iloc[test_idx]  # Use same split for weights
 
-        # Fit Lasso-regularized GLM
-        model = GLM(y_train, X_train, family=Gamma(link=Log()))
+    # Fit Lasso-regularized GLM
+    model = GLM(y_train, X_train, family=Gamma(link=Log()))
+    
+    try:
+        result = model.fit_regularized(alpha=alpha, L1_wt=1.0, method='elastic_net')
+
+        # Predict on the test set
+        y_pred = result.predict(X_test)  
+
+        # Compute MAE
+        mae = mean_absolute_error(y_test, y_pred)
+
+    except Exception as e:
+        print(f"Failed for alpha={alpha}: {e}")
+        return np.inf  # Penalize Optuna for bad trials
         
-        try:
-            result = model.fit_regularized(alpha=alpha, L1_wt=1.0, method='elastic_net')
-    
-            # Predict using log-link transformation
-            y_pred = result.predict(X_test)  
-    
-            # Compute weighted MAE
-            mae = mean_absolute_error(y_test, y_pred)
-
-        except Exception as e:
-            print(f"Failed for alpha={alpha}: {e}")
-            return np.inf  # Penalize Optuna for bad trials
-            
-        mae_scores.append(mae)
+    mae_scores.append(mae)
 
     return np.mean(mae_scores)  # Minimize average WMAE
 
@@ -219,19 +231,21 @@ study.optimize(objective, timeout=3600*HOURS, n_jobs=CORES)  # Run n HOURS
 
 # Best alpha from optimization
 best_alpha = study.best_params["alpha"]
+best_mae = study.best_value
 print(f"Best alpha: {best_alpha}")
+print("Best mae:", study.best_value)
 #Trial 1 finished with value: 72.24307522090697 and parameters: {'alpha': 0.00071874820494885}
 
 
 
 # Fit final model with best alpha
-final_model = GLM(y, X, family=Gamma(link=Log())).fit_regularized(alpha=best_alpha, L1_wt=1.0, method='elastic_net') #Lasso
+final_model = GLM(y.loc[train_idx], X.loc[train_idx], family=Gamma(link=Log())).fit_regularized(alpha=best_alpha, L1_wt=1.0, method='elastic_net') #Lasso
 
 
 print("Final model coefficients:", final_model.params)
 final_coefficient = pd.DataFrame(final_model.params)
 final_coefficient.rename(columns={0: 'coefficient'}, inplace=True)
-final_coefficient.to_csv(f'{model_name}_coefficients_{best_alpha}.csv')
+final_coefficient.to_csv(MODEL_PATH+f'{model_name}_coefficients_{best_alpha}.csv')
 
 # Load test data
 X_test = test[features] 
@@ -256,4 +270,4 @@ submission.rename(columns={0: 'y_value'}, inplace=True)
 submission
 
 
-submission.to_csv(f"{model_name}_submission_{best_alpha}.csv",index=True)
+submission.to_csv(MODEL_PATH+f"{model_name}_submission_{best_mae}.csv",index=True)
