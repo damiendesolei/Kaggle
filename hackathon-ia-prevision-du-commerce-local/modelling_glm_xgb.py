@@ -93,7 +93,9 @@ def date_features(df):
     df['sin_day']=np.sin(2*np.pi*df['day']/30)
     df['cos_day']=np.cos(2*np.pi*df['day']/30)
 
-    df['day_of_week']=df['date'].dt.dayofweek
+    df['day_of_week']=df['date'].dt.dayofweek + 1
+    df['week_day'] = 'WeekDay' +  df['day_of_week'].astype(str)
+    df.drop(['day_of_week'],axis=1,inplace=True)
 
     return df
 
@@ -102,6 +104,9 @@ test = date_features(test)
 
 
 # One-hot day of week (weekends tend to have higher y)
+print("<<< one hot encoding week day >>>")
+train = pd.get_dummies(train, columns=['week_day'], dtype=int)
+test = pd.get_dummies(test, columns=['week_day'], dtype=int)
 
 
 # Add Fourier features for seasonality
@@ -159,7 +164,7 @@ remove_features = ['series_name'] + features_not_in_test
 features = [feature for feature in features_0 if feature not in remove_features]
 
 # Setup model name to tune and predict
-model_name = f'glm_{len(features)}_parameters'
+model_name = f'glm_gamma_log_{len(features)}_features'
 
 
 
@@ -192,8 +197,8 @@ valid_idx = train.query('date>"2024-10-31"').index.to_numpy()
 
 
 
-STUDY_GLM = False
-HOURS = 0.5
+STUDY_GLM = True
+HOURS = 1
 CORES = 1
 if STUDY_GLM:
     # Define Optuna objective function
@@ -278,14 +283,14 @@ valid_pred_glm = final_model.predict(X_valid)
 
 
 
-
-# Crete the submission
-# submission = glm_test_pred
-# submission.rename(columns={0: 'y_value'}, inplace=True)
-# submission
-
-
-#submission.to_csv(MODEL_PATH+f"{model_name}_submission_{best_mae}.csv",index=True)
+if STUDY_GLM:
+    #Crete the submission
+    submission = test_pred_glm
+    submission.rename(columns={0: 'y_value'}, inplace=True)
+    submission
+    
+    
+    submission.to_csv(MODEL_PATH+f"{model_name}_submission_{best_mae}.csv",index=True)
 
 
 
