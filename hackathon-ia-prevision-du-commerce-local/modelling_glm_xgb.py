@@ -89,13 +89,16 @@ def date_features(df):
     df['sin_month']=np.sin(2*np.pi*df['month']/12)
     df['cos_month']=np.cos(2*np.pi*df['month']/12)
 
-    df['day']=df['date'].dt.day
-    df['sin_day']=np.sin(2*np.pi*df['day']/30)
-    df['cos_day']=np.cos(2*np.pi*df['day']/30)
+    df['day_of_month']=df['date'].dt.day
+    df['sin_day']=np.sin(2*np.pi*df['day_of_month']/30)
+    df['cos_day']=np.cos(2*np.pi*df['day_of_month']/30)
 
     df['day_of_week']=df['date'].dt.dayofweek + 1
-    df['week_day'] = 'WeekDay' +  df['day_of_week'].astype(str)
-    df.drop(['day_of_week'],axis=1,inplace=True)
+    #df['week_day'] = 'WeekDay' +  df['day_of_week'].astype(str)
+    #df.drop(['day_of_week'],axis=1,inplace=True)
+    df['sin_weekday']=np.sin(2*np.pi*df['day_of_week']/7)
+    df['cos_weekday']=np.cos(2*np.pi*df['day_of_week']/7)
+    
 
     return df
 
@@ -105,8 +108,18 @@ test = date_features(test)
 
 # One-hot day of week (weekends tend to have higher y)
 print("<<< one hot encoding week day >>>")
-train = pd.get_dummies(train, columns=['week_day'], dtype=int)
-test = pd.get_dummies(test, columns=['week_day'], dtype=int)
+train = pd.get_dummies(train, columns=['day_of_week'], dtype=int)
+test = pd.get_dummies(test, columns=['day_of_week'], dtype=int)
+
+
+# One-hot month
+print("<<< one hot encoding month >>>")
+train = pd.get_dummies(train, columns=['month'], dtype=int)
+test = pd.get_dummies(test, columns=['month'], dtype=int)
+# Drop and columns that contains Q1, Q2 and Q3 - since test do not contain them
+col_2_drop = ['month_1','month_2','month_3','month_4','month_5','month_6','month_7','month_8','month_9','month_10','month_11']
+train = train.drop(columns=col_2_drop)
+
 
 
 # Add Fourier features for seasonality
@@ -120,8 +133,8 @@ def add_fourier_terms(df, period, order):
         df[f'cos_year_{i}'] = np.cos(2 * np.pi * i * df['days_since_2000'] / period)
     return df
 
-train = add_fourier_terms(train, period=365, order=3)
-test = add_fourier_terms(test, period=365, order=3)
+train = add_fourier_terms(train, period=364, order=3)
+test = add_fourier_terms(test, period=364, order=3)
 
 
 
@@ -302,7 +315,7 @@ if STUDY_GLM:
 #### Calculate the residual from GLM and fit Xgb ####
 train_pred_glm = final_model.predict(X)
 train['y_glm'] = train_pred_glm
-y_residual = train['y_value'] - train_pred_glm
+y_residual = train['y_value'] - train['y_glm']
 
 
 
