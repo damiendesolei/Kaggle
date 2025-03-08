@@ -123,18 +123,18 @@ train = train.drop(columns=col_2_drop)
 
 
 # Add Fourier features for seasonality
-reference_date = pd.Timestamp('2000-01-01')  # UNIX Epoch
-train['days_since_2000'] = (train['date'] - reference_date).dt.days
-test['days_since_2000'] = (test['date'] - reference_date).dt.days
+reference_date = pd.Timestamp('2023-01-01')  # UNIX Epoch
+train['days_since_2023'] = (train['date'] - reference_date).dt.days
+test['days_since_2023'] = (test['date'] - reference_date).dt.days
 
-def add_fourier_terms(df, period, order):
-    for i in range(1, order + 1):
-        df[f'sin_year_{i}'] = np.sin(2 * np.pi * i * df['days_since_2000'] / period)
-        df[f'cos_year_{i}'] = np.cos(2 * np.pi * i * df['days_since_2000'] / period)
+def add_fourier_terms(df, period):
+    for i in [2,4,7,13,14,26,28,52,91,182,364]:
+        df[f'sin_year_{i}'] = np.sin(2 * np.pi * i * df['days_since_2023'] / period)
+        df[f'cos_year_{i}'] = np.cos(2 * np.pi * i * df['days_since_2023'] / period)
     return df
 
-train = add_fourier_terms(train, period=364, order=3)
-test = add_fourier_terms(test, period=364, order=3)
+train = add_fourier_terms(train, period=364)
+test = add_fourier_terms(test, period=364)
 
 
 
