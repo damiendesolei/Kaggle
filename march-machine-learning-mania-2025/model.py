@@ -143,3 +143,7 @@ sub = sub.merge(game_stats, how='left', left_on='IDTeams', right_on='IDTeams_')
 features = [c for c in games.columns if c not in ['ID', 'DayNum', 'ST', 'Team1', 'Team2', 'IDTeams', 'IDTeam1', 'IDTeam2', 'WTeamID', 'WScore', 'LTeamID', 'LScore', 'NumOT', 'Pred', 'ScoreDiff', 'ScoreDiffNorm', 'WLoc', 'IDTeams_'] + c_score_col]
 features_remove = [col for col in games.columns if games[col].isna().mean()>0.5]
 
+
+
+
+
