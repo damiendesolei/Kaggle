@@ -166,8 +166,8 @@ import optuna
 
 def objective(trial):
     
-    #n_estimators = trial.suggest_int('n_estimators', 500, 10000, step=500)
-    n_estimators = 5_000
+    n_estimators = trial.suggest_int('n_estimators', 1000, 10000, step=1000)
+    #n_estimators = 5_000
     param = {
         'objective': 'reg:logistic',  
         'eval_metric': 'mae', 
@@ -177,7 +177,7 @@ def objective(trial):
 
         #'n_estimators': 20_000,
         #'n_estimators': trial.suggest_int('n_estimators', 800, 2000, step=200),
-        'max_depth': trial.suggest_int('max_depth', 2, 32, step=2),  
+        'max_depth': trial.suggest_int('max_depth', 2, 32, step=1),  
         'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.1, log=True),  
         'min_child_weight': trial.suggest_int('min_child_weight', 8, 256, step=2), 
 
@@ -230,8 +230,8 @@ def objective(trial):
 
 
 # Run Optuna study
-N_HOUR = 1
-CORES = 4
+N_HOUR = 6
+CORES = 6
 
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(direction="minimize")
@@ -247,7 +247,7 @@ best_score = study.best_value
 
 # Format the file name with the best score
 OUT_PATH = r'G:\\kaggle\march-machine-learning-mania-2025\models\\'
-file_name = f"Xgboost_params_mae_{best_score:.6f}.csv"
+file_name = f"Xgboost_params_mae_{best_score:.7f}.csv"
 
 # Save the best parameters to a CSV file
 df_param = pd.DataFrame([best_params])  # Convert to DataFrame
