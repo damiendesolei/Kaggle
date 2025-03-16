@@ -140,10 +140,118 @@ sub = sub.merge(game_stats, how='left', left_on='IDTeams', right_on='IDTeams_')
 
 
 ### Features ###
-features = [c for c in games.columns if c not in ['ID', 'DayNum', 'ST', 'Team1', 'Team2', 'IDTeams', 'IDTeam1', 'IDTeam2', 'WTeamID', 'WScore', 'LTeamID', 'LScore', 'NumOT', 'Pred', 'ScoreDiff', 'ScoreDiffNorm', 'WLoc', 'IDTeams_'] + c_score_col]
-features_remove = [col for col in games.columns if games[col].isna().mean()>0.5]
+features_remove_1 = ['ID', 'DayNum', 'ST', 'Team1', 'Team2', 'IDTeams', 'IDTeam1', 
+                     'IDTeam2', 'WTeamID', 'WScore', 'LTeamID', 'LScore', 'NumOT', 
+                     'Pred', 'ScoreDiff', 'ScoreDiffNorm', 'WLoc', 'IDTeams_', 'Season', 'season_type'] + c_score_col
+features = [c for c in games.columns if c not in features_remove_1]
+features_remove_2 = [col for col in games.columns if games[col].isna().mean()>0.5]
+
+FEATURES = [item for item in features if item not in features_remove]
+
+# Assign games to train
+train = games[FEATURES+['Pred']]
 
 
 
+### Xgboost ###
+import xgboost as xgb
+print("Using XGBoost version",xgb.__version__)
+from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
+from sklearn.model_selection import StratifiedKFold
+from xgboost import XGBRegressor
 
+
+# Define the parameter space
+import optuna
+
+def objective(trial):
+    
+    #n_estimators = trial.suggest_int('n_estimators', 500, 10000, step=500)
+    n_estimators = 5_000
+    param = {
+        'objective': 'reg:logistic',  
+        'eval_metric': 'mae', 
+        'booster': 'gbtree',
+        'device_type': 'cpu',  
+        #'gpu_use_dp': True,
+
+        #'n_estimators': 20_000,
+        #'n_estimators': trial.suggest_int('n_estimators', 800, 2000, step=200),
+        'max_depth': trial.suggest_int('max_depth', 2, 32, step=2),  
+        'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.1, log=True),  
+        'min_child_weight': trial.suggest_int('min_child_weight', 8, 256, step=2), 
+
+        'colsample_bytree': trial.suggest_float("colsample_bytree", 0.6, 1.0, step=0.1),
+        'subsample': trial.suggest_float("subsample", 0.6, 1.0, step=0.1),
+        #'bagging_freq': trial.suggest_int('bagging_freq', 2, 12),  
+        "reg_alpha": trial.suggest_float("reg_alpha", 0.001, 0.1, log=True),
+        "reg_lambda": trial.suggest_float("reg_lambda", 0.001, 0.1, log=True),
+
+        'seed': 2025,
+        'verbosity': 0,
+        "disable_default_eval_metric": 1,  # Disable default eval metric logs
+    }
+
+    # Time series cross-validation
+    skf = StratifiedKFold(n_splits=5, shuffle=False)
+    scores = []
+    
+    for i, (train_index, test_index) in enumerate(skf.split(train, train["Pred"])):       
+        
+        x_train = train.loc[train_index, FEATURES].copy()
+        y_train = train.loc[train_index, "Pred"]
+        x_valid = train.loc[test_index, FEATURES].copy()
+        y_valid = train.loc[test_index, "Pred"]
+        #x_test = test[FEATURES].copy()
+               
+        # Create XGBoost DMatrix
+        dtrain = xgb.DMatrix(x_train, label=y_train, enable_categorical=True)
+        dvalid = xgb.DMatrix(x_valid, label=y_valid, enable_categorical=True)
+
+        # Train XGBoost model
+        model = xgb.train(
+            params=param,
+            dtrain=dtrain,
+            num_boost_round=n_estimators,
+            evals=[(dvalid, 'eval')],
+            early_stopping_rounds=100,
+            verbose_eval=0
+        )
+        
+        # Predict on validation set
+        y_pred = model.predict(dvalid)
+    
+        mae = mean_absolute_error(y_valid, y_pred)  # WMAE for regression
+        scores.append(mae)  
+    
+    mean_mae = np.mean(scores)
+    
+    return mean_mae
+
+
+# Run Optuna study
+N_HOUR = 1
+CORES = 4
+
+print("Start running hyper parameter tuning..")
+study = optuna.create_study(direction="minimize")
+study.optimize(objective, timeout=3600*N_HOUR, n_jobs=CORES)  # 3600*n hour
+
+# Print the best hyperparameters and score
+print("Best hyperparameters:", study.best_params)
+print("Best mae:", study.best_value)
+
+# Get the best parameters and score
+best_params = study.best_params
+best_score = study.best_value
+
+# Format the file name with the best score
+OUT_PATH = r'G:\\kaggle\march-machine-learning-mania-2025\models\\'
+file_name = f"Xgboost_params_mae_{best_score:.6f}.csv"
+
+# Save the best parameters to a CSV file
+df_param = pd.DataFrame([best_params])  # Convert to DataFrame
+df_param.to_csv(OUT_PATH+file_name, index=False)  # Save to CSV
+
+print(f"Best parameters saved to {file_name}")
 
