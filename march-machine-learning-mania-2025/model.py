@@ -23,6 +23,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import log_loss, mean_absolute_error, brier_score_loss
 from xgboost import XGBRegressor
+import joblib 
 
 #import warnings
 #warnings.filterwarnings("ignore")
@@ -142,11 +143,11 @@ sub = sub.merge(game_stats, how='left', left_on='IDTeams', right_on='IDTeams_')
 ### Features ###
 features_remove_1 = ['ID', 'DayNum', 'ST', 'Team1', 'Team2', 'IDTeams', 'IDTeam1', 
                      'IDTeam2', 'WTeamID', 'WScore', 'LTeamID', 'LScore', 'NumOT', 
-                     'Pred', 'ScoreDiff', 'ScoreDiffNorm', 'WLoc', 'IDTeams_', 'Season', 'season_type'] + c_score_col
+                     'Pred', 'Score_Diff', 'Score_Diff_Norm', 'WLoc', 'IDTeams_', 'Season', 'season_type'] + c_score_col
 features = [c for c in games.columns if c not in features_remove_1]
 features_remove_2 = [col for col in games.columns if games[col].isna().mean()>0.5]
 
-FEATURES = [item for item in features if item not in features_remove]
+FEATURES = [item for item in features if item not in features_remove_1+features_remove_2]
 
 # Assign games to train
 train = games[FEATURES+['Pred']]
@@ -166,7 +167,7 @@ import optuna
 
 def objective(trial):
     
-    n_estimators = trial.suggest_int('n_estimators', 1000, 10000, step=1000)
+    n_estimators = trial.suggest_int('n_estimators', 2000, 4000, step=200)
     #n_estimators = 5_000
     param = {
         'objective': 'reg:logistic',  
@@ -230,8 +231,8 @@ def objective(trial):
 
 
 # Run Optuna study
-N_HOUR = 6
-CORES = 6
+N_HOUR = 1
+CORES = 10
 
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(direction="minimize")
@@ -255,3 +256,99 @@ df_param.to_csv(OUT_PATH+file_name, index=False)  # Save to CSV
 
 print(f"Best parameters saved to {file_name}")
 
+
+
+
+### Fit Xgboost ###
+model_name = f'Xgb_{len(FEATURES)}_features'
+# Load the training data
+X = train[FEATURES]
+y = train['Pred']
+test = sub
+
+# Initialize StratifiedKFold for cross-validation
+skf = StratifiedKFold(n_splits=5, shuffle=False)
+
+# Initialize variables for OOF predictions, test predictions, and feature importances
+oof_predictions = np.zeros(len(X))
+test_predictions = np.zeros(len(test))  # Ensure 'test' DataFrame is loaded
+feature_importances = []
+models = []
+valid_mae = []
+
+# Convert best_params to XGBoost regressor parameters
+xgb_params = {
+    'n_estimators': 2000,
+    'max_depth': 21,
+    'learning_rate': 0.09822438728478337,
+    'min_child_weight': 98,
+    'colsample_bytree': 0.7,
+    'subsample': 0.8,
+    'reg_alpha': 0.005806306287028605,
+    'reg_lambda': 0.006689382691907346,
+
+    'objective': 'reg:logistic',  
+    'eval_metric': 'mae', 
+    'booster': 'gbtree',
+    'device_type': 'cpu', 
+    'seed': 2025
+
+    #'use_label_encoder': False
+}
+# Cross-validation loop
+for fold, (train_idx, valid_idx) in enumerate(skf.split(X, y)):
+    print(f"Training fold {fold + 1}")
+    X_train_fold, X_valid_fold = X.iloc[train_idx], X.iloc[valid_idx]
+    y_train_fold, y_valid_fold = y.iloc[train_idx], y.iloc[valid_idx]
+
+    # Initialize and train the model
+    model = xgb.XGBClassifier(**xgb_params)
+    model.fit(X_train_fold, y_train_fold)
+
+    # Generate validation predictions
+    y_pred_valid = model.predict_proba(X_valid_fold)[:, 1]  # Get probability of positive class
+    fold_mae = mean_absolute_error(y_valid_fold, y_pred_valid)
+    valid_mae.append(fold_mae)
+    oof_predictions[valid_idx] = y_pred_valid
+
+    # Generate test predictions and accumulate
+    test_pred = model.predict_proba(test[features])[:, 1]
+    test_predictions += test_pred / skf.n_splits
+
+    # Save model and feature importance
+    joblib.dump(model, f"{OUT_PATH}{model_name}_fold{fold+1}_mae_{fold_mae:.7f}.model")
+    models.append(model)
+    
+    # Collect feature importances
+    fold_importance = pd.DataFrame({
+        'Feature': model.get_booster().feature_names,
+        'Importance': model.feature_importances_,
+        'Fold': fold + 1
+    })
+    feature_importances.append(fold_importance)
+
+    print(f"Fold {fold + 1} MAE: {fold_mae:.5f}")
+
+# Calculate overall metrics
+overall_mae= mean_absolute_error(y, oof_predictions)
+print(f"Average Validation MAE: {np.mean(valid_mae):.7f}")
+print(f"Overall OOF MAE: {overall_mae:.7f}")
+
+# Save OOF predictions and true values
+oof_df = X.copy()
+oof_df['Result'] = y
+oof_df['prediction'] = oof_predictions
+oof_df.to_csv(f"{OUT_PATH}{model_name}_oof_predictions_mae_{overall_mae:.7f}.csv", index=False)
+
+# Aggregate and save feature importances
+feature_importances_df = pd.concat(feature_importances)
+average_importance = feature_importances_df.groupby('Feature')['Importance'].mean().reset_index()
+average_importance = average_importance.sort_values('Importance', ascending=False)
+average_importance.to_csv(f"{OUT_PATH}{model_name}_average_feature_importance.csv", index=False)
+
+# Plot average feature importance
+plt.figure(figsize=(10, 6))
+sns.barplot(x='Importance', y='Feature', data=average_importance.head(25))
+plt.title('Top Features (Average Importance)')
+plt.tight_layout()
+plt.show()
