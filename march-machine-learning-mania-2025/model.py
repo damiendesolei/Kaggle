@@ -167,8 +167,8 @@ import optuna
 
 def objective(trial):
     
-    n_estimators = trial.suggest_int('n_estimators', 2000, 4000, step=200)
-    #n_estimators = 5_000
+    #n_estimators = trial.suggest_int('n_estimators', 2000, 4000, step=200)
+    n_estimators = 5_000
     param = {
         'objective': 'reg:logistic',  
         'eval_metric': 'mae', 
@@ -178,9 +178,9 @@ def objective(trial):
 
         #'n_estimators': 20_000,
         #'n_estimators': trial.suggest_int('n_estimators', 800, 2000, step=200),
-        'max_depth': trial.suggest_int('max_depth', 2, 32, step=1),  
+        'max_depth': trial.suggest_int('max_depth', 6, 32, step=1),  
         'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.1, log=True),  
-        'min_child_weight': trial.suggest_int('min_child_weight', 8, 256, step=2), 
+        'min_child_weight': trial.suggest_int('min_child_weight', 64, 256, step=2), 
 
         'colsample_bytree': trial.suggest_float("colsample_bytree", 0.6, 1.0, step=0.1),
         'subsample': trial.suggest_float("subsample", 0.6, 1.0, step=0.1),
@@ -222,7 +222,7 @@ def objective(trial):
         # Predict on validation set
         y_pred = model.predict(dvalid)
     
-        mae = mean_absolute_error(y_valid, y_pred)  # WMAE for regression
+        mae = mean_absolute_error(y_valid, y_pred)  # MAE for regression
         scores.append(mae)  
     
     mean_mae = np.mean(scores)
@@ -231,8 +231,8 @@ def objective(trial):
 
 
 # Run Optuna study
-N_HOUR = 1
-CORES = 10
+N_HOUR = 8
+CORES = 6
 
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(direction="minimize")
@@ -277,24 +277,26 @@ models = []
 valid_mae = []
 
 # Convert best_params to XGBoost regressor parameters
-xgb_params = {
-    'n_estimators': 2000,
-    'max_depth': 21,
-    'learning_rate': 0.09822438728478337,
-    'min_child_weight': 98,
-    'colsample_bytree': 0.7,
-    'subsample': 0.8,
-    'reg_alpha': 0.005806306287028605,
-    'reg_lambda': 0.006689382691907346,
+# xgb_params = {
+#     'n_estimators': 2000,
+#     'max_depth': 21,
+#     'learning_rate': 0.09822438728478337,
+#     'min_child_weight': 98,
+#     'colsample_bytree': 0.7,
+#     'subsample': 0.8,
+#     'reg_alpha': 0.005806306287028605,
+#     'reg_lambda': 0.006689382691907346,
 
-    'objective': 'reg:logistic',  
-    'eval_metric': 'mae', 
-    'booster': 'gbtree',
-    'device_type': 'cpu', 
-    'seed': 2025
+#     'objective': 'reg:logistic',  
+#     'eval_metric': 'mae', 
+#     'booster': 'gbtree',
+#     'device_type': 'cuda',  
+#     'gpu_use_dp': True,
+#     'seed': 2025
 
-    #'use_label_encoder': False
-}
+#     #'use_label_encoder': False
+# }
+xgb_params = best_params
 # Cross-validation loop
 for fold, (train_idx, valid_idx) in enumerate(skf.split(X, y)):
     print(f"Training fold {fold + 1}")
