@@ -114,7 +114,7 @@ game_stats.columns = ['_'.join(c) for c in game_stats.columns]
 
 
 # Load the submission file
-sub = data['SampleSubmissionStage1']
+sub = data['SampleSubmissionStage2']
 sub['WLoc'] = 3 # Neutral Court
 sub['Season'] = sub['ID'].map(lambda x: x.split('_')[0])
 sub['Season'] = sub['Season'].astype(int)
@@ -235,6 +235,7 @@ def objective(trial):
 
 
 # Run Optuna study
+STUDY_XGB = False
 N_HOUR = 8
 CORES = 6
 
@@ -360,3 +361,454 @@ sns.barplot(x='Importance', y='Feature', data=average_importance.head(25))
 plt.title('Xgb Top Features (Average Importance)')
 plt.tight_layout()
 plt.show()
+
+
+
+#https://www.kaggle.com/code/takuji/march-mania-2025-tutorial-japanese
+import statsmodels.api as sm
+
+
+#### Load data ####
+
+DATA_PATH = r'G:\\kaggle\march-machine-learning-mania-2025\\'
+
+tourney_results = pd.concat([
+    pd.read_csv(DATA_PATH + "MNCAATourneyDetailedResults.csv"),
+    pd.read_csv(DATA_PATH + "WNCAATourneyDetailedResults.csv"),
+], ignore_index=True)
+
+seeds = pd.concat([
+    pd.read_csv(DATA_PATH + "MNCAATourneySeeds.csv"),
+    pd.read_csv(DATA_PATH + "WNCAATourneySeeds.csv"),
+], ignore_index=True)
+
+regular_results = pd.concat([
+    pd.read_csv(DATA_PATH + "MRegularSeasonDetailedResults.csv"),
+    pd.read_csv(DATA_PATH + "WRegularSeasonDetailedResults.csv"),
+], ignore_index=True)
+
+
+#### Feature Engineering ####
+def prepare_data(df):
+    # Prepare a winner and loser swap.
+    dfswap = df[['Season', 'DayNum', 'LTeamID', 'LScore', 'WTeamID', 'WScore', 'WLoc', 'NumOT', 
+    'LFGM', 'LFGA', 'LFGM3', 'LFGA3', 'LFTM', 'LFTA', 'LOR', 'LDR', 'LAst', 'LTO', 'LStl', 'LBlk', 'LPF', 
+    'WFGM', 'WFGA', 'WFGM3', 'WFGA3', 'WFTM', 'WFTA', 'WOR', 'WDR', 'WAst', 'WTO', 'WStl', 'WBlk', 'WPF']]
+
+    dfswap.loc[df['WLoc'] == 'H', 'WLoc'] = 'A'
+    dfswap.loc[df['WLoc'] == 'A', 'WLoc'] = 'H'
+    df.columns.values[6] = 'location'
+    dfswap.columns.values[6] = 'location'    
+      
+    df.columns = [x.replace('W','T1_').replace('L','T2_') for x in list(df.columns)]
+    dfswap.columns = [x.replace('L','T1_').replace('W','T2_') for x in list(dfswap.columns)]
+
+    # Combine the original data and the swapped data
+    output = pd.concat([df, dfswap]).reset_index(drop=True)
+    output.loc[output.location=='N','location'] = '0'
+    output.loc[output.location=='H','location'] = '1'
+    output.loc[output.location=='A','location'] = '-1'
+    output.location = output.location.astype(int)
+    
+    output['PointDiff'] = output['T1_Score'] - output['T2_Score']
+    
+    return output
+
+regular_data = prepare_data(regular_results)
+tourney_data = prepare_data(tourney_results)
+
+
+#First, the feature quantities of game stats for the season
+boxscore_cols = [
+        'T1_FGM', 'T1_FGA', 'T1_FGM3', 'T1_FGA3', 'T1_OR', 'T1_Ast', 'T1_TO', 'T1_Stl', 'T1_PF', 
+        'T2_FGM', 'T2_FGA', 'T2_FGM3', 'T2_FGA3', 'T2_OR', 'T2_Ast', 'T2_TO', 'T2_Stl', 'T2_Blk',  
+        'PointDiff']
+
+funcs = "mean"
+
+season_statistics = regular_data.groupby(["Season", 'T1_TeamID'])[boxscore_cols].agg(funcs).reset_index()
+
+season_statistics.columns = [''.join(col).strip() for col in season_statistics.columns.values]
+
+season_statistics_T1 = season_statistics.copy()
+season_statistics_T2 = season_statistics.copy()
+
+season_statistics_T1.columns = ["T1_" + x.replace("T1_","").replace("T2_","opponent_") for x in list(season_statistics_T1.columns)]
+season_statistics_T2.columns = ["T2_" + x.replace("T1_","").replace("T2_","opponent_") for x in list(season_statistics_T2.columns)]
+season_statistics_T1.columns.values[0] = "Season"
+season_statistics_T2.columns.values[0] = "Season"
+
+
+# Attach the features you created to the right of the March Madness data.
+# Unfortunately, the March Madness stats information has been deleted. It is of no use because you cannot obtain information for that year.
+tourney_data = tourney_data[['Season', 'DayNum', 'T1_TeamID', 'T1_Score', 'T2_TeamID' ,'T2_Score']]
+
+tourney_data = pd.merge(tourney_data, season_statistics_T1, on = ['Season', 'T1_TeamID'], how = 'left')
+tourney_data = pd.merge(tourney_data, season_statistics_T2, on = ['Season', 'T2_TeamID'], how = 'left')
+
+# win ratio of last 14 days
+last14days_stats_T1 = regular_data.loc[regular_data.DayNum>118].reset_index(drop=True)
+last14days_stats_T1['win'] = np.where(last14days_stats_T1['PointDiff']>0,1,0)
+last14days_stats_T1 = last14days_stats_T1.groupby(['Season','T1_TeamID'])['win'].mean().reset_index(name='T1_win_ratio_14d')
+
+last14days_stats_T2 = regular_data.loc[regular_data.DayNum>118].reset_index(drop=True)
+last14days_stats_T2['win'] = np.where(last14days_stats_T2['PointDiff']<0,1,0)
+last14days_stats_T2 = last14days_stats_T2.groupby(['Season','T2_TeamID'])['win'].mean().reset_index(name='T2_win_ratio_14d')
+
+# Attach this to the right of the March Madness data
+tourney_data = pd.merge(tourney_data, last14days_stats_T1, on = ['Season', 'T1_TeamID'], how = 'left')
+tourney_data = pd.merge(tourney_data, last14days_stats_T2, on = ['Season', 'T2_TeamID'], how = 'left')
+
+# Creating a feature called team quality
+regular_season_effects = regular_data[['Season','T1_TeamID','T2_TeamID','PointDiff']].copy()
+regular_season_effects['T1_TeamID'] = regular_season_effects['T1_TeamID'].astype(str)
+regular_season_effects['T2_TeamID'] = regular_season_effects['T2_TeamID'].astype(str)
+regular_season_effects['win'] = np.where(regular_season_effects['PointDiff']>0,1,0)
+march_madness = pd.merge(seeds[['Season','TeamID']],seeds[['Season','TeamID']],on='Season')
+march_madness.columns = ['Season', 'T1_TeamID', 'T2_TeamID']
+march_madness.T1_TeamID = march_madness.T1_TeamID.astype(str)
+march_madness.T2_TeamID = march_madness.T2_TeamID.astype(str)
+regular_season_effects = pd.merge(regular_season_effects, march_madness, on = ['Season','T1_TeamID','T2_TeamID'])
+
+def team_quality(season):
+    formula = 'win~-1+T1_TeamID+T2_TeamID'
+    glm = sm.GLM.from_formula(formula=formula, 
+                              data=regular_season_effects.loc[regular_season_effects.Season==season,:], 
+                              family=sm.families.Binomial(link=sm.families.links.Logit())).fit()
+    
+    quality = pd.DataFrame(glm.params).reset_index()
+    quality.columns = ['TeamID','quality']
+    quality['Season'] = season
+    #quality['quality'] = np.exp(quality['quality'])
+    quality = quality.loc[quality.TeamID.str.contains('T1_')].reset_index(drop=True)
+    quality['TeamID'] = quality['TeamID'].apply(lambda x: x[10:14]).astype(int)
+    return quality
+
+formula = 'win~-1+T1_TeamID+T2_TeamID'
+glm = sm.GLM.from_formula(formula=formula, 
+                          data=regular_season_effects.loc[regular_season_effects.Season==2010,:], 
+                          family=sm.families.Binomial(link=sm.families.links.Logit())).fit()  # Default is logit
+
+quality = pd.DataFrame(glm.params).reset_index()
+
+glm_quality = pd.concat([team_quality(2010),
+                         team_quality(2011),
+                         team_quality(2012),
+                         team_quality(2013),
+                         team_quality(2014),
+                         team_quality(2015),
+                         team_quality(2016),
+                         team_quality(2017),
+                         team_quality(2018),
+                         team_quality(2019),
+                         ##team_quality(2020),
+                         team_quality(2021),
+                         team_quality(2022),
+                         team_quality(2023),
+                         team_quality(2024)
+                         ]).reset_index(drop=True)
+
+# Attach quality feature to tourney data
+glm_quality_T1 = glm_quality.copy()
+glm_quality_T2 = glm_quality.copy()
+glm_quality_T1.columns = ['T1_TeamID','T1_quality','Season']
+glm_quality_T2.columns = ['T2_TeamID','T2_quality','Season']
+
+tourney_data = pd.merge(tourney_data, glm_quality_T1, on = ['Season', 'T1_TeamID'], how = 'left')
+tourney_data = pd.merge(tourney_data, glm_quality_T2, on = ['Season', 'T2_TeamID'], how = 'left')
+
+
+# Seed as a feature
+seeds['seed'] = seeds['Seed'].apply(lambda x: int(x[1:3]))
+
+# Attach Seed feature to tourney data
+seeds_T1 = seeds[['Season','TeamID','seed']].copy()
+seeds_T2 = seeds[['Season','TeamID','seed']].copy()
+seeds_T1.columns = ['Season','T1_TeamID','T1_seed']
+seeds_T2.columns = ['Season','T2_TeamID','T2_seed']
+
+tourney_data = pd.merge(tourney_data, seeds_T1, on = ['Season', 'T1_TeamID'], how = 'left')
+tourney_data = pd.merge(tourney_data, seeds_T2, on = ['Season', 'T2_TeamID'], how = 'left')
+
+tourney_data["Seed_diff"] = tourney_data["T1_seed"] - tourney_data["T2_seed"]
+
+# できあがった特徴量の数をチェック
+features = list(season_statistics_T1.columns[2:999]) + \
+    list(season_statistics_T2.columns[2:999]) + \
+    list(seeds_T1.columns[2:999]) + \
+    list(seeds_T2.columns[2:999]) + \
+    list(last14days_stats_T1.columns[2:999]) + \
+    list(last14days_stats_T2.columns[2:999]) + \
+    ["Seed_diff"] + ["T1_quality","T2_quality"]
+
+print("No of features is:", len(features))
+
+# The resulting features look like this:
+display(tourney_data[features].head(3))
+print("\n features shape:", tourney_data[features].shape)
+
+
+
+
+#### Xgboost ####
+
+import xgboost as xgb
+print("Using XGBoost version",xgb.__version__)
+from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
+from sklearn.model_selection import KFold
+from xgboost import XGBRegressor
+
+# predict the point difference.
+#y = tourney_data['T1_Score'] - tourney_data['T2_Score']
+#X = tourney_data[features].values
+tourney_data['Pred'] = tourney_data['T1_Score'] - tourney_data['T2_Score']
+train = tourney_data[features+['Pred']]
+
+
+# Define the parameter space
+import optuna
+OUT_PATH = r'G:\\kaggle\march-machine-learning-mania-2025\models\\'
+
+def objective(trial):
+    
+    n_estimators = trial.suggest_int('n_estimators', 1500, 3500, step=100)
+    #n_estimators = 3_000
+    param = {
+        'objective': 'reg:squarederror',  
+        'eval_metric': 'mae', 
+        'booster': 'gbtree',
+        'device_type': 'cpu',  
+        #'gpu_use_dp': True,
+
+        #'n_estimators': 20_000,
+        #'n_estimators': trial.suggest_int('n_estimators', 800, 2000, step=200),
+        'max_depth': trial.suggest_int('max_depth', 1, 16, step=1),  
+        'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.1, log=True),  
+        'min_child_weight': trial.suggest_int('min_child_weight', 12, 128, step=2), 
+
+        'colsample_bytree': trial.suggest_float("colsample_bytree", 0.6, 1.0, step=0.1),
+        'subsample': trial.suggest_float("subsample", 0.6, 1.0, step=0.1),
+        #'bagging_freq': trial.suggest_int('bagging_freq', 2, 12),  
+        "reg_alpha": trial.suggest_float("reg_alpha", 0.001, 0.1, log=True),
+        "reg_lambda": trial.suggest_float("reg_lambda", 0.001, 0.1, log=True),
+
+        'seed': 2025,
+        'verbosity': 0,
+        "disable_default_eval_metric": 1,  # Disable default eval metric logs
+    }
+
+    # Time series cross-validation
+    skf = KFold(n_splits=5, shuffle=False)
+    scores = []
+    
+    for i, (train_index, test_index) in enumerate(skf.split(train, train["Pred"])):       
+        
+        x_train = train.loc[train_index, features].copy()
+        y_train = train.loc[train_index, "Pred"]
+        x_valid = train.loc[test_index, features].copy()
+        y_valid = train.loc[test_index, "Pred"]
+        #x_test = test[FEATURES].copy()
+               
+        # Create XGBoost DMatrix
+        dtrain = xgb.DMatrix(x_train, label=y_train, enable_categorical=True)
+        dvalid = xgb.DMatrix(x_valid, label=y_valid, enable_categorical=True)
+
+        # Train XGBoost model
+        model = xgb.train(
+            params=param,
+            dtrain=dtrain,
+            num_boost_round=n_estimators,
+            evals=[(dvalid, 'eval')],
+            early_stopping_rounds=25,
+            verbose_eval=0
+        )
+        
+        # Predict on validation set
+        y_pred = model.predict(dvalid)
+    
+        mae = mean_absolute_error(y_valid, y_pred)  # MAE for regression
+        scores.append(mae)  
+    
+    mean_mae = np.mean(scores)
+    
+    return mean_mae
+
+
+# Run Optuna study
+STUDY_XGB_1 = True
+N_HOUR = 9
+CORES = 6
+
+if STUDY_XGB_1:
+    print("Start running hyper parameter tuning..")
+    study = optuna.create_study(direction="minimize")
+    study.optimize(objective, timeout=3600*N_HOUR, n_jobs=CORES)  # 3600*n hour
+    
+    # Print the best hyperparameters and score
+    print("Best hyperparameters:", study.best_params)
+    print("Best mae:", study.best_value)
+    
+    # Get the best parameters and score
+    best_params = study.best_params
+    best_score = study.best_value
+    
+    # Format the file name with the best score
+    file_name = f"Xgboost2_params_mae_{best_score:.7f}.csv"
+    
+    # Save the best parameters to a CSV file
+    df_param = pd.DataFrame([best_params])  # Convert to DataFrame
+    df_param.to_csv(OUT_PATH+file_name, index=False)  # Save to CSV
+    
+    print(f"Best parameters saved to {file_name}")
+
+
+
+
+### Fit Xgboost2 with cauchy loss ###
+y = tourney_data['T1_Score'] - tourney_data['T2_Score']
+X = tourney_data[features].values
+dtrain = xgb.DMatrix(X, label = y)
+
+# cauchy loss
+def cauchyobj(preds, dtrain):
+    labels = dtrain.get_label()
+    c = 5000 
+    x =  preds-labels    
+    grad = x / (x**2/c**2+1)
+    hess = -c**2*(x**2-c**2)/(x**2+c**2)**2
+    return grad, hess
+
+if STUDY_XGB_1:
+    param = best_params
+
+
+param = {} 
+#param['objective'] = 'reg:linear'
+param['eval_metric'] =  'mae'
+param['booster'] = 'gbtree'
+#param['n_estimators'] = 1500,
+param['eta'] = 0.010105034101142166
+param['colsample_bytree'] = 0.9
+param['subsample'] = 0.7
+#param['num_parallel_tree'] = 3 #recommend 10
+param['min_child_weight'] = 16
+#param['gamma'] = 10
+param['max_depth'] =  2
+param['reg_alpha'] =  0.0063151908734380025
+param['reg_lambda'] =  0.04113518135575928
+#param['silent'] = 1
+
+
+# Fit the model on cv = 5
+xgb_cv = []
+repeat_cv = 3 # recommend 10
+
+for i in range(repeat_cv): 
+    print(f"Fold repeater {i}")
+    xgb_cv.append(
+        xgb.cv(
+          params = param,
+          dtrain = dtrain,
+          obj = cauchyobj,
+          num_boost_round = 1500,
+          folds = KFold(n_splits = 5, shuffle = True, random_state = i),
+          early_stopping_rounds = 100,
+          verbose_eval = 500
+        )
+    )
+
+iteration_counts = [np.argmin(x['test-mae-mean'].values) for x in xgb_cv]
+
+# Save the predictions for the validation data.
+oof_preds = []
+for i in range(repeat_cv):
+    preds = y.copy()
+    kfold = KFold(n_splits = 5, shuffle = True, random_state = i)    
+    for train_index, val_index in kfold.split(X,y):
+        dtrain_i = xgb.DMatrix(X[train_index], label = y[train_index])
+        dval_i = xgb.DMatrix(X[val_index], label = y[val_index])  
+        model = xgb.train(
+              params = param,
+              dtrain = dtrain_i,
+              num_boost_round = iteration_counts[i],
+              verbose_eval = 50
+        )
+        preds[val_index] = model.predict(dval_i)
+    oof_preds.append(np.clip(preds,-30,30))
+    
+    
+    
+    
+    
+#### Spline Model ####
+from scipy.interpolate import UnivariateSpline
+
+spline_model = []
+
+for i in range(repeat_cv):
+    dat = list(zip(oof_preds[i],np.where(y>0,1,0)))
+    dat = sorted(dat, key = lambda x: x[0])
+    datdict = {}
+    for k in range(len(dat)):
+        datdict[dat[k][0]]= dat[k][1]
+    spline_model.append(UnivariateSpline(list(datdict.keys()), list(datdict.values())))
+
+# スプラインを可視化するとこんな感じ
+plot_df = pd.DataFrame({"pred":oof_preds[0], "label":np.where(y>0,1,0), "spline":spline_model[0](oof_preds[0])})
+plot_df["pred_int"] = (plot_df["pred"]).astype(int)
+plot_df = plot_df.groupby('pred_int').mean().reset_index()
+
+plt.figure(figsize=[5.3,3.0])
+plt.plot(plot_df.pred_int,plot_df.spline)
+plt.plot(plot_df.pred_int,plot_df.label)
+
+
+
+
+
+#### Make Predictions ####
+sub = pd.read_csv(DATA_PATH + "SampleSubmissionStage2.csv")
+sub['Season'] = sub['ID'].apply(lambda x: int(x.split('_')[0]))
+sub["T1_TeamID"] = sub['ID'].apply(lambda x: int(x.split('_')[1]))
+sub["T2_TeamID"] = sub['ID'].apply(lambda x: int(x.split('_')[2]))
+
+# Features
+sub = pd.merge(sub, season_statistics_T1, on = ['Season', 'T1_TeamID'], how = 'left')
+sub = pd.merge(sub, season_statistics_T2, on = ['Season', 'T2_TeamID'], how = 'left')
+
+sub = pd.merge(sub, glm_quality_T1, on = ['Season', 'T1_TeamID'], how = 'left')
+sub = pd.merge(sub, glm_quality_T2, on = ['Season', 'T2_TeamID'], how = 'left')
+
+sub = pd.merge(sub, seeds_T1, on = ['Season', 'T1_TeamID'], how = 'left')
+sub = pd.merge(sub, seeds_T2, on = ['Season', 'T2_TeamID'], how = 'left')
+
+sub = pd.merge(sub, last14days_stats_T1, on = ['Season', 'T1_TeamID'], how = 'left')
+sub = pd.merge(sub, last14days_stats_T2, on = ['Season', 'T2_TeamID'], how = 'left')
+
+sub["Seed_diff"] = sub["T1_seed"] - sub["T2_seed"]
+
+# Form Xgboost dataset
+Xsub = sub[features].values
+dtest = xgb.DMatrix(Xsub)
+
+# retraining the model using all training data 
+sub_models = []
+for i in range(repeat_cv):
+    sub_models.append(
+        xgb.train(
+          params = param,
+          dtrain = dtrain,
+          num_boost_round = int(iteration_counts[i] * 1.05),
+          verbose_eval = 50
+        )
+    )
+
+# Ensemble Xgboost2 and Spline
+sub_preds = []
+for i in range(repeat_cv):
+    sub_preds.append(np.clip(spline_model[i](np.clip(sub_models[i].predict(dtest),-30,30)),0.025,0.975))
+    
+sub["Pred"] = pd.DataFrame(sub_preds).mean(axis=0)
+sub[['ID','Pred']].to_csv(OUT_PATH+"Xgboost2_Spline_submission.csv", index = None)
+
+display(sub[['ID','Pred']].head(3))
