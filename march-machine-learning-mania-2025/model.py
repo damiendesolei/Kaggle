@@ -154,6 +154,10 @@ train = games[FEATURES+['Pred']]
 
 
 
+
+OUT_PATH = r'G:\\kaggle\march-machine-learning-mania-2025\models\\'
+
+
 ### Xgboost ###
 import xgboost as xgb
 print("Using XGBoost version",xgb.__version__)
@@ -168,7 +172,7 @@ import optuna
 def objective(trial):
     
     #n_estimators = trial.suggest_int('n_estimators', 2000, 4000, step=200)
-    n_estimators = 5_000
+    n_estimators = 3_000
     param = {
         'objective': 'reg:logistic',  
         'eval_metric': 'mae', 
@@ -234,29 +238,30 @@ def objective(trial):
 N_HOUR = 8
 CORES = 6
 
-print("Start running hyper parameter tuning..")
-study = optuna.create_study(direction="minimize")
-study.optimize(objective, timeout=3600*N_HOUR, n_jobs=CORES)  # 3600*n hour
+if STUDY_XGB:
+    print("Start running hyper parameter tuning..")
+    study = optuna.create_study(direction="minimize")
+    study.optimize(objective, timeout=3600*N_HOUR, n_jobs=CORES)  # 3600*n hour
+    
+    # Print the best hyperparameters and score
+    print("Best hyperparameters:", study.best_params)
+    print("Best mae:", study.best_value)
+    
+    # Get the best parameters and score
+    best_params = study.best_params
+    best_score = study.best_value
+    
+    # Format the file name with the best score
+    file_name = f"Xgboost_params_mae_{best_score:.7f}.csv"
+    
+    # Save the best parameters to a CSV file
+    df_param = pd.DataFrame([best_params])  # Convert to DataFrame
+    df_param.to_csv(OUT_PATH+file_name, index=False)  # Save to CSV
+    
+    print(f"Best parameters saved to {file_name}")
 
-# Print the best hyperparameters and score
-print("Best hyperparameters:", study.best_params)
-print("Best mae:", study.best_value)
 
-# Get the best parameters and score
-best_params = study.best_params
-best_score = study.best_value
-
-# Format the file name with the best score
-OUT_PATH = r'G:\\kaggle\march-machine-learning-mania-2025\models\\'
-file_name = f"Xgboost_params_mae_{best_score:.7f}.csv"
-
-# Save the best parameters to a CSV file
-df_param = pd.DataFrame([best_params])  # Convert to DataFrame
-df_param.to_csv(OUT_PATH+file_name, index=False)  # Save to CSV
-
-print(f"Best parameters saved to {file_name}")
-
-
+    
 
 
 ### Fit Xgboost ###
@@ -276,27 +281,28 @@ feature_importances = []
 models = []
 valid_mae = []
 
+if not STUDY_XGB:
 # Convert best_params to XGBoost regressor parameters
-# xgb_params = {
-#     'n_estimators': 2000,
-#     'max_depth': 21,
-#     'learning_rate': 0.09822438728478337,
-#     'min_child_weight': 98,
-#     'colsample_bytree': 0.7,
-#     'subsample': 0.8,
-#     'reg_alpha': 0.005806306287028605,
-#     'reg_lambda': 0.006689382691907346,
-
-#     'objective': 'reg:logistic',  
-#     'eval_metric': 'mae', 
-#     'booster': 'gbtree',
-#     'device_type': 'cuda',  
-#     'gpu_use_dp': True,
-#     'seed': 2025
-
-#     #'use_label_encoder': False
-# }
-xgb_params = best_params
+    xgb_params = {
+        'n_estimators': 3000,
+        'max_depth': 32,
+        'learning_rate': 0.0378768473063554,
+        'min_child_weight': 8,
+        'colsample_bytree': 0.6,
+        'subsample': 1.0,
+        'reg_alpha': 0.00249275021430861,
+        'reg_lambda': 0.09120328682620336,
+    
+        'objective': 'reg:logistic',  
+        'eval_metric': 'mae', 
+        'booster': 'gbtree',
+        #'device_type': 'cuda',  
+        #'gpu_use_dp': True,
+        'seed': 2025
+    
+        #'use_label_encoder': False
+    }
+#xgb_params = best_params
 # Cross-validation loop
 for fold, (train_idx, valid_idx) in enumerate(skf.split(X, y)):
     print(f"Training fold {fold + 1}")
@@ -351,6 +357,6 @@ average_importance.to_csv(f"{OUT_PATH}{model_name}_average_feature_importance.cs
 # Plot average feature importance
 plt.figure(figsize=(10, 6))
 sns.barplot(x='Importance', y='Feature', data=average_importance.head(25))
-plt.title('Top Features (Average Importance)')
+plt.title('Xgb Top Features (Average Importance)')
 plt.tight_layout()
 plt.show()
