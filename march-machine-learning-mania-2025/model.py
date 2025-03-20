@@ -161,6 +161,7 @@ OUT_PATH = r'G:\\kaggle\march-machine-learning-mania-2025\models\\'
 ### Xgboost ###
 import xgboost as xgb
 print("Using XGBoost version",xgb.__version__)
+print(xgb.get_config())
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
 from sklearn.model_selection import StratifiedKFold
 from xgboost import XGBRegressor
@@ -172,19 +173,20 @@ import optuna
 def objective(trial):
     
     #n_estimators = trial.suggest_int('n_estimators', 2000, 4000, step=200)
-    n_estimators = 3_000
+    n_estimators = 5_000
     param = {
         'objective': 'reg:logistic',  
         'eval_metric': 'mae', 
         'booster': 'gbtree',
+        #'tree_method': 'gpu_hist',
         'device_type': 'cpu',  
         #'gpu_use_dp': True,
 
         #'n_estimators': 20_000,
         #'n_estimators': trial.suggest_int('n_estimators', 800, 2000, step=200),
-        'max_depth': trial.suggest_int('max_depth', 6, 32, step=1),  
+        'max_depth': trial.suggest_int('max_depth', 2, 64, step=1),  
         'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.1, log=True),  
-        'min_child_weight': trial.suggest_int('min_child_weight', 64, 256, step=2), 
+        'min_child_weight': trial.suggest_int('min_child_weight', 16, 256, step=2), 
 
         'colsample_bytree': trial.suggest_float("colsample_bytree", 0.6, 1.0, step=0.1),
         'subsample': trial.suggest_float("subsample", 0.6, 1.0, step=0.1),
@@ -219,7 +221,7 @@ def objective(trial):
             dtrain=dtrain,
             num_boost_round=n_estimators,
             evals=[(dvalid, 'eval')],
-            early_stopping_rounds=100,
+            early_stopping_rounds=25,
             verbose_eval=0
         )
         
@@ -235,8 +237,8 @@ def objective(trial):
 
 
 # Run Optuna study
-STUDY_XGB = False
-N_HOUR = 8
+STUDY_XGB = True
+N_HOUR = 2
 CORES = 6
 
 if STUDY_XGB:
@@ -311,8 +313,10 @@ for fold, (train_idx, valid_idx) in enumerate(skf.split(X, y)):
     y_train_fold, y_valid_fold = y.iloc[train_idx], y.iloc[valid_idx]
 
     # Initialize and train the model
-    model = xgb.XGBClassifier(**xgb_params)
-    model.fit(X_train_fold, y_train_fold)
+    model = xgb.XGBClassifier(**xgb_params, early_stopping_rounds=25)
+    model.fit(X_train_fold, y_train_fold,
+              eval_set=[(X_valid_fold, y_valid_fold)],  
+              verbose=500)
 
     # Generate validation predictions
     y_pred_valid = model.predict_proba(X_valid_fold)[:, 1]  # Get probability of positive class
@@ -687,15 +691,15 @@ param = {}
 param['eval_metric'] =  'mae'
 param['booster'] = 'gbtree'
 #param['n_estimators'] = 1500,
-param['eta'] = 0.010105034101142166
+param['eta'] = 0.060920150610591785
 param['colsample_bytree'] = 0.9
-param['subsample'] = 0.7
+param['subsample'] = 0.6
 #param['num_parallel_tree'] = 3 #recommend 10
 param['min_child_weight'] = 16
 #param['gamma'] = 10
-param['max_depth'] =  2
-param['reg_alpha'] =  0.0063151908734380025
-param['reg_lambda'] =  0.04113518135575928
+param['max_depth'] =  1
+param['reg_alpha'] =  0.0022760750736765946
+param['reg_lambda'] =  0.0048449207058357865
 #param['silent'] = 1
 
 
@@ -710,9 +714,9 @@ for i in range(repeat_cv):
           params = param,
           dtrain = dtrain,
           obj = cauchyobj,
-          num_boost_round = 1500,
+          num_boost_round = 3000,
           folds = KFold(n_splits = 5, shuffle = True, random_state = i),
-          early_stopping_rounds = 100,
+          early_stopping_rounds = 25,
           verbose_eval = 500
         )
     )
