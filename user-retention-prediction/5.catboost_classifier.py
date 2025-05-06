@@ -82,11 +82,11 @@ valid_data=valid_data.join(valid_label,on="ID",how="left")
 train_data.shape, valid_data.shape
 
 
-
-
-
-
 features_name=[i for i in train_data.columns if i not in ["ID","label"]]
+
+
+
+
 
 
 
@@ -96,6 +96,7 @@ from sklearn.model_selection import StratifiedKFold
 import catboost as cb
 from catboost import CatBoostClassifier,CatBoostRegressor,CatBoostRanker
 import optuna
+import gc
 from scipy.special import softmax
 
 def multiclass_logloss(y_actual, y_pred):
@@ -116,141 +117,150 @@ def multiclass_logloss(y_actual, y_pred):
     return np.mean(correct_log_probs)
 
 
-
-FEATURES = features_name
-train = train_data.to_pandas()
-
-# def reduce_mem_usage(df, float16_as32=True):
-#     #memory_usage() to sum all ram for each column, B->KB->MB
-#     start_mem = df.memory_usage().sum() / 1024**2
-#     print('Memory usage of current dataframe is {:.2f} MB'.format(start_mem))
-#     non_date_columns = [col for col in df.columns if df[col].dtype != 'datetime64[ns]']
-
-#     for col in non_date_columns:
-#         col_type = df[col].dtype 
-#         if col_type != object and str(col_type)!='category':#不是object也就是说这里处理的是数值类型的变量
-#             c_min,c_max = df[col].min(),df[col].max() #求出这列的最大值和最小值
-#             if str(col_type)[:3] == 'int':#如果是int类型的变量,不管是int8,int16,int32还是int64
-#                 #如果这列的取值范围是在int8的取值范围内,那就对类型进行转换 (-128 到 127)
-#                 if c_min > np.iinfo(np.int8).min and c_max < np.iinfo(np.int8).max:
-#                     df[col] = df[col].astype(np.int8)
-#                 #如果这列的取值范围是在int16的取值范围内,那就对类型进行转换(-32,768 到 32,767)
-#                 elif c_min > np.iinfo(np.int16).min and c_max < np.iinfo(np.int16).max:
-#                     df[col] = df[col].astype(np.int16)
-#                 #如果这列的取值范围是在int32的取值范围内,那就对类型进行转换(-2,147,483,648到2,147,483,647)
-#                 elif c_min > np.iinfo(np.int32).min and c_max < np.iinfo(np.int32).max:
-#                     df[col] = df[col].astype(np.int32)
-#                 #如果这列的取值范围是在int64的取值范围内,那就对类型进行转换(-9,223,372,036,854,775,808到9,223,372,036,854,775,807)
-#                 elif c_min > np.iinfo(np.int64).min and c_max < np.iinfo(np.int64).max:
-#                     df[col] = df[col].astype(np.int64)  
-#             else:#如果是浮点数类型.
-#                 #如果数值在float16的取值范围内,如果觉得需要更高精度可以考虑float32
-#                 if c_min > np.finfo(np.float16).min and c_max < np.finfo(np.float16).max:
-#                     if float16_as32:#如果数据需要更高的精度可以选择float32
-#                         df[col] = df[col].astype(np.float32)
-#                     else:
-#                         df[col] = df[col].astype(np.float16)  
-#                 #如果数值在float32的取值范围内，对它进行类型转换
-#                 elif c_min > np.finfo(np.float32).min and c_max < np.finfo(np.float32).max:
-#                     df[col] = df[col].astype(np.float32)
-#                 #如果数值在float64的取值范围内，对它进行类型转换
-#                 else:
-#                     df[col] = df[col].astype(np.float64)
-#     #current ram
-#     end_mem = df.memory_usage().sum() / 1024**2
-#     print('Memory usage after optimization is: {:.2f} MB'.format(end_mem))
-#     #ram reduction%
-#     print('Decreased by {:.1f}%'.format(100 * (start_mem - end_mem) / start_mem))
-
-#     return df
-
-# train = reduce_mem_usage(train)
-
-# Define the parameter space
-def objective(trial):
+STUDY = False
+if STUDY:
     
-    param = {
-        'loss_function': 'MultiClass', 
-        #'grow_policy': 'Lossguide',
-        'task_type': 'GPU',  
-        #'gpu_use_dp': True,
-
-        'iterations': 2000,
-        #'iterations': trial.suggest_int('iterations', 800, 1200, step=200),
-        'depth': trial.suggest_int('depth', 2, 16, step=1),  
-        'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.1, log=True),  
-        'min_data_in_leaf': trial.suggest_int('min_data_in_leaf', 12, 256, step=4),
+    FEATURES = features_name
+    train = train_data.to_pandas()
+    
+    # def reduce_mem_usage(df, float16_as32=True):
+    #     #memory_usage() to sum all ram for each column, B->KB->MB
+    #     start_mem = df.memory_usage().sum() / 1024**2
+    #     print('Memory usage of current dataframe is {:.2f} MB'.format(start_mem))
+    #     non_date_columns = [col for col in df.columns if df[col].dtype != 'datetime64[ns]']
+    
+    #     for col in non_date_columns:
+    #         col_type = df[col].dtype 
+    #         if col_type != object and str(col_type)!='category':#不是object也就是说这里处理的是数值类型的变量
+    #             c_min,c_max = df[col].min(),df[col].max() #求出这列的最大值和最小值
+    #             if str(col_type)[:3] == 'int':#如果是int类型的变量,不管是int8,int16,int32还是int64
+    #                 #如果这列的取值范围是在int8的取值范围内,那就对类型进行转换 (-128 到 127)
+    #                 if c_min > np.iinfo(np.int8).min and c_max < np.iinfo(np.int8).max:
+    #                     df[col] = df[col].astype(np.int8)
+    #                 #如果这列的取值范围是在int16的取值范围内,那就对类型进行转换(-32,768 到 32,767)
+    #                 elif c_min > np.iinfo(np.int16).min and c_max < np.iinfo(np.int16).max:
+    #                     df[col] = df[col].astype(np.int16)
+    #                 #如果这列的取值范围是在int32的取值范围内,那就对类型进行转换(-2,147,483,648到2,147,483,647)
+    #                 elif c_min > np.iinfo(np.int32).min and c_max < np.iinfo(np.int32).max:
+    #                     df[col] = df[col].astype(np.int32)
+    #                 #如果这列的取值范围是在int64的取值范围内,那就对类型进行转换(-9,223,372,036,854,775,808到9,223,372,036,854,775,807)
+    #                 elif c_min > np.iinfo(np.int64).min and c_max < np.iinfo(np.int64).max:
+    #                     df[col] = df[col].astype(np.int64)  
+    #             else:#如果是浮点数类型.
+    #                 #如果数值在float16的取值范围内,如果觉得需要更高精度可以考虑float32
+    #                 if c_min > np.finfo(np.float16).min and c_max < np.finfo(np.float16).max:
+    #                     if float16_as32:#如果数据需要更高的精度可以选择float32
+    #                         df[col] = df[col].astype(np.float32)
+    #                     else:
+    #                         df[col] = df[col].astype(np.float16)  
+    #                 #如果数值在float32的取值范围内，对它进行类型转换
+    #                 elif c_min > np.finfo(np.float32).min and c_max < np.finfo(np.float32).max:
+    #                     df[col] = df[col].astype(np.float32)
+    #                 #如果数值在float64的取值范围内，对它进行类型转换
+    #                 else:
+    #                     df[col] = df[col].astype(np.float64)
+    #     #current ram
+    #     end_mem = df.memory_usage().sum() / 1024**2
+    #     print('Memory usage after optimization is: {:.2f} MB'.format(end_mem))
+    #     #ram reduction%
+    #     print('Decreased by {:.1f}%'.format(100 * (start_mem - end_mem) / start_mem))
+    
+    #     return df
+    
+    # train = reduce_mem_usage(train)
+    
+    # Define the parameter space
+    def objective(trial):
         
-        #'colsample_bylevel': trial.suggest_float("colsample_bylevel", 0.6, 1.0), # Random Subspace Method (rsm not supported on GPU)
-        #'subsample': trial.suggest_float("subsample", 0.6, 1.0),
-        'l2_leaf_reg': trial.suggest_float('l2_leaf_reg', 0.001, 10, log=True),
-        'random_strength': trial.suggest_float('random_strength', 0.001, 0.1, log=True),
-
-        'random_seed': 2025,
-        'logging_level': "Silent"  # Suppress CatBoost logs
-    }
-
-    # Time series cross-validation
-    skf = StratifiedKFold(n_splits=3, shuffle=False)
-    scores = []
+        param = {
+            'loss_function': 'MultiClass', 
+            #'grow_policy': 'Lossguide',
+            'task_type': 'GPU', 
+            #'devices':'0',
+            #'used_ram_limit': '8gb',
+            'gpu_ram_part':0.8,
+            #'bootstrap_type': 'Bernoulli',  
     
-    for i, (train_index, test_index) in enumerate(skf.split(train, train["label"])):       
-        #x_train = train.loc[train_index,FEATURES].copy()
-        x_train = train.loc[train_index,FEATURES].copy()
-        y_train = train.loc[train_index,"label"]
-        x_valid = train.loc[test_index,FEATURES].copy()
-        y_valid = train.loc[test_index,"label"]
-        #x_test = test[FEATURES].copy()
-
-
-        # Create CatBoost pools
-        dtrain = cb.Pool(x_train, label=y_train)#, cat_features=CATS)
-        dvalid = cb.Pool(x_valid, label=y_valid)#, cat_features=CATS)
-
-        # Train Catboost model
-        model = cb.CatBoostClassifier(**param)
-        model = model.fit(
-            dtrain,
-            eval_set=dvalid,
-            early_stopping_rounds=100,
-            use_best_model=True
-        )
-        # Predict on validation set
-        y_pred = model.predict_proba(dvalid)
+            'iterations': 2000,
+            #'iterations': trial.suggest_int('iterations', 1000, 3000, step=200),
+            'depth': trial.suggest_int('depth', 12, 16, step=1),  
+            'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.1, log=True),  
+            'min_data_in_leaf': trial.suggest_int('min_data_in_leaf', 128, 256, step=4),
+            
+            #'colsample_bylevel': trial.suggest_float("colsample_bylevel", 0.6, 1.0), # Random Subspace Method (rsm not supported on GPU)
+            #'subsample': trial.suggest_float("subsample", 0.6, 1.0),
+            'l2_leaf_reg': trial.suggest_float('l2_leaf_reg', 0.001, 10, log=True),
+            #'random_strength': trial.suggest_float('random_strength', 0.001, 0.1, log=True),
     
-        logloss = multiclass_logloss(y_valid, y_pred)  # WMAE for regression
-        scores.append(logloss)  
+            'random_seed': 2025,
+            'logging_level': "Silent"  # Suppress CatBoost logs
+        }
     
-    mean_logloss = np.mean(scores)
+        # Time series cross-validation
+        skf = StratifiedKFold(n_splits=3, shuffle=False)
+        scores = []
+        
+        for i, (train_index, test_index) in enumerate(skf.split(train, train["label"])):       
+            #x_train = train.loc[train_index,FEATURES].copy()
+            x_train = train.loc[train_index,FEATURES].copy()
+            y_train = train.loc[train_index,"label"]
+            x_valid = train.loc[test_index,FEATURES].copy()
+            y_valid = train.loc[test_index,"label"]
+            #x_test = test[FEATURES].copy()
     
-    return mean_logloss
-
-
-# Run Optuna study
-N_HOUR = 2
-CORES = 1
-
-print("Start running hyper parameter tuning..")
-study = optuna.create_study(direction="minimize")
-study.optimize(objective, timeout=3600*N_HOUR, n_jobs=CORES)  # 3600*n hour
-
-# Print the best hyperparameters and score
-print("Best hyperparameters:", study.best_params)
-print("Best logloss:", study.best_value)
-
-# Get the best parameters and score
-best_params = study.best_params
-best_score = study.best_value
-
-# Format the file name with the best score
-OUT_PATH = r'G:\\kaggle\user-retention-prediction\model\\'
-file_name = f"Cb_MultiClass_Logloss_{best_score:.6f}.csv"
-
-# Save the best parameters to a CSV file
-df_param = pd.DataFrame([best_params])  # Convert to DataFrame
-df_param.to_csv(OUT_PATH+file_name, index=False)  # Save to CSV
-
-print(f"Best parameters saved to {file_name}")
+    
+            # Create CatBoost pools
+            dtrain = cb.Pool(x_train, label=y_train)#, cat_features=CATS)
+            dvalid = cb.Pool(x_valid, label=y_valid)#, cat_features=CATS)
+    
+            # Train Catboost model
+            model = cb.CatBoostClassifier(**param)
+            model = model.fit(
+                dtrain,
+                eval_set=dvalid,
+                early_stopping_rounds=100,
+                use_best_model=True
+            )
+            # Predict on validation set
+            y_pred = model.predict_proba(dvalid)
+        
+            logloss = multiclass_logloss(y_valid, y_pred)  # WMAE for regression
+            scores.append(logloss)  
+        
+        mean_logloss = np.mean(scores)
+        
+        # Cleanup
+        del model
+        gc.collect()
+        
+        return mean_logloss
+    
+    
+    # Run Optuna study
+    N_HOUR = 4
+    CORES = 1
+    
+    print("Start running hyper parameter tuning..")
+    study = optuna.create_study(direction="minimize")
+    study.optimize(objective, timeout=3600*N_HOUR, n_jobs=CORES, catch=(MemoryError,))  # 3600*n hour
+    
+    # Print the best hyperparameters and score
+    print("Best hyperparameters:", study.best_params)
+    print("Best logloss:", study.best_value)
+    
+    # Get the best parameters and score
+    best_params = study.best_params
+    best_score = study.best_value
+    
+    # Format the file name with the best score
+    OUT_PATH = r'G:\\kaggle\user-retention-prediction\model\\'
+    file_name = f"Cbt_MultiClass_Logloss_{best_score:.6f}.csv"
+    
+    # Save the best parameters to a CSV file
+    df_param = pd.DataFrame([best_params])  # Convert to DataFrame
+    df_param.to_csv(OUT_PATH+file_name, index=False)  # Save to CSV
+    
+    print(f"Best parameters saved to {file_name}")
 
 
 
@@ -259,13 +269,18 @@ print(f"Best parameters saved to {file_name}")
 
 ########################################################
 params={
-    'iterations':2000,
-    'loss_function':'MultiClass',
-    'learning_rate':0.05,
-    'depth':5,
-    'verbose':100,
-    # 'eval_metric':"SMAPE",
-    'task_type':'GPU',
+    'iterations': 2000,
+    'loss_function': 'MultiClass',
+    'learning_rate': 0.012173458515288418,
+    'depth': 15,
+    'min_data_in_leaf': 140,
+    'l2_leaf_reg': 0.6147877031247082,
+    #'random_strength': 0.006167528225817892,
+    
+    'verbose': 100,
+    #'eval_metric':"SMAPE",
+    'early_stopping_rounds': 100,
+    'task_type': 'GPU',
     }
 model = CatBoostClassifier(**params)
 model.fit(train_data[features_name].to_numpy(), train_data["label"].to_numpy(),
@@ -318,7 +333,7 @@ sub["pred"]=sub["pred"]/(sub["pred"].max())
 sub["pred"]=np.digitize(sub["pred"], np.cumsum(valid_thresholds)).clip(0,7)
 
 
-(200*abs(sub["pred"]-sub["label"])/(sub["pred"]+sub["label"])).fillna(0).mean()
+score = (200*abs(sub["pred"]-sub["label"])/(sub["pred"]+sub["label"])).fillna(0).mean()
 
 
 test_features, test_label, test_thresholds=create_sample(0)
@@ -335,10 +350,16 @@ print("adjusted distribution:", adjusted_distribution)
 
 #转成回归再后处理
 sub=test_data[["ID"]].to_pandas()
+
 sub["pred"]=pred@np.array([0,1,2,3,4,5,6,7])
+OUT_PATH = r'G:\\kaggle\user-retention-prediction\model\\'
+sub_name = f"Cbt_MultiClass_raw_smape_{score:.6f}.csv"
+sub.to_csv(OUT_PATH+sub_name, index=False)
+
 sub["pred"]=sub["pred"].rank()
 sub["pred"]=sub["pred"]/(sub["pred"].max())
 sub["pred"]=np.digitize(sub["pred"], np.cumsum(test_thresholds)).clip(0,7)
 
-
-sub
+OUT_PATH = r'G:\\kaggle\user-retention-prediction\model\\'
+sub_name = f"Cbt_MultiClass_smape_{score:.6f}.csv"
+sub.to_csv(OUT_PATH+sub_name, index=False)
