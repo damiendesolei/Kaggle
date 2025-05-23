@@ -12,7 +12,8 @@ import time
 import librosa
 import pandas as pd
 import numpy as np
-from tqdm.notebook import tqdm
+#from tqdm.notebook import tqdm
+from tqdm import tqdm
 
 import torch
 import warnings
@@ -148,3 +149,51 @@ end_time = time.time()
 print(f"Processing completed in {end_time - start_time:.2f} seconds")
 print(f"Successfully processed {len(all_bird_data)} files out of {total_samples} total")
 print(f"Failed to process {len(errors)} files")
+
+
+
+# Check samples
+import matplotlib.pyplot as plt
+
+samples = []
+displayed_classes = set()
+
+max_samples = min(4, len(all_bird_data))
+
+for i, row in working_df.iterrows():
+    if i >= (config.N_MAX or len(working_df)):
+        break
+        
+    if row['samplename'] in all_bird_data:
+        if config.DEBUG_MODE:
+            if row['class'] not in displayed_classes:
+                samples.append((row['samplename'], row['class'], row['primary_label']))
+                displayed_classes.add(row['class'])
+        else:
+            if row['class'] not in displayed_classes:
+                samples.append((row['samplename'], row['class'], row['primary_label']))
+                displayed_classes.add(row['class'])
+        
+        if len(samples) >= max_samples:  
+            break
+
+if samples:
+    plt.figure(figsize=(16, 12))
+    
+    for i, (samplename, class_name, species) in enumerate(samples):
+        plt.subplot(2, 2, i+1)
+        plt.imshow(all_bird_data[samplename], aspect='auto', origin='lower', cmap='viridis')
+        plt.title(f"{class_name}: {species}")
+        plt.colorbar(format='%+2.0f dB')
+    
+    plt.tight_layout()
+    debug_note = "debug_" if config.DEBUG_MODE else ""
+    plt.savefig(f'{debug_note}melspec_examples.png')
+    plt.show()
+    
+    
+    
+# Save the output
+output_path = os.path.join(config.OUTPUT_DIR, 'all_bird_data.npy')
+np.save(output_path, all_bird_data)
+print(f"Saved output to {output_path}")
