@@ -30,15 +30,16 @@ from torch.utils.data import Dataset, DataLoader
 
 import matplotlib.pyplot as plt
 import seaborn as sns
-from tqdm.auto import tqdm
+#from tqdm.auto import tqdm
+from tqdm import tqdm
 
 import timm
 #import torchvision
-import torch
-import torchvision
 
-print(torch.__version__)
-print(torchvision.__version__)
+#import torch
+#import torchvision
+#print(torch.__version__)
+#print(torchvision.__version__)
 
 warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.ERROR)
@@ -47,8 +48,8 @@ logging.basicConfig(level=logging.ERROR)
 
 class CFG:
     
-    seed = 42
-    debug = False  
+    seed = 3407
+    debug = True  
     apex = False
     print_freq = 100
     num_workers = 2
@@ -78,7 +79,8 @@ class CFG:
     FMIN = 50
     FMAX = 14000
     
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    #device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = 'cpu'
     epochs = 10  
     batch_size = 32  
     criterion = 'BCEWithLogitsLoss'
