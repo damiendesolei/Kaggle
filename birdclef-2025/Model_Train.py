@@ -34,27 +34,59 @@ import seaborn as sns
 from tqdm import tqdm
 
 import timm
-#import torchvision
-
-#import torch
-#import torchvision
-#print(torch.__version__)
-#print(torchvision.__version__)
+import torchvision
+#print(torch.cuda.is_available())  
+#print(torch.cuda.get_device_name(0))  
 
 warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.ERROR)
+
+
+""" 
+    FocalLossBCE Use Example
+"""
+class FocalLossBCE(torch.nn.Module):
+    def __init__(
+            self,
+            alpha: float = 0.25,
+            gamma: float = 2,
+            reduction: str = "mean",
+            bce_weight: float = 0.6,
+            focal_weight: float = 1.4,
+    ):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+        self.bce = torch.nn.BCEWithLogitsLoss(reduction=reduction)
+        self.bce_weight = bce_weight
+        self.focal_weight = focal_weight
+
+    def forward(self, logits, targets):
+        focall_loss = torchvision.ops.focal_loss.sigmoid_focal_loss(
+            inputs=logits,
+            targets=targets,
+            alpha=self.alpha,
+            gamma=self.gamma,
+            reduction=self.reduction,
+        )
+        bce_loss = self.bce(logits, targets)
+        return self.bce_weight * bce_loss + self.focal_weight * focall_loss
+
+#def get_criterion(cfg):
+#    return FocalLossBCE()
 
 
 
 class CFG:
     
     seed = 3407
-    debug = True  
+    debug = False 
     apex = False
     print_freq = 100
-    num_workers = 2
+    num_workers = 0
     
-    OUTPUT_DIR = '/kaggle/working/'
+    OUTPUT_DIR = r'G:\\kaggle\birdclef-2025\models'
 
     train_datadir = r'G:\\kaggle\birdclef-2025\train_audio'
     train_csv = r'G:\\kaggle\birdclef-2025\train.csv'
@@ -62,10 +94,10 @@ class CFG:
     submission_csv = r'G:\\kaggle\birdclef-2025\sample_submission.csv'
     taxonomy_csv = r'G:\\kaggle\birdclef-2025\taxonomy.csv'
 
-    spectrogram_npy = r'G:\\kaggle\birdclef-2025\all_bird_data.npy'
+    spectrogram_npy = r'G:\\kaggle\birdclef-2025\output\all_bird_data_5s.npy'
  
-    model_name = 'efficientnet_b0'  
-    pretrained = True
+    model_name = 'efficientnetv2_s'  
+    pretrained = False
     in_channels = 1
 
     LOAD_DATA = True  
@@ -73,17 +105,16 @@ class CFG:
     TARGET_DURATION = 5.0
     TARGET_SHAPE = (256, 256)
     
-    N_FFT = 1024
+    N_FFT = 2048
     HOP_LENGTH = 512
-    N_MELS = 128
-    FMIN = 50
-    FMAX = 14000
+    N_MELS = 512
+    FMIN = 20
+    FMAX = 16000
     
-    #device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    device = 'cpu'
+    device = 'cuda' #if torch.cuda.is_available() else 'cpu'
     epochs = 10  
-    batch_size = 32  
-    criterion = 'BCEWithLogitsLoss'
+    batch_size = 16  
+    criterion = 'FocalLossBCE'
 
     n_fold = 5
     selected_folds = [0, 1, 2, 3, 4]   
@@ -491,6 +522,8 @@ def get_criterion(cfg):
  
     if cfg.criterion == 'BCEWithLogitsLoss':
         criterion = nn.BCEWithLogitsLoss()
+    elif cfg.criterion == 'FocalLossBCE':
+        criterion = FocalLossBCE()
     else:
         raise NotImplementedError(f"Criterion {cfg.criterion} not implemented")
         
@@ -756,7 +789,7 @@ def run_training(df, cfg):
                     'val_auc': val_auc,
                     'train_auc': train_auc,
                     'cfg': cfg
-                }, f"model_fold{fold}.pth")
+                }, f"model_fold{fold}_{best_auc:.4f}.pth")
         
         best_scores.append(best_auc)
         print(f"\nBest AUC for fold {fold}: {best_auc:.4f} at epoch {best_epoch}")
