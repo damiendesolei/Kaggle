@@ -53,6 +53,7 @@ class FocalLossBCE(torch.nn.Module):
             reduction: str = "mean",
             bce_weight: float = 0.6,
             focal_weight: float = 1.4,
+            label_smoothing: float = 0.0,
     ):
         super().__init__()
         self.alpha = alpha
@@ -61,6 +62,7 @@ class FocalLossBCE(torch.nn.Module):
         self.bce = torch.nn.BCEWithLogitsLoss(reduction=reduction)
         self.bce_weight = bce_weight
         self.focal_weight = focal_weight
+        self.label_smoothing = label_smoothing
 
     def forward(self, logits, targets):
         focall_loss = torchvision.ops.focal_loss.sigmoid_focal_loss(
@@ -96,8 +98,8 @@ class CFG:
 
     spectrogram_npy = r'G:\\kaggle\birdclef-2025\output\all_bird_data_5s.npy'
  
-    model_name = 'efficientnetv2_s'  
-    pretrained = False
+    model_name = 'tf_efficientnetv2_l.in21k_ft_in1k'  
+    pretrained = True
     in_channels = 1
 
     LOAD_DATA = True  
@@ -113,11 +115,11 @@ class CFG:
     
     device = 'cuda' #if torch.cuda.is_available() else 'cpu'
     epochs = 10  
-    batch_size = 16  
+    batch_size = 16
     criterion = 'FocalLossBCE'
 
-    n_fold = 5
-    selected_folds = [0, 1, 2, 3, 4]   
+    n_fold = 3
+    selected_folds = [0, 1, 2]   
 
     optimizer = 'AdamW'
     lr = 5e-4 
@@ -129,6 +131,8 @@ class CFG:
 
     aug_prob = 0.5  
     mixup_alpha = 0.5  
+    
+    label_smoothing = 0.1
     
     def update_debug_settings(self):
         if self.debug:
@@ -171,7 +175,11 @@ def audio2melspec(audio_data, cfg):
         n_mels=cfg.N_MELS,
         fmin=cfg.FMIN,
         fmax=cfg.FMAX,
-        power=2.0
+        power=2.0,
+        pad_mode="reflect",
+        norm='slaney',
+        htk=True,
+        center=True,
     )
 
     mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
@@ -342,6 +350,59 @@ class BirdCLEFDatasetFromNPY(Dataset):
             spec = spec * gain + bias
             spec = torch.clamp(spec, 0, 1) 
             
+            
+        # Time warping - new 20250522
+        if random.random() < 0.2:
+            shift_amt = random.randint(-3, 3)
+            spec = torch.roll(spec, shifts=shift_amt, dims=2)
+        
+        
+        # # Add pitch shift with higher probability - new 20250525
+        # if random.random() < 0.5:
+        #     shift = random.randint(-15,15)
+        #     if shift >0:
+        #         spec = torch.cat([torch.zeros_like(spec[:,:shift,:]), spec[:,:-shift,:]], dim=1)
+        #     elif shift <0:
+        #         spec = torch.cat([spec[:,-shift:,:], torch.zeros_like(spec[:,:shift,:])], dim=1)       
+            
+            
+        # Gaussian noise - new 20250522
+        # if random.random() < 0.5:
+        #     noise = torch.randn_like(spec) * random.uniform(0.01, 0.05)
+        #     spec = torch.clamp(spec + noise, 0, 1)  
+        if random.random() < 0.3:
+            kernel_size = random.choice([3,5])
+            sigma = random.uniform(0.1, 1.0)
+            spec = torch.from_numpy(
+                cv2.GaussianBlur(spec.numpy(), (kernel_size,kernel_size), sigma)
+            )
+
+        # random noise (simulat environmental noise)
+        if random.random() < 0.3:
+            noise_level = random.uniform(0.01, 0.05)
+            spec += torch.randn_like(spec) * noise_level
+            spec = torch.clamp(spec, 0, 1)
+    
+    
+        # # Random Cutout (most effective for AUC improvement) - new 20250522
+        # if random.random() < 0.3:  # Higher probability as this is highly effective
+        #     # Create a random rectangular cutout (different from time/frequency masking)
+        #     cutout_width = random.randint(20, 40)  # Larger area than masking
+        #     cutout_height = random.randint(20, 40)
+            
+        #     # Ensure cutout fits within spectrogram
+        #     x_start = random.randint(0, spec.shape[2] - cutout_width)
+        #     y_start = random.randint(0, spec.shape[1] - cutout_height)
+            
+        #     # Apply cutout (set to zero or random values)
+        #     if random.random() < 0.3:  # 50% chance of zero vs. random values
+        #         spec[0, y_start:y_start+cutout_height, x_start:x_start+cutout_width] = 0
+        #     else:
+        #         # Fill with random values instead of zeros (more challenging for model)
+        #         random_patch = torch.rand(1, cutout_height, cutout_width, device=spec.device)
+        #         spec[0, y_start:y_start+cutout_height, x_start:x_start+cutout_width] = random_patch         
+            
+            
         return spec
     
     def encode_label(self, label):
@@ -392,8 +453,8 @@ class BirdCLEFModel(nn.Module):
             cfg.model_name,
             pretrained=cfg.pretrained,
             in_chans=cfg.in_channels,
-            drop_rate=0.2,
-            drop_path_rate=0.2
+            drop_rate=0.1,  # higher -> more regularization
+            drop_path_rate=0.1  # higher -> more regularization
         )
         
         if 'efficientnet' in cfg.model_name:
@@ -409,6 +470,8 @@ class BirdCLEFModel(nn.Module):
         self.pooling = nn.AdaptiveAvgPool2d(1)
             
         self.feat_dim = backbone_out
+        
+        self.dropout = nn.Dropout(0.2)  # higher -> more regularization
         
         self.classifier = nn.Linear(backbone_out, cfg.num_classes)
         
@@ -432,6 +495,8 @@ class BirdCLEFModel(nn.Module):
         if len(features.shape) == 4:
             features = self.pooling(features)
             features = features.view(features.size(0), -1)
+            features = self.dropout(features)  # Prevent overfitting
+
         
         logits = self.classifier(features)
         
@@ -521,9 +586,9 @@ def get_scheduler(optimizer, cfg):
 def get_criterion(cfg):
  
     if cfg.criterion == 'BCEWithLogitsLoss':
-        criterion = nn.BCEWithLogitsLoss()
+        criterion = nn.BCEWithLogitsLoss(label_smoothing=cfg.label_smoothing)
     elif cfg.criterion == 'FocalLossBCE':
-        criterion = FocalLossBCE()
+        criterion = FocalLossBCE(label_smoothing=cfg.label_smoothing)
     else:
         raise NotImplementedError(f"Criterion {cfg.criterion} not implemented")
         
@@ -577,6 +642,7 @@ def train_one_epoch(model, loader, optimizer, criterion, device, scheduler=None)
                 loss = criterion(outputs, targets)
                 
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) # Gradient Clipping - prevent overfitting
             optimizer.step()
             
             outputs = outputs.detach().cpu().numpy()
