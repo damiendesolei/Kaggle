@@ -93,7 +93,11 @@ def audio2melspec(audio_data):
         n_mels=config.N_MELS,
         fmin=config.FMIN,
         fmax=config.FMAX,
-        power=2.0
+        power=2.0,
+        pad_mode="reflect",
+        norm='slaney',
+        htk=True,
+        center=True,
     )
 
     mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
