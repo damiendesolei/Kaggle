@@ -98,7 +98,7 @@ class CFG:
 
     spectrogram_npy = r'G:\\kaggle\birdclef-2025\output\all_bird_data_5s.npy'
  
-    model_name = 'tf_efficientnetv2_l.in21k_ft_in1k'  
+    model_name = 'tf_efficientnetv2_m.in21k_ft_in1k'  
     pretrained = True
     in_channels = 1
 
@@ -114,7 +114,7 @@ class CFG:
     FMAX = 16000
     
     device = 'cuda' #if torch.cuda.is_available() else 'cpu'
-    epochs = 10  
+    epochs = 20  
     batch_size = 16
     criterion = 'FocalLossBCE'
 
