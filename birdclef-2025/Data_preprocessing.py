@@ -30,11 +30,11 @@ class Config:
     FS = 32000
     
     # Mel spectrogram parameters
-    N_FFT = 1024
+    N_FFT = 2048
     HOP_LENGTH = 512
-    N_MELS = 128
-    FMIN = 50
-    FMAX = 14000
+    N_MELS = 512
+    FMIN = 20
+    FMAX = 16000
     
     TARGET_DURATION = 5.0
     TARGET_SHAPE = (256, 256)  
