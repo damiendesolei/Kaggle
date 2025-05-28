@@ -185,20 +185,57 @@ def audio2melspec(audio_data, cfg):
     return mel_spec_norm
 
 
-def process_audio_segment(audio_data, cfg):
-    """Process audio segment to get mel spectrogram"""
-    if len(audio_data) < cfg.FS * cfg.WINDOW_SIZE:
-        audio_data = np.pad(audio_data, 
-                          (0, cfg.FS * cfg.WINDOW_SIZE - len(audio_data)), 
-                          mode='constant')
+def process_audio_segment(audio_input, cfg):
+    """
+    Process either an audio file path or an audio array to get the mel spectrogram
     
-    mel_spec = audio2melspec(audio_data, cfg)
-    
-    # Resize if needed
-    if mel_spec.shape != cfg.TARGET_SHAPE:
-        mel_spec = cv2.resize(mel_spec, cfg.TARGET_SHAPE, interpolation=cv2.INTER_LINEAR)
+    Parameters:
+    -----------
+    audio_input : str or numpy.ndarray
+        Either a file path to an audio file or a numpy array containing audio data
+    cfg : object
+        Configuration object
         
-    return mel_spec.astype(np.float32)  
+    Returns:
+    --------
+    numpy.ndarray
+        Mel spectrogram as a numpy array
+    """
+    try:
+        # Check if audio_input is already an array
+        if isinstance(audio_input, np.ndarray):
+            audio_data = audio_input
+        else:
+            # It's a file path, load it
+            audio_data, _ = librosa.load(audio_input, sr=cfg.FS)
+
+        target_samples = int(cfg.TARGET_DURATION * cfg.FS)
+
+        if len(audio_data) < target_samples:
+            n_copy = math.ceil(target_samples / len(audio_data))
+            if n_copy > 1:
+                audio_data = np.concatenate([audio_data] * n_copy)
+
+        # Extract center 5 seconds
+        start_idx = max(0, int(len(audio_data) / 2 - target_samples / 2))
+        end_idx = min(len(audio_data), start_idx + target_samples)
+        center_audio = audio_data[start_idx:end_idx]
+
+        if len(center_audio) < target_samples:
+            center_audio = np.pad(center_audio, 
+                                 (0, target_samples - len(center_audio)), 
+                                 mode='constant')
+
+        mel_spec = audio2melspec(center_audio, cfg)
+        
+        if mel_spec.shape != cfg.TARGET_SHAPE:
+            mel_spec = cv2.resize(mel_spec, cfg.TARGET_SHAPE, interpolation=cv2.INTER_LINEAR)
+
+        return mel_spec.astype(np.float32)
+        
+    except Exception as e:
+        print(f"Error processing {audio_input}: {e}")
+        return None
     
     
     
