@@ -63,10 +63,10 @@ def get_criterion(cfg):
     return FocalLossBCE()
 class CFG:
  
-    test_soundscapes = r'G:\\kaggle\birdclef-2025train_soundscapes'
+    test_soundscapes = r'G:\\kaggle\birdclef-2025\test_soundscapes'
     submission_csv = r'G:\\kaggle\birdclef-2025\sample_submission.csv'
     taxonomy_csv = r'G:\\kaggle\birdclef-2025\taxonomy.csv'
-    model_path =  r'G:\\kaggle\birdclef-2025\models\20250528_3'
+    model_path =  r'G:\\kaggle\birdclef-2025\models\20250528_4'
 
     TARGET_DURATION = 5.0  # consistent with train
     WINDOW_SIZE = 5        # consistent with train
@@ -184,70 +184,24 @@ def audio2melspec(audio_data, cfg):
     
     return mel_spec_norm
 
-def process_audio_file(audio_path, cfg):
-    """Process a single audio file to get the mel spectrogram"""
-    try:
-        audio_data, _ = librosa.load(audio_path, sr=cfg.FS)
 
-        target_samples = int(cfg.TARGET_DURATION * cfg.FS)
-
-        if len(audio_data) < target_samples:
-            n_copy = math.ceil(target_samples / len(audio_data))
-            if n_copy > 1:
-                audio_data = np.concatenate([audio_data] * n_copy)
-
-        # Extract center 5 seconds
-        start_idx = max(0, int(len(audio_data) / 2 - target_samples / 2))
-        end_idx = min(len(audio_data), start_idx + target_samples)
-        center_audio = audio_data[start_idx:end_idx]
-
-        if len(center_audio) < target_samples:
-            center_audio = np.pad(center_audio, 
-                                 (0, target_samples - len(center_audio)), 
-                                 mode='constant')
-
-        mel_spec = audio2melspec(center_audio, cfg)
+def process_audio_segment(audio_data, cfg):
+    """Process audio segment to get mel spectrogram"""
+    if len(audio_data) < cfg.FS * cfg.WINDOW_SIZE:
+        audio_data = np.pad(audio_data, 
+                          (0, cfg.FS * cfg.WINDOW_SIZE - len(audio_data)), 
+                          mode='constant')
+    
+    mel_spec = audio2melspec(audio_data, cfg)
+    
+    # Resize if needed
+    if mel_spec.shape != cfg.TARGET_SHAPE:
+        mel_spec = cv2.resize(mel_spec, cfg.TARGET_SHAPE, interpolation=cv2.INTER_LINEAR)
         
-        if mel_spec.shape != cfg.TARGET_SHAPE:
-            mel_spec = cv2.resize(mel_spec, cfg.TARGET_SHAPE, interpolation=cv2.INTER_LINEAR)
-
-        return mel_spec.astype(np.float32)
-        
-    except Exception as e:
-        print(f"Error processing {audio_path}: {e}")
-        return None
-def process_audio_segment(audio_path, cfg):
-    """Process a single audio file to get the mel spectrogram"""
-    try:
-        audio_data, _ = librosa.load(audio_path, sr=cfg.FS)
-
-        target_samples = int(cfg.TARGET_DURATION * cfg.FS)
-
-        if len(audio_data) < target_samples:
-            n_copy = math.ceil(target_samples / len(audio_data))
-            if n_copy > 1:
-                audio_data = np.concatenate([audio_data] * n_copy)
-
-        # Extract center 5 seconds
-        start_idx = max(0, int(len(audio_data) / 2 - target_samples / 2))
-        end_idx = min(len(audio_data), start_idx + target_samples)
-        center_audio = audio_data[start_idx:end_idx]
-
-        if len(center_audio) < target_samples:
-            center_audio = np.pad(center_audio, 
-                                 (0, target_samples - len(center_audio)), 
-                                 mode='constant')
-
-        mel_spec = audio2melspec(center_audio, cfg)
-        
-        if mel_spec.shape != cfg.TARGET_SHAPE:
-            mel_spec = cv2.resize(mel_spec, cfg.TARGET_SHAPE, interpolation=cv2.INTER_LINEAR)
-
-        return mel_spec.astype(np.float32)
-        
-    except Exception as e:
-        print(f"Error processing {audio_path}: {e}")
-        return None
+    return mel_spec.astype(np.float32)  
+    
+    
+    
 def find_model_files(cfg):
     """
     Find all .pth model files in the specified model directory
@@ -260,6 +214,7 @@ def find_model_files(cfg):
         model_files.append(str(path))
     
     return model_files
+
 
 def load_models(cfg, num_classes):
     """
@@ -298,6 +253,7 @@ def load_models(cfg, num_classes):
             print(f"Error loading model {model_path}: {e}")
     
     return models
+
 
 def predict_on_spectrogram(audio_path, models, cfg, species_ids):
     """Process a single audio file and predict species presence for each 5-second segment"""
@@ -373,6 +329,8 @@ def predict_on_spectrogram(audio_path, models, cfg, species_ids):
         print(f"Error processing {audio_path}: {e}")
     
     return row_ids, predictions
+
+
 def apply_tta(spec, tta_idx):
     """Apply test-time augmentation"""
     if tta_idx == 0:
@@ -386,6 +344,7 @@ def apply_tta(spec, tta_idx):
         return np.flip(spec, axis=0)
     else:
         return spec
+
 
 def run_inference(cfg, models, species_ids):
     """Run inference on all test soundscapes"""
@@ -406,6 +365,7 @@ def run_inference(cfg, models, species_ids):
         all_predictions.extend(predictions)
     
     return all_row_ids, all_predictions
+
 
 def create_submission(row_ids, predictions, species_ids, cfg):
     """Create submission dataframe"""
@@ -433,6 +393,7 @@ def create_submission(row_ids, predictions, species_ids, cfg):
     submission_df = submission_df.reset_index()
     
     return submission_df
+
 def main():
     start_time = time.time()
     print("Starting BirdCLEF-2025 inference...")
@@ -456,5 +417,6 @@ def main():
     
     end_time = time.time()
     print(f"Inference completed in {(end_time - start_time)/60:.2f} minutes")
+    
 if __name__ == "__main__":
     main()
