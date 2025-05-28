@@ -328,7 +328,7 @@ class BirdCLEFDatasetFromNPY(Dataset):
         """Apply augmentations to spectrogram"""
     
         # Time masking (horizontal stripes)
-        if random.random() < 0.5:
+        if random.random() < 0.7:
             num_masks = random.randint(1, 3)
             for _ in range(num_masks):
                 width = random.randint(5, 20)
@@ -336,7 +336,7 @@ class BirdCLEFDatasetFromNPY(Dataset):
                 spec[0, :, start:start+width] = 0
         
         # Frequency masking (vertical stripes)
-        if random.random() < 0.5:
+        if random.random() < 0.7:
             num_masks = random.randint(1, 3)
             for _ in range(num_masks):
                 height = random.randint(5, 20)
@@ -344,7 +344,7 @@ class BirdCLEFDatasetFromNPY(Dataset):
                 spec[0, start:start+height, :] = 0
         
         # Random brightness/contrast
-        if random.random() < 0.5:
+        if random.random() < 0.7:
             gain = random.uniform(0.8, 1.2)
             bias = random.uniform(-0.1, 0.1)
             spec = spec * gain + bias
@@ -352,7 +352,7 @@ class BirdCLEFDatasetFromNPY(Dataset):
             
             
         # Time warping - new 20250522
-        if random.random() < 0.5:
+        if random.random() < 0.7:
             shift_amt = random.randint(-3, 3)
             spec = torch.roll(spec, shifts=shift_amt, dims=2)
         
@@ -370,7 +370,7 @@ class BirdCLEFDatasetFromNPY(Dataset):
         # if random.random() < 0.5:
         #     noise = torch.randn_like(spec) * random.uniform(0.01, 0.05)
         #     spec = torch.clamp(spec + noise, 0, 1)  
-        if random.random() < 0.5:
+        if random.random() < 0.7:
             kernel_size = random.choice([3,5])
             sigma = random.uniform(0.1, 1.0)
             spec = torch.from_numpy(
@@ -378,14 +378,14 @@ class BirdCLEFDatasetFromNPY(Dataset):
             )
 
         # random noise (simulat environmental noise)
-        if random.random() < 0.5:
+        if random.random() < 0.7:
             noise_level = random.uniform(0.01, 0.05)
             spec += torch.randn_like(spec) * noise_level
             spec = torch.clamp(spec, 0, 1)
     
     
         # # Random Cutout (most effective for AUC improvement) - new 20250522
-        # if random.random() < 0.3:
+        # if random.random() < 0.5:
         #     cutout_width = random.randint(20, 40)
         #     cutout_height = random.randint(20, 40)
         #     x_start = random.randint(0, spec.shape[2] - cutout_width)
