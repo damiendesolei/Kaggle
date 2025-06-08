@@ -98,7 +98,7 @@ class CFG:
 
     spectrogram_npy = r'G:\\kaggle\birdclef-2025\output\all_bird_data_5s.npy'
  
-    model_name = 'efficientnet_b0'  
+    model_name = 'tf_efficientnetv2_b0'  
     pretrained = True
     in_channels = 1
 
@@ -114,12 +114,12 @@ class CFG:
     FMAX = 16000
     
     device = 'cuda' #if torch.cuda.is_available() else 'cpu'
-    epochs = 10 
+    epochs = 10
     batch_size = 16
     criterion = 'FocalLossBCE'
 
-    n_fold = 4
-    selected_folds = [0, 1, 2, 3]   
+    n_fold = 3
+    selected_folds = [0, 1, 2]   
 
     optimizer = 'AdamW'
     lr = 5e-4 
@@ -328,7 +328,7 @@ class BirdCLEFDatasetFromNPY(Dataset):
         """Apply augmentations to spectrogram"""
     
         # Time masking (horizontal stripes)
-        if random.random() < 0.5:
+        if random.random() < 0.7:
             num_masks = random.randint(1, 3)
             for _ in range(num_masks):
                 width = random.randint(5, 20)
@@ -336,7 +336,7 @@ class BirdCLEFDatasetFromNPY(Dataset):
                 spec[0, :, start:start+width] = 0
         
         # Frequency masking (vertical stripes)
-        if random.random() < 0.5:
+        if random.random() < 0.7:
             num_masks = random.randint(1, 3)
             for _ in range(num_masks):
                 height = random.randint(5, 20)
@@ -344,7 +344,7 @@ class BirdCLEFDatasetFromNPY(Dataset):
                 spec[0, start:start+height, :] = 0
         
         # Random brightness/contrast
-        if random.random() < 0.5:
+        if random.random() < 0.7:
             gain = random.uniform(0.8, 1.2)
             bias = random.uniform(-0.1, 0.1)
             spec = spec * gain + bias
@@ -352,7 +352,7 @@ class BirdCLEFDatasetFromNPY(Dataset):
             
             
         # Time warping - new 20250522
-        if random.random() < 0.5:
+        if random.random() < 0.7:
             shift_amt = random.randint(-3, 3)
             spec = torch.roll(spec, shifts=shift_amt, dims=2)
         
@@ -370,7 +370,7 @@ class BirdCLEFDatasetFromNPY(Dataset):
         # if random.random() < 0.5:
         #     noise = torch.randn_like(spec) * random.uniform(0.01, 0.05)
         #     spec = torch.clamp(spec + noise, 0, 1)  
-        if random.random() < 0.5:
+        if random.random() < 0.7:
             kernel_size = random.choice([3,5])
             sigma = random.uniform(0.1, 1.0)
             spec = torch.from_numpy(
@@ -378,19 +378,19 @@ class BirdCLEFDatasetFromNPY(Dataset):
             )
 
         # random noise (simulat environmental noise)
-        if random.random() < 0.5:
+        if random.random() < 0.7:
             noise_level = random.uniform(0.01, 0.05)
             spec += torch.randn_like(spec) * noise_level
             spec = torch.clamp(spec, 0, 1)
     
     
-        # # Random Cutout (most effective for AUC improvement) - new 20250522
-        # if random.random() < 0.5:
-        #     cutout_width = random.randint(20, 40)
-        #     cutout_height = random.randint(20, 40)
-        #     x_start = random.randint(0, spec.shape[2] - cutout_width)
-        #     y_start = random.randint(0, spec.shape[1] - cutout_height)
-        #     spec[0, y_start:y_start+cutout_height, x_start:x_start+cutout_width] = 0         
+        # Random Cutout (most effective for AUC improvement) - new 20250522
+        if random.random() < 0.7:
+            cutout_width = random.randint(20, 40)
+            cutout_height = random.randint(20, 40)
+            x_start = random.randint(0, spec.shape[2] - cutout_width)
+            y_start = random.randint(0, spec.shape[1] - cutout_height)
+            spec[0, y_start:y_start+cutout_height, x_start:x_start+cutout_width] = 0         
             
             
         return spec
@@ -443,8 +443,8 @@ class BirdCLEFModel(nn.Module):
             cfg.model_name,
             pretrained=cfg.pretrained,
             in_chans=cfg.in_channels,
-            drop_rate=0.2,  # higher -> more regularization
-            drop_path_rate=0.2  # higher -> more regularization
+            drop_rate=0.1,  # higher -> more regularization
+            drop_path_rate=0.1  # higher -> more regularization
         )
         
         if 'efficientnet' in cfg.model_name:
