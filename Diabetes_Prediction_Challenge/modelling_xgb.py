@@ -4,6 +4,8 @@ Created on Mon Dec  8 12:59:31 2025
 
 @author: zrj-desktop
 """
+#import warnings
+#warnings.simplefilter('ignore')
 
 import pandas as pd
 import numpy as np
@@ -18,6 +20,155 @@ pd.set_option('display.max_columns', None)
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+#https://www.kaggle.com/code/masayakawamata/s5e12-eda-xgb-competition-starter#4.2.-Robust-Target-Encoder-with-Internal-CV 
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.model_selection import KFold
+
+class TargetEncoder(BaseEstimator, TransformerMixin):
+    """
+    Target Encoder that supports multiple aggregation functions,
+    internal cross-validation for leakage prevention, and smoothing.
+
+    Parameters
+    ----------
+    cols_to_encode : list of str
+        List of column names to be target encoded.
+
+    aggs : list of str, default=['mean']
+        List of aggregation functions to apply. Any function accepted by
+        pandas' `.agg()` method is supported, such as:
+        'mean', 'std', 'var', 'min', 'max', 'skew', 'nunique', 
+        'count', 'sum', 'median'.
+        Smoothing is applied only to the 'mean' aggregation.
+
+    cv : int, default=5
+        Number of folds for cross-validation in fit_transform.
+
+    smooth : float or 'auto', default='auto'
+        The smoothing parameter `m`. A larger value puts more weight on the 
+        global mean. If 'auto', an empirical Bayes estimate is used.
+        
+    drop_original : bool, default=False
+        If True, the original columns to be encoded are dropped.
+    """
+    def __init__(self, cols_to_encode, aggs=['mean'], cv=5, smooth='auto', drop_original=False):
+        self.cols_to_encode = cols_to_encode
+        self.aggs = aggs
+        self.cv = cv
+        self.smooth = smooth
+        self.drop_original = drop_original
+        self.mappings_ = {}
+        self.global_stats_ = {}
+
+    def fit(self, X, y):
+        """
+        Learn mappings from the entire dataset.
+        These mappings are used for the transform method on validation/test data.
+        """
+        temp_df = X.copy()
+        temp_df['target'] = y
+
+        # Learn global statistics for each aggregation
+        for agg_func in self.aggs:
+            self.global_stats_[agg_func] = y.agg(agg_func)
+
+        # Learn category-specific mappings
+        for col in self.cols_to_encode:
+            self.mappings_[col] = {}
+            for agg_func in self.aggs:
+                mapping = temp_df.groupby(col)['target'].agg(agg_func)
+                self.mappings_[col][agg_func] = mapping
+        
+        return self
+
+    def transform(self, X):
+        """
+        Apply learned mappings to the data.
+        Unseen categories are filled with global statistics.
+        """
+        X_transformed = X.copy()
+        for col in self.cols_to_encode:
+            for agg_func in self.aggs:
+                new_col_name = f'TE_{col}_{agg_func}'
+                map_series = self.mappings_[col][agg_func]
+                X_transformed[new_col_name] = X[col].map(map_series).fillna(self.global_stats_[agg_func])
+        
+        if self.drop_original:
+            X_transformed = X_transformed.drop(columns=self.cols_to_encode)
+            
+        return X_transformed
+
+    def fit_transform(self, X, y):
+        """
+        Fit and transform the data using internal cross-validation to prevent leakage.
+        """
+        # First, fit on the entire dataset to get global mappings for transform method
+        self.fit(X, y)
+
+        # Initialize an empty DataFrame to store encoded features
+        encoded_features = pd.DataFrame(index=X.index)
+        
+        kf = KFold(n_splits=self.cv, shuffle=True, random_state=42)
+
+        for train_idx, val_idx in kf.split(X, y):
+            X_train, y_train = X.iloc[train_idx], y.iloc[train_idx]
+            X_val = X.iloc[val_idx]
+            
+            temp_df_train = X_train.copy()
+            temp_df_train['target'] = y_train
+
+            for col in self.cols_to_encode:
+                # --- Calculate mappings only on the training part of the fold ---
+                for agg_func in self.aggs:
+                    new_col_name = f'TE_{col}_{agg_func}'
+                    
+                    # Calculate global stat for this fold
+                    fold_global_stat = y_train.agg(agg_func)
+                    
+                    # Calculate category stats for this fold
+                    mapping = temp_df_train.groupby(col)['target'].agg(agg_func)
+
+                    # --- Apply smoothing only for 'mean' aggregation ---
+                    if agg_func == 'mean':
+                        counts = temp_df_train.groupby(col)['target'].count()
+                        
+                        m = self.smooth
+                        if self.smooth == 'auto':
+                            # Empirical Bayes smoothing
+                            variance_between = mapping.var()
+                            avg_variance_within = temp_df_train.groupby(col)['target'].var().mean()
+                            if variance_between > 0:
+                                m = avg_variance_within / variance_between
+                            else:
+                                m = 0  # No smoothing if no variance between groups
+                        
+                        # Apply smoothing formula
+                        smoothed_mapping = (counts * mapping + m * fold_global_stat) / (counts + m)
+                        encoded_values = X_val[col].map(smoothed_mapping)
+                    else:
+                        encoded_values = X_val[col].map(mapping)
+                    
+                    # Store encoded values for the validation fold
+                    encoded_features.loc[X_val.index, new_col_name] = encoded_values.fillna(fold_global_stat)
+
+        # Merge with original DataFrame
+        X_transformed = X.copy()
+        for col in encoded_features.columns:
+            X_transformed[col] = encoded_features[col]
+            
+        if self.drop_original:
+            X_transformed = X_transformed.drop(columns=self.cols_to_encode)
+            
+        return X_transformed
+
+
+
+
+
+
+
+
+
 
 
 PATH = 'G:/kaggle/Diabetes_Prediction_Challenge/playground-series-s5e12/'
@@ -25,6 +176,8 @@ PATH = 'G:/kaggle/Diabetes_Prediction_Challenge/playground-series-s5e12/'
 
 train = pd.read_csv(PATH + 'train.csv')
 test = pd.read_csv(PATH + 'test.csv')
+
+
 
 
 
@@ -46,7 +199,7 @@ test = pd.read_csv(PATH + 'test.csv')
 #Gender
 def encode_gender(df):
     df['gender_Other'] = df['gender'].apply(lambda x: 1 if x == 'Other' else 0)
-    df['gender_Female'] = df['gender'].apply(lambda x: 1 if x == 'Female' else 0)
+    df['gender_Male'] = df['gender'].apply(lambda x: 1 if x == 'Male' else 0)
     return df
 
 
@@ -94,16 +247,36 @@ def encode_employment_status(df):
 
 
 #### Process ####
-train['label'] = 'train'
-test['label'] = 'test'
-df = pd.concat([train, test], ignore_index=True)
+# train['label'] = 'train'
+# test['label'] = 'test'
+# df = pd.concat([train, test], ignore_index=True)
 
-df = encode_gender(df) 
-df = encode_ethnicity(df)
-df = encode_education_level(df)
-df = encode_income_level(df)
-df = encode_smoking_status(df)
-df = encode_employment_status(df)
+# df = encode_gender(df) 
+# df = encode_ethnicity(df)
+# df = encode_education_level(df)
+# df = encode_income_level(df)
+# df = encode_smoking_status(df)
+# df = encode_employment_status(df)
+
+TE_COLS = ['gender', 'ethnicity', 'education_level', 'income_level', 'smoking_status', 'employment_status']
+
+#### Reduce RAM ####
+import gc
+def reduce_mem_usage(df):
+    for col in df.columns:
+        col_type = df[col].dtype
+        if col_type != object and col_type.name != 'category':
+            c_min = df[col].min()
+            c_max = df[col].max()
+            if str(col_type)[:3] == 'int':
+                if c_min > np.iinfo(np.int32).min and c_max < np.iinfo(np.int32).max:
+                    df[col] = df[col].astype(np.int32)
+            else:
+                if c_min > np.finfo(np.float32).min and c_max < np.finfo(np.float32).max:
+                    df[col] = df[col].astype(np.float32)
+    return df
+
+
 
 
 
@@ -115,23 +288,29 @@ FEATURES = ['age', 'alcohol_consumption_per_week',
        'cholesterol_total', 'hdl_cholesterol', 'ldl_cholesterol',
        'triglycerides',
        'family_history_diabetes', 'hypertension_history',
-       'cardiovascular_history', 'gender_Other',
-       'gender_Female', 'ethnicity_Hispanic', 'ethnicity_Black',
-       'ethnicity_Asian', 'ethnicity_Other', 'education_level_Graduate',
-       'education_level_Postgraduate', 'education_level_No_formal',
-       'income_level_Lower_Middle', 'income_level_Upper_Middle',
-       'income_level_Low', 'income_level_High', 'smoking_status_Current',
-       'smoking_status_Former',
-       'employment_status_Retired',
-       'employment_status_Unemployed', 'employment_status_Student']
+       'cardiovascular_history', 
+       # 'gender_Other',
+       # 'gender_Female', 'ethnicity_Hispanic', 'ethnicity_Black',
+       # 'ethnicity_Asian', 'ethnicity_Other', 'education_level_Graduate',
+       # 'education_level_Postgraduate', 'education_level_No_formal',
+       # 'income_level_Lower_Middle', 'income_level_Upper_Middle',
+       # 'income_level_Low', 'income_level_High', 'smoking_status_Current',
+       # 'smoking_status_Former',
+       # 'employment_status_Retired',
+       # 'employment_status_Unemployed', 'employment_status_Student'
+       'TE_gender_mean', 'TE_ethnicity_mean', 'TE_income_level_mean', 
+       'TE_smoking_status_mean', 'TE_employment_status_mean'
+]
+
+
 
 
 
 #### Create local valid ####
-train = df[df.label=='train']
-test = df[df.label=='test']
+# train = df[df.label=='train']
+# test = df[df.label=='test']
 
-tr, val = train_test_split(train, test_size=0.15, stratify=train['diagnosed_diabetes'], random_state=2025)
+tr, val = train_test_split(train, test_size=0.10, stratify=train['diagnosed_diabetes'], random_state=2025)
 tr = tr.reset_index(drop=True)
 val = val.reset_index(drop=True)
 print('tr shape:', tr.shape)
@@ -140,18 +319,21 @@ print('val shape:', val.shape)
 
 
 #### Hyper Param ####
-STUDY = False
-N_HOUR = 5
+STUDY = True
+N_HOUR = 3
 
 if STUDY:
     # Hyper parameter tuning
     def objective(trial):
         # Define hyperparameters
-        n_estimators = trial.suggest_int('n_estimators', 100, 500, step=100)
+        
+        n_estimators = 500
+        #n_estimators = trial.suggest_int('n_estimators', 100, 500, step=100)
         param = {
             'objective': 'binary:logistic',
             'eval_metric': 'auc',
-            'tree_method': 'exact',
+            #'tree_method': 'exact',
+            'tree_method': 'gpu_hist',
             #'grow_policy': 'lossguide',
             
             'max_depth': trial.suggest_int('max_depth', 2, 24, step=1),
@@ -165,6 +347,7 @@ if STUDY:
             'seed': 2025,
             'verbosity': 0,
             "disable_default_eval_metric": 1,  # Disable default eval metric logs
+            'device': 'cuda'
         }
     
         # Set up K-Fold cross-validation
@@ -173,12 +356,18 @@ if STUDY:
     
         for train_idx, val_idx in skf.split(tr, tr['diagnosed_diabetes']):
             # Split data into training and validation sets
-            X_train_fold, X_val_fold = tr[FEATURES].iloc[train_idx], tr[FEATURES].iloc[val_idx]
+            X_train_fold, X_val_fold = tr.iloc[train_idx], tr.iloc[val_idx]
             y_train_fold, y_val_fold = tr['diagnosed_diabetes'].iloc[train_idx], tr['diagnosed_diabetes'].iloc[val_idx]
             
+            # Target encode within each fold
+            if len(TE_COLS) > 0:
+                TE = TargetEncoder(cols_to_encode=TE_COLS, cv=5, smooth='auto', aggs=['mean'], drop_original=True)
+                X_train_fold = TE.fit_transform(X_train_fold, y_train_fold)
+                X_val_fold = TE.transform(X_val_fold)
+            
             # Create XGBoost DMatrix
-            dtrain = xgb.DMatrix(X_train_fold, label=y_train_fold)
-            dvalid = xgb.DMatrix(X_val_fold, label=y_val_fold)
+            dtrain = xgb.DMatrix(X_train_fold[FEATURES], label=y_train_fold)
+            dvalid = xgb.DMatrix(X_val_fold[FEATURES], label=y_val_fold)
             
             # Train XGBoost model
             model = xgb.train(
@@ -228,24 +417,26 @@ if STUDY:
 #### Fit on full data ####
 if not STUDY:
     xgb_params = {
-        'n_estimators': 300, 
-        'max_depth': 11, 
-        'learning_rate': 0.019572698015238758, 
-        'colsample_bytree': 0.8, 
-        'subsample': 0.9, 
-        'alpha': 0.019746604283135488, 
-        'lambda': 0.03763923955255857,
+        'n_estimators': 500, 
+        'max_depth': 5, 
+        'learning_rate': 0.09596056849177695, 
+        'colsample_bytree': 0.6, 
+        'subsample': 1, 
+        'alpha': 0.008025776130982414, 
+        'lambda': 0.01707429416017424,
         #'grow_policy': 'lossguide',
         'objective': 'binary:logistic',
         'eval_metric': 'auc',
+        'tree_method': 'gpu_hist',
+        'device': 'cuda',
         'random_state': 2025,
         'verbosity': 0,
-        'use_label_encoder': False,
+        #'use_label_encoder': False,
         'early_stopping_rounds': 100
     }
 
 # Load the training data
-X = train[FEATURES]
+X = train#[FEATURES]
 y = train['diagnosed_diabetes']
 
 # skf
@@ -261,7 +452,7 @@ valid_aucs = []
 # Convert best_params to XGBoost classifier parameters
 if STUDY:
     xgb_params = {
-        'n_estimators': best_params['n_estimators'],
+        'n_estimators': 500, #best_params['n_estimators'],
         'max_depth': best_params['max_depth'],
         'learning_rate': best_params['learning_rate'],
         #'max_leaves': best_params['max_leaves'],
@@ -269,7 +460,7 @@ if STUDY:
         'subsample': best_params['subsample'],
         'reg_alpha': best_params['alpha'],
         'reg_lambda': best_params['lambda'],
-        'tree_method': 'exact',
+        'tree_method': 'gpu_hist',
         #'grow_policy': 'lossguide',
         'objective': 'binary:logistic',
         'eval_metric': 'auc',
@@ -284,23 +475,32 @@ for fold, (train_idx, valid_idx) in enumerate(skf.split(X, y)):
     print(f"Training fold {fold + 1}")
     X_train_fold, X_valid_fold = X.iloc[train_idx], X.iloc[valid_idx]
     y_train_fold, y_valid_fold = y.iloc[train_idx], y.iloc[valid_idx]
+    X_test_fold = test.copy() 
+    
+    # Target encode within each fold
+    if len(TE_COLS) > 0:
+        TE = TargetEncoder(cols_to_encode=TE_COLS, cv=5, smooth='auto', aggs=['mean'], drop_original=True)
+        X_train_fold = TE.fit_transform(X_train_fold, y_train_fold)
+        X_valid_fold = TE.transform(X_valid_fold)
+        X_test_fold = TE.transform(X_test_fold) # same encoding for test
+    
 
     # Initialize and train the model
     model = xgb.XGBClassifier(**xgb_params)
     model.fit(
-        X_train_fold, y_train_fold,
-        eval_set=[(X_valid_fold, y_valid_fold)],
+        X_train_fold[FEATURES], y_train_fold,
+        eval_set=[(X_valid_fold[FEATURES], y_valid_fold)],
         verbose=False
     )
     
     # Generate validation predictions
-    y_pred_valid = model.predict_proba(X_valid_fold)[:, 1]  # Get probability of positive class
+    y_pred_valid = model.predict_proba(X_valid_fold[FEATURES])[:, 1]  # Get probability of positive class
     fold_auc = roc_auc_score(y_valid_fold, y_pred_valid)
     valid_aucs.append(fold_auc)
     oof_predictions[valid_idx] = y_pred_valid
 
     # Generate test predictions and accumulate
-    test_pred = model.predict_proba(test[FEATURES])[:, 1]
+    test_pred = model.predict_proba(X_test_fold[FEATURES])[:, 1]
     test_predictions += test_pred / skf.n_splits
 
     # Save model and feature importance
