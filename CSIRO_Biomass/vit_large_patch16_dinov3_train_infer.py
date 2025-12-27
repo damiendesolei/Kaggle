@@ -45,7 +45,7 @@ KFOLD_SEED = 2025
 MODEL_NAME = 'vit_large_patch16_dinov3_qkvb.lvd1689m'
 
 ## Training Hyper Params
-LR = 1e-3
+LR = 0.5*1e-3
 
 ## Model Output
 OUTPUT_DIR = 'G:/kaggle/CSIRO_Biomass/models/vit_large_patch16_dinov3_qkvb/'
