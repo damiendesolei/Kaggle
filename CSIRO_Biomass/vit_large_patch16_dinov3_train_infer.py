@@ -38,7 +38,7 @@ if LOCAL:
 
 ## CV
 CV_STRATEGY = 'groupby_Sampling_Date'  # groupby_Sampling_Date
-NFOLD = 4
+NFOLD = 6
 KFOLD_SEED = 2025
 
 ## Model
