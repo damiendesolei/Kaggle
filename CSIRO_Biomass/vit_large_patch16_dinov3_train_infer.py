@@ -38,7 +38,7 @@ if LOCAL:
 
 ## CV
 CV_STRATEGY = 'groupby_Sampling_Date'  # groupby_Sampling_Date
-NFOLD = 6
+NFOLD = 5
 KFOLD_SEED = 2025
 
 ## Model
@@ -412,7 +412,7 @@ def train_fold(data, fold):
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     
     # Hyperparameters
-    batch_size = 8
+    batch_size = 9
     lr = LR
     patience = 10
     num_epochs = 5 if DEBUG else 100
