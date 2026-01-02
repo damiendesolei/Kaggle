@@ -38,7 +38,7 @@ if LOCAL:
 
 ## CV
 CV_STRATEGY = 'groupby_Sampling_Date'  # groupby_Sampling_Date
-NFOLD = 5
+NFOLD = 4
 KFOLD_SEED = 2025
 
 ## Model
@@ -122,7 +122,7 @@ agg_train_df['Sampling_Date_Month'] = agg_train_df.Sampling_Date.apply(lambda x:
 # tail_df = agg_train_df.iloc[half_num:].reset_index(drop=True)
 # head_df.shape[0], tail_df.shape[0], len(set(head_df.idx) | set(tail_df.idx)) # cehck split
 
-KFoldClass = StratifiedGroupKFold if CV_STRATEGY == 'groupby_Sampling_Date' else KFold
+KFoldClass = StratifiedGroupKFold #if CV_STRATEGY == 'groupby_Sampling_Date' else KFold
 kfold = KFoldClass(n_splits=NFOLD, shuffle=True, random_state=KFOLD_SEED)
 
 agg_train_df['fold'] = None
@@ -137,6 +137,7 @@ for i, (trn_idx, val_idx) in enumerate(kfold.split(agg_train_df.index, y=agg_tra
     flag = val_df.Sampling_Date_Month.isin(trn_df.Sampling_Date_Month)
     print(f'trn({trn_df.shape[0]}) -> val({val_df.shape[0]}): {trn_months} -> {val_months} with {flag.mean()} of train in valid')
     
+   
     
 
     
