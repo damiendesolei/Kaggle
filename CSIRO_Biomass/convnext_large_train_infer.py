@@ -45,7 +45,7 @@ KFOLD_SEED = 2025
 MODEL_NAME = 'convnext_small.fb_in22k_ft_in1k_384'
 
 ## Training Hyper Params
-LR = 1e-6
+LR = 0.5*1e-5
 
 ## Model Output
 OUTPUT_DIR = 'G:/kaggle/CSIRO_Biomass/models/convnext_small/'
