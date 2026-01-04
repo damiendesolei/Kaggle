@@ -38,14 +38,14 @@ if LOCAL:
 
 ## CV
 CV_STRATEGY = 'groupby_Sampling_Date'  # groupby_Sampling_Date
-NFOLD = 6
+NFOLD = 4
 KFOLD_SEED = 66
 
 ## Model
 MODEL_NAME = 'convnext_small.fb_in22k_ft_in1k_384'
 
 ## Training Hyper Params
-LR = 1e-5
+LR = 0.5*1e-5
 
 ## Model Output
 OUTPUT_DIR = 'G:/kaggle/CSIRO_Biomass/models/convnext_small/'
@@ -257,7 +257,7 @@ class FiLM(nn.Module):
     
     
 class MultiTargetRegressor(nn.Module):
-    def __init__(self, model_name, pretrained=True, num_classes=3, dropout=0.0, freeze_backbone=False):
+    def __init__(self, model_name, pretrained=True, num_classes=3, dropout=0.2, freeze_backbone=False):
         super().__init__()
         self.backbone = timm.create_model(model_name, pretrained=pretrained, num_classes=0, global_pool='avg')
         
