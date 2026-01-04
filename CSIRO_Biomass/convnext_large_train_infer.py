@@ -39,7 +39,7 @@ if LOCAL:
 ## CV
 CV_STRATEGY = 'groupby_Sampling_Date'  # groupby_Sampling_Date
 NFOLD = 4
-KFOLD_SEED = 2025
+KFOLD_SEED = 66
 
 ## Model
 MODEL_NAME = 'convnext_small.fb_in22k_ft_in1k_384'
@@ -123,7 +123,7 @@ agg_train_df['Sampling_Date_Month'] = agg_train_df.Sampling_Date.apply(lambda x:
 # head_df.shape[0], tail_df.shape[0], len(set(head_df.idx) | set(tail_df.idx)) # cehck split
 
 KFoldClass = StratifiedGroupKFold #if CV_STRATEGY == 'groupby_Sampling_Date' else KFold
-kfold = KFoldClass(n_splits=NFOLD, shuffle=True, random_state=KFOLD_SEED)
+kfold = KFoldClass(n_splits=NFOLD, shuffle=True, random_state=2025)
 
 agg_train_df['fold'] = None
 for i, (trn_idx, val_idx) in enumerate(kfold.split(agg_train_df.index, y=agg_train_df.State, groups=agg_train_df.Sampling_Date)):
