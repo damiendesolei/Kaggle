@@ -38,14 +38,14 @@ if LOCAL:
 
 ## CV
 CV_STRATEGY = 'groupby_Sampling_Date'  # groupby_Sampling_Date
-NFOLD = 4
+NFOLD = 6
 KFOLD_SEED = 66
 
 ## Model
 MODEL_NAME = 'convnext_small.fb_in22k_ft_in1k_384'
 
 ## Training Hyper Params
-LR = 0.5*1e-5
+LR = 1e-5
 
 ## Model Output
 OUTPUT_DIR = 'G:/kaggle/CSIRO_Biomass/models/convnext_small/'
