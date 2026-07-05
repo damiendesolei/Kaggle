@@ -224,8 +224,11 @@ def build_features_for_well(wid, split, test_eval_idx=None):
     # Static per-well features (broadcast).
     static = {
         "last_known_TVT": last_TVT,
-        "last_known_MD": last_MD, "last_known_X": last_X, "last_known_Y": last_Y,
-        "last_known_Z": last_Z, "last_known_GR": last_GR,
+        "last_known_MD": last_MD, 
+        "last_known_X": last_X, 
+        "last_known_Y": last_Y,
+        "last_known_Z": last_Z, 
+        "last_known_GR": last_GR,
         "vis_n_rows": vis_n,
         "vis_md_range": float(visible["MD"].max() - visible["MD"].min()),
         "vis_TVT_min": float(np.nanmin(vis_TVT)),
@@ -460,18 +463,19 @@ study.optimize(objective, timeout=1*3600) # 1 hour
 print("Best hyperparameters:", study.best_params)
 print("Best average rmse:", study.best_value)
 
+
 # Get the best parameters and score
-best_params = study.best_params
+#best_params = study.best_params
 best_score = study.best_value
 
 # Format the file name with the best score
-file_name = f"lgb_rogii_parameters_{best_score:.6f}.csv"
+#file_name = f"lgb_rogii_parameters_{best_score:.6f}.csv"
 
 # Save the best parameters to a CSV file
-df_param = pd.DataFrame([best_params])  # Convert to DataFrame
-df_param.to_csv(file_name, index=False)  # Save to CSV
-
-print(f"Best parameters saved to {file_name}")
+#df_param = pd.DataFrame([best_params])  # Convert to DataFrame
+#df_param.to_csv(file_name, index=False)  # Save to CSV
+study.trials_dataframe().to_csv(f"lgb_rogii_{best_score:.6f}.csv", index=False)
+#print(f"Best parameters saved to {file_name}")
 
 
 
