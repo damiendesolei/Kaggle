@@ -35,7 +35,7 @@ LGB_PARAMS = dict(
     bagging_fraction=0.85,
     bagging_freq=5,
     lambda_l2=1.0,
-    verbose=1,
+    verbose=0,
     seed=42,
     device_type='gpu'
 )
@@ -255,8 +255,10 @@ def build_features_for_well(wid, split, test_eval_idx=None):
     # Per-row dynamic features.
     cur["md_from_ps"] = cur["MD"].values - last_MD
     cur["z_from_ps"]  = cur["Z"].values - last_Z
-    cur["dxy_from_ps"] = np.sqrt((cur["X"].values - last_X)**2 +
-                                  (cur["Y"].values - last_Y)**2)
+    cur["dxy_from_ps"] = np.sqrt((cur["X"].values - last_X)**2 + (cur["Y"].values - last_Y)**2)
+    cur['dxyz_from_ps'] = np.sqrt((cur["X"].values - last_X)**2 + 
+                              (cur["Y"].values - last_Y)**2 +
+                              (cur["Z"].values - last_Z)) # CZ:20260701 
     cur["row_from_ps"] = cur["row_index"].values - (ps_idx if ps_idx is not None else 0)
     cur["row_frac"]    = cur["row_index"].values / max(len(h) - 1, 1)
     cur["GR_norm"]     = (cur["GR"].values - pw_gr_med) / pw_gr_std
@@ -293,6 +295,17 @@ def build_features_for_well(wid, split, test_eval_idx=None):
     
     # Centred rolling GR statistics over all rows of the well (uses eval-zone GR too,
     # which is available at inference). Window = 25 rows.
+    
+    # GR before interpolation  CZ:20260704
+    gr_full_original = h["GR"].values
+    gr_series_original = pd.Series(gr_full_original)
+    roll_mean_original = gr_series_original.rolling(25, min_periods=1).mean().values
+    roll_std_original = gr_series_original.rolling(25, min_periods=1).std().fillna(0.0).values
+    cur["roll_GR_orig_mean25"] = roll_mean_original[sel_idx]
+    cur["roll_GR_orig_std25"]  = roll_std_original[sel_idx]
+    cur["roll_GR_orig_mean25_diff"] = cur["roll_GR_orig_mean25"].diff()
+    
+    # GR after interpolation
     gr_full = h["GR"].values
     gr_series = pd.Series(gr_full).interpolate(limit_direction="both")
     roll_mean = gr_series.rolling(25, center=True, min_periods=1).mean().values
@@ -326,6 +339,7 @@ train_df = pd.concat(train_parts, ignore_index=True)
 del train_parts; gc.collect()
 print(f"\nTrain feature matrix: {train_df.shape}  (built in {time.time()-t0:.1f}s)")
 print(train_df.head(2))
+train_df.to_csv("train_df.csv", index=False)
 
 
 # Define the feature column list.
