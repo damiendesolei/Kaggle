@@ -15,12 +15,15 @@ import matplotlib.pyplot as plt
 
 import lightgbm as lgb
 from sklearn.model_selection import GroupKFold
+import optuna
+from optuna.samplers import TPESampler
 
 warnings.filterwarnings("ignore")
 pd.set_option("display.max_columns", 100)
 pd.set_option("display.max_colwidth", 120)
 
-RNG = np.random.default_rng(42)
+SEED = 42
+RNG = np.random.default_rng(SEED)
 
 
 TUNE = True
@@ -36,7 +39,7 @@ LGB_PARAMS = dict(
     bagging_freq=5,
     lambda_l2=1.0,
     verbose=0,
-    seed=42,
+    seed=SEED,
     device_type='gpu'
 )
 NUM_BOOST_ROUND = 2000
@@ -385,6 +388,90 @@ for k, wid in enumerate(test_wells):
 test_df = pd.concat(test_parts, ignore_index=True) if test_parts else pd.DataFrame()
 print(f"\nTest feature matrix: {test_df.shape}  (built in {time.time()-t0:.1f}s)")
 
+
+
+
+############### Hyper ##############
+gkf = GroupKFold(n_splits=N_FOLDS)
+# Precompute the folds once so every trial uses the identical split.
+cv_folds = list(gkf.split(X_train, y_train, groups=groups))
+
+def objective(trial):
+    # Define parameter search space
+    param = {
+        "objective": "regression",
+        #"n_estimators": trial.suggest_categorical("n_estimators", [500, 1000, 1500, 2000]),
+        "metric": "rmse",  
+        "boosting_type": trial.suggest_categorical("boosting_type", ["gbdt", "dart"]),
+        "num_leaves": trial.suggest_int("num_leaves", 8, 256),
+        "learning_rate": trial.suggest_loguniform("learning_rate", 1e-3, 1e-1),
+        "feature_fraction": trial.suggest_categorical("feature_fraction", [0.8, 0.85, 0.9, 0.95]),
+        "bagging_fraction": trial.suggest_categorical("bagging_fraction", [0.8, 0.85, 0.9, 0.95]),
+        "bagging_freq": trial.suggest_int("bagging_freq", 5, 12),
+        "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 10, 200),
+        "max_depth": trial.suggest_int("max_depth", -1, 32),  # -1 means no limit
+        "lambda_l1": trial.suggest_float("lambda_l1", 1e-8, 10, log=True),
+        "lambda_l2": trial.suggest_float("lambda_l2", 1e-8, 10, log=True),
+        #"min_split_gain": trial.suggest_float("min_split_gain", 1e-8, 1.0, log=True),
+        "device_type": "gpu",  # Enable GPU support
+        "verbosity": -1,
+        "seed" : SEED
+
+    }
+
+    fold_rmse_tvt = []
+    for fold, (tr_idx, va_idx) in enumerate(cv_folds):
+        dtrain = lgb.Dataset(X_train[tr_idx], y_train[tr_idx], feature_name=feature_cols)
+        dvalid = lgb.Dataset(X_train[va_idx], y_train[va_idx], feature_name=feature_cols, reference=dtrain)
+
+        model = lgb.train(
+            param, dtrain,
+            num_boost_round=NUM_BOOST_ROUND,
+            valid_sets=[dvalid],
+            valid_names=["valid"],
+            callbacks=[lgb.early_stopping(EARLY_STOPPING), lgb.log_evaluation(10)],
+        )
+        pred_residual = model.predict(X_train[va_idx], num_iteration=model.best_iteration)
+
+        # Reconstruct TVT from the persistence anchor, same as your CV loop.
+        y_true_tvt = train_df["target_tvt"].values[va_idx]
+        last_tvt   = train_df["last_known_TVT"].values[va_idx]
+        pred_tvt   = last_tvt + pred_residual
+
+        rmse_tvt = float(np.sqrt(np.mean((pred_tvt - y_true_tvt) ** 2)))
+        fold_rmse_tvt.append(rmse_tvt)
+
+        trial.report(np.mean(fold_rmse_tvt), step=fold)
+        if trial.should_prune():
+            raise optuna.TrialPruned()
+
+    return float(np.mean(fold_rmse_tvt))
+ 
+
+# Run Optuna study
+print("Start running hyper parameter tuning..")
+study = optuna.create_study(
+    direction="minimize",
+    sampler=TPESampler(seed=SEED),
+    pruner=optuna.pruners.MedianPruner(n_warmup_steps=2))
+study.optimize(objective, timeout=1*3600) # 1 hour
+
+# Print the best hyperparameters and score
+print("Best hyperparameters:", study.best_params)
+print("Best average rmse:", study.best_value)
+
+# Get the best parameters and score
+best_params = study.best_params
+best_score = study.best_value
+
+# Format the file name with the best score
+file_name = f"lgb_rogii_parameters_{best_score:.6f}.csv"
+
+# Save the best parameters to a CSV file
+df_param = pd.DataFrame([best_params])  # Convert to DataFrame
+df_param.to_csv(file_name, index=False)  # Save to CSV
+
+print(f"Best parameters saved to {file_name}")
 
 
 
