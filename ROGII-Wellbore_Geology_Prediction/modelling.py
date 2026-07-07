@@ -269,6 +269,13 @@ def build_features_for_well(wid, split, test_eval_idx=None):
     cur["row_frac"]    = cur["row_index"].values / max(len(h) - 1, 1)
     cur["GR_norm"]     = (cur["GR"].values - pw_gr_med) / pw_gr_std
     
+    # Linear projection using the local (last-50) slope: if TVT kept moving at
+    # slope_K50 ft/ft past the anchor, this is the predicted TVT delta at each
+    # row. Equivalent to `slp_b_d_50` in https://www.kaggle.com/code/damiendesolei/rogii-lb7156-baseline-visualization?scriptVersionId=333120594
+    cur["slp_b_50"] = slope_K50 * cur["md_from_ps"].values
+    
+    
+    
     # GR comparison with typewell at last_known_TVT − Δ (a fixed depth proxy).
     if tw_clean is not None and len(tw_clean):
         gr_at_last = float(np.interp(last_TVT - align["shift_ft"],
@@ -405,7 +412,7 @@ def objective(trial):
         "objective": "regression",
         #"n_estimators": trial.suggest_categorical("n_estimators", [500, 1000, 1500, 2000]),
         "metric": "rmse",  
-        "boosting_type": trial.suggest_categorical("boosting_type", ["gbdt", "dart"]),
+        #"boosting_type": trial.suggest_categorical("boosting_type", ["gbdt", "dart"]),
         "num_leaves": trial.suggest_int("num_leaves", 8, 256),
         "learning_rate": trial.suggest_loguniform("learning_rate", 1e-3, 1e-1),
         "feature_fraction": trial.suggest_categorical("feature_fraction", [0.8, 0.85, 0.9, 0.95]),
