@@ -273,8 +273,12 @@ def build_features_for_well(wid, split, test_eval_idx=None):
     # slope_K50 ft/ft past the anchor, this is the predicted TVT delta at each
     # row. Equivalent to `slp_b_d_50` in https://www.kaggle.com/code/damiendesolei/rogii-lb7156-baseline-visualization?scriptVersionId=333120594
     cur["slp_b_50"] = slope_K50 * cur["md_from_ps"].values
+    #cur["slp_b_200"] = slope_K200 * cur["md_from_ps"].values
+    #cur["slp_b_500"] = slope_K500 * cur["md_from_ps"].values
     
-    
+    # new features 202600
+    cur["dx_from_ps"] = (cur["X"].values - last_X).astype(np.float32)
+    cur["dy_from_ps"] = (cur["Y"].values - last_Y).astype(np.float32)
     
     # GR comparison with typewell at last_known_TVT − Δ (a fixed depth proxy).
     if tw_clean is not None and len(tw_clean):
@@ -402,7 +406,7 @@ print(f"\nTest feature matrix: {test_df.shape}  (built in {time.time()-t0:.1f}s)
 
 
 ############### Hyper ##############
-gkf = GroupKFold(n_splits=N_FOLDS)
+gkf = GroupKFold(n_splits=3)
 # Precompute the folds once so every trial uses the identical split.
 cv_folds = list(gkf.split(X_train, y_train, groups=groups))
 
@@ -415,8 +419,8 @@ def objective(trial):
         #"boosting_type": trial.suggest_categorical("boosting_type", ["gbdt", "dart"]),
         "num_leaves": trial.suggest_int("num_leaves", 8, 256),
         "learning_rate": trial.suggest_loguniform("learning_rate", 1e-3, 1e-1),
-        "feature_fraction": trial.suggest_categorical("feature_fraction", [0.8, 0.85, 0.9, 0.95]),
-        "bagging_fraction": trial.suggest_categorical("bagging_fraction", [0.8, 0.85, 0.9, 0.95]),
+        #"feature_fraction": trial.suggest_categorical("feature_fraction", [0.8, 0.85, 0.9, 0.95]),
+        #"bagging_fraction": trial.suggest_categorical("bagging_fraction", [0.8, 0.85, 0.9, 0.95]),
         "bagging_freq": trial.suggest_int("bagging_freq", 5, 12),
         "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 10, 200),
         "max_depth": trial.suggest_int("max_depth", -1, 32),  # -1 means no limit
@@ -464,7 +468,7 @@ study = optuna.create_study(
     direction="minimize",
     sampler=TPESampler(seed=SEED),
     pruner=optuna.pruners.MedianPruner(n_warmup_steps=2))
-study.optimize(objective, timeout=1*3600) # 1 hour
+study.optimize(objective, timeout=4*3600) # n hour
 
 # Print the best hyperparameters and score
 print("Best hyperparameters:", study.best_params)
