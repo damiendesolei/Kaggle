@@ -12,6 +12,7 @@ import gc, warnings, time
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from scipy.spatial import cKDTree
 
 import lightgbm as lgb
 from sklearn.model_selection import GroupKFold
@@ -89,6 +90,83 @@ def first_nan_idx(s: pd.Series):
     mask = s.isna()
     if not mask.any(): return None
     return int(mask.idxmax()) if mask.iloc[0] else int(np.argmax(mask.values))
+
+
+
+#CZ 20260709
+DENSE_SPW = 60   # ANCC sample points taken per training well when building the index
+DENSE_K   = 20   # neighbours used per query point
+
+class DenseANCCImputer:
+    """Spatial KNN imputer for the ANCC formation column.
+
+    Built once from the training wells only (test wells don't carry ANCC).
+    For any (X, Y) query point, `impute` inverse-distance-weights the k
+    nearest sampled ANCC points from OTHER wells and returns:
+      - ancc_pred:  the imputed ANCC value at that location
+      - ancc_std:   the (weighted) spread across those k neighbours
+      - dense_dist: distance to the nearest of the k neighbours used — a
+                    proxy for how trustworthy the imputation is (small =
+                    nearby wells with known ANCC exist; large = extrapolating
+                    into a spatially sparse region).
+    """
+    def __init__(self, well_ids, data_dir, spw=DENSE_SPW):
+        xs, ys, anccs, wids = [], [], [], []
+        for wid in well_ids:
+            p = data_dir / f"{wid}__horizontal_well.csv"
+            try:
+                df = pd.read_csv(p, usecols=["X", "Y", "ANCC"]).dropna()
+            except Exception:
+                continue
+            if len(df) == 0:
+                continue
+            ix = np.linspace(0, len(df) - 1, min(spw, len(df)), dtype=int)
+            s = df.iloc[ix]
+            xs.append(s["X"].values); ys.append(s["Y"].values)
+            anccs.append(s["ANCC"].values); wids.extend([wid] * len(s))
+
+        if not xs:
+            raise ValueError("No wells with usable X/Y/ANCC data were found "
+                              "while building DenseANCCImputer.")
+
+        self.xy = np.column_stack([np.concatenate(xs), np.concatenate(ys)])
+        self.ancc = np.concatenate(anccs).astype(np.float32)
+        self.wids = np.array(wids)
+        # Per-axis scaling so X and Y contribute comparably to distance.
+        self.scale = np.where(self.xy.std(0) < 1e-3, 1.0, self.xy.std(0))
+        self.tree = cKDTree(self.xy / self.scale)
+
+    def impute(self, xy_query, self_wid=None, k=DENSE_K, nfetch=5000):
+        xy_query = np.atleast_2d(xy_query)
+        q = xy_query / self.scale
+        nf = min(nfetch, len(self.ancc))
+        dist, idx = self.tree.query(q, k=nf, workers=-1)
+
+        # Exclude the query well's own sampled points (avoids leakage on train).
+        if self_wid is not None:
+            dist = np.where(self.wids[idx] == self_wid, np.inf, dist)
+
+        order = np.argpartition(dist, min(k - 1, nf - 1), axis=1)[:, :k]
+        dk = np.take_along_axis(dist, order, 1)
+        ik = np.take_along_axis(idx, order, 1)
+
+        valid = np.isfinite(dk)
+        w = np.where(valid, 1.0 / (dk + 1e-3), 0.0)
+        w_sum = w.sum(1)
+        safe = np.where(w_sum < 1e-9, 1.0, w_sum)
+
+        neighbour_ancc = self.ancc[ik]
+        ancc_pred = (neighbour_ancc * w).sum(1) / safe
+        ancc_pred = np.where(w_sum < 1e-9, float(self.ancc.mean()), ancc_pred)
+
+        var = ((neighbour_ancc - ancc_pred[:, None]) ** 2 * w).sum(1) / safe
+        ancc_std = np.sqrt(np.maximum(var, 0.0))
+
+        dense_dist = np.where(valid, dk, np.inf).min(1)
+
+        return (ancc_pred.astype(np.float32),
+                ancc_std.astype(np.float32),
+                dense_dist.astype(np.float32))
 
 
 ################ Feature engineering ################
@@ -259,8 +337,10 @@ def build_features_for_well(wid, split, test_eval_idx=None):
         cur[k] = v
     
     # Per-row dynamic features.
-    cur["md_from_ps"] = cur["MD"].values - last_MD
-    cur["z_from_ps"]  = cur["Z"].values - last_Z
+    cur["md_from_ps"] = (cur["MD"].values - last_MD).astype(np.float32)
+    cur["z_from_ps"] = (cur["Z"].values - last_Z).astype(np.float32)
+    cur["x_from_ps"] = (cur["X"].values - last_X).astype(np.float32)
+    cur["y_from_ps"] = (cur["Y"].values - last_Y).astype(np.float32)
     cur["dxy_from_ps"] = np.sqrt((cur["X"].values - last_X)**2 + (cur["Y"].values - last_Y)**2)
     cur['dxyz_from_ps'] = np.sqrt((cur["X"].values - last_X)**2 + 
                               (cur["Y"].values - last_Y)**2 +
@@ -272,13 +352,23 @@ def build_features_for_well(wid, split, test_eval_idx=None):
     # Linear projection using the local (last-50) slope: if TVT kept moving at
     # slope_K50 ft/ft past the anchor, this is the predicted TVT delta at each
     # row. Equivalent to `slp_b_d_50` in https://www.kaggle.com/code/damiendesolei/rogii-lb7156-baseline-visualization?scriptVersionId=333120594
-    cur["slp_b_50"] = slope_K50 * cur["md_from_ps"].values
+    cur["slp_b_d_50"] = slope_K50 * cur["md_from_ps"].values
     #cur["slp_b_200"] = slope_K200 * cur["md_from_ps"].values
     #cur["slp_b_500"] = slope_K500 * cur["md_from_ps"].values
+    cur["slp_b_d_all"] = slope_all * cur["md_from_ps"].values
     
-    # new features 202600
-    cur["dx_from_ps"] = (cur["X"].values - last_X).astype(np.float32)
-    cur["dy_from_ps"] = (cur["Y"].values - last_Y).astype(np.float32)
+    
+    # Spatial ANCC imputation: KNN over sampled points from OTHER training
+    # wells. `dense_dist` is the distance to the nearest neighbour actually
+    # used, i.e. how spatially isolated this evaluation point is from wells
+    # with known ANCC (large => imputation is extrapolating, less trustworthy).
+    xy_ev = cur[["X", "Y"]].to_numpy(np.float64)
+    self_wid = wid if split == "train" else None
+    dense_ancc, dense_std, dense_dist = DI.impute(xy_ev, self_wid=self_wid)
+    cur["dense_ancc"] = dense_ancc
+    cur["dense_std"]  = dense_std
+    cur["dense_dist"] = dense_dist
+
     
     # GR comparison with typewell at last_known_TVT − Δ (a fixed depth proxy).
     if tw_clean is not None and len(tw_clean):
@@ -343,6 +433,11 @@ def build_features_for_well(wid, split, test_eval_idx=None):
 
 
 ################ Build training matrix ################
+print("Building spatial ANCC imputer from training wells...")
+DI = DenseANCCImputer(train_wells, TRAIN_DIR)
+print(f"  index built from {len(DI.ancc):,} sample points across "
+      f"{len(set(DI.wids)):,} wells")
+
 t0 = time.time()
 train_parts = []
 for k, wid in enumerate(train_wells):
@@ -468,7 +563,7 @@ study = optuna.create_study(
     direction="minimize",
     sampler=TPESampler(seed=SEED),
     pruner=optuna.pruners.MedianPruner(n_warmup_steps=2))
-study.optimize(objective, timeout=4*3600) # n hour
+study.optimize(objective, timeout=10*3600) # n hour
 
 # Print the best hyperparameters and score
 print("Best hyperparameters:", study.best_params)
