@@ -19,9 +19,12 @@ from sklearn.model_selection import GroupKFold
 import optuna
 from optuna.samplers import TPESampler
 
+
 warnings.filterwarnings("ignore")
 pd.set_option("display.max_columns", 100)
 pd.set_option("display.max_colwidth", 120)
+
+
 
 SEED = 42
 RNG = np.random.default_rng(SEED)
@@ -43,7 +46,7 @@ LGB_PARAMS = dict(
     seed=SEED,
     device_type='gpu'
 )
-NUM_BOOST_ROUND = 2000
+NUM_BOOST_ROUND = 5000
 EARLY_STOPPING = 100
 
 
@@ -169,8 +172,446 @@ class DenseANCCImputer:
                 dense_dist.astype(np.float32))
 
 
-################ Feature engineering ################
 
+# CZ 2060711 spatial_knn_dist
+PLANE_K = 10       # neighbouring wells used per query
+FORMATIONS = ["ANCC", "ASTNU", "ASTNL", "EGFDU", "EGFDL", "BUDA"]
+
+class FormationPlaneKNN:
+    """Per-well weighted-least-squares plane fit over the formation columns.
+
+    Unlike DenseANCCImputer (many sample points per well), this collapses
+    each training well to ONE representative point — median X, median Y, and
+    median value of each formation column — then, for a query (X, Y), fits a
+    weighted-least-squares plane z = a*X + b*Y + c through the k nearest
+    neighbour wells (inverse-distance weighted) for every formation column
+    simultaneously. `impute` returns:
+      - form_pred: predicted value of each formation column at the query point
+      - spatial_knn_dist: distance to the nearest neighbour well actually
+        used — how spatially isolated this well is from others with known
+        formation picks (large => extrapolating into sparse territory).
+    """
+    def __init__(self, well_ids, data_dir):
+        rows = []
+        for wid in well_ids:
+            p = data_dir / f"{wid}__horizontal_well.csv"
+            try:
+                df = pd.read_csv(p, usecols=["X", "Y"] + FORMATIONS).dropna()
+            except Exception:
+                continue
+            if len(df) == 0:
+                continue
+            row = {"wid": wid, "x": float(df["X"].median()), "y": float(df["Y"].median())}
+            for c in FORMATIONS:
+                row[f"{c}_m"] = float(df[c].median())
+            rows.append(row)
+
+        if not rows:
+            raise ValueError("No wells with usable X/Y/formation data found "
+                              "while building FormationPlaneKNN.")
+
+        self.df = pd.DataFrame(rows)
+        self.wmap = {w: i for i, w in enumerate(self.df["wid"])}
+        xy = self.df[["x", "y"]].to_numpy()
+        self.scale = np.where(xy.std(0) < 1e-3, 1.0, xy.std(0))
+        self.tree = cKDTree(xy / self.scale)
+        self.xa = self.df["x"].to_numpy()
+        self.ya = self.df["y"].to_numpy()
+        self.fa = self.df[[f"{c}_m" for c in FORMATIONS]].to_numpy(np.float64)
+
+    def impute(self, xy_query, self_wid=None, k=PLANE_K):
+        xy_query = np.atleast_2d(xy_query)
+        q = xy_query / self.scale
+        nf = min(k + 5, len(self.df))
+        dist, idx = self.tree.query(q, k=nf, workers=-1)
+
+        # Exclude the query well itself (avoids leakage on train).
+        if self_wid in self.wmap:
+            dist = np.where(idx == self.wmap[self_wid], np.inf, dist)
+
+        order = np.argpartition(dist, min(k - 1, nf - 1), axis=1)[:, :k]
+        dk = np.take_along_axis(dist, order, 1)
+        ik = np.take_along_axis(idx, order, 1)
+
+        valid = np.isfinite(dk)
+        w = np.where(valid, 1.0 / (dk + 1e-3), 0.0).astype(np.float64)
+        xn = self.xa[ik]; yn = self.ya[ik]; fn = self.fa[ik]
+        wx = w * xn; wy = w * yn
+
+        n = len(q)
+        A = np.zeros((n, 3, 3))
+        A[:, 0, 0] = (wx * xn).sum(1); A[:, 0, 1] = (wx * yn).sum(1); A[:, 0, 2] = wx.sum(1)
+        A[:, 1, 0] = A[:, 0, 1];       A[:, 1, 1] = (wy * yn).sum(1); A[:, 1, 2] = wy.sum(1)
+        A[:, 2, 0] = A[:, 0, 2];       A[:, 2, 1] = A[:, 1, 2];       A[:, 2, 2] = w.sum(1)
+        A[:, 0, 0] += 1e-9; A[:, 1, 1] += 1e-9; A[:, 2, 2] += 1e-9
+
+        rhs = np.stack([(wx[:, :, None] * fn).sum(1),
+                         (wy[:, :, None] * fn).sum(1),
+                         (w[:, :, None] * fn).sum(1)], axis=1)
+        try:
+            coef = np.linalg.solve(A, rhs)
+        except np.linalg.LinAlgError:
+            coef = np.zeros((n, 3, len(FORMATIONS)))
+            for r in range(n):
+                try:
+                    coef[r] = np.linalg.pinv(A[r]) @ rhs[r]
+                except np.linalg.LinAlgError:
+                    pass
+
+        Xq = xy_query[:, 0]; Yq = xy_query[:, 1]
+        pred = (Xq[:, None] * coef[:, 0, :] + Yq[:, None] * coef[:, 1, :] + coef[:, 2, :]).astype(np.float32)
+        pred[~valid.any(1)] = self.fa.mean(0)
+
+        spatial_knn_dist = np.where(valid, dk, np.inf).min(1).astype(np.float32)
+        return pred, spatial_knn_dist
+    
+    
+# CZ 20260711 particle filter
+try:
+    from numba import njit
+except ImportError as e:
+    raise ImportError(
+        "pf_ancc_delta needs the 'numba' package for the particle-filter kernel "
+        "to run fast enough — install it with `pip install numba`."
+    ) from e
+
+PF_ANCC_N = 600
+PF_ANCC_ALPHA = 0.998        # momentum on the particle's rate of change
+PF_ANCC_RN = 0.002           # process noise on the rate
+PF_ANCC_PN = 0.005           # process noise on the position
+PF_ANCC_INIT_SPREAD = 0.3    # initial particle spread around the anchor
+PF_ANCC_RP = 0.1             # resample jitter on position
+PF_ANCC_RR = 0.001           # resample jitter on rate
+PF_ANCC_RESAMP = 0.5         # resample when effective sample size < RESAMP * N
+PF_ANCC_GR_SIG_MIN, PF_ANCC_GR_SIG_MAX, PF_ANCC_GR_SIG_DEF = 10.0, 60.0, 30.0
+
+
+def _typewell_grid(tw_tvt, tw_gr, step=0.2):
+    """Dense, regularly-spaced GR lookup table over the typewell's TVT range,
+    so the particle filter can interpolate 'expected GR at this TVT' in O(1)
+    inside the hot inner loop instead of doing a searchsorted every particle."""
+    tmin = float(tw_tvt.min()); tmax = float(tw_tvt.max())
+    grid_tvt = np.arange(tmin, tmax + step, step)
+    return np.interp(grid_tvt, tw_tvt, tw_gr).astype(np.float64), float(tmin), float(step)
+
+
+@njit(cache=True)
+def _pf_seed(seed):
+    np.random.seed(seed)
+
+
+@njit(cache=True)
+def _interp1(grid, v, vmin, step):
+    i = int((v - vmin) / step)
+    if i < 0: return grid[0]
+    n = len(grid) - 1
+    if i >= n: return grid[n]
+    t = (v - vmin) / step - i
+    return grid[i] * (1.0 - t) + grid[i + 1] * t
+
+
+@njit(cache=True)
+def _pf_resample(pos, aux, w, N, rp, rv):
+    cum = np.zeros(N + 1)
+    for j in range(N):
+        cum[j + 1] = cum[j] + w[j]
+    u0 = np.random.uniform(0.0, 1.0 / N)
+    new_pos = np.empty(N); new_aux = np.empty(N); ci = 0
+    for j in range(N):
+        u = u0 + j / N
+        while ci < N - 1 and cum[ci + 1] < u:
+            ci += 1
+        new_pos[j] = pos[ci] + rp * np.random.randn()
+        new_aux[j] = aux[ci] + rv * np.random.randn()
+    return new_pos, new_aux
+
+
+@njit(cache=True)
+def _pf_ancc_kernel(md_v, z_v, gr_v, grid, vmin, step, gr_sigma, start_pos, init_rate, N,
+                     ALPHA, RN, PN, INIT_SPREAD, RP, RR, RESAMP):
+    """Particle filter over `position = TVT + Z` (so a particle's implied TVT is
+    position - Z at that row). Particles drift forward using a momentum-smoothed
+    rate; each GR reading re-weights particles by how well their implied TVT's
+    typewell GR matches the well's actual GR. Returns the weighted-mean TVT and
+    its weighted std at every row."""
+    pos = np.empty(N); rate = np.empty(N); w = np.ones(N) / N
+    for j in range(N):
+        pos[j] = start_pos + INIT_SPREAD * np.random.randn()
+        rate[j] = init_rate + 0.01 * np.random.randn()
+
+    n = len(md_v)
+    pts = np.empty(n); stds = np.empty(n)
+    prev_md = md_v[0] - 1.0
+
+    for i in range(n):
+        dm = md_v[i] - prev_md
+        if dm < 1.0:
+            dm = 1.0
+        for j in range(N):
+            rate[j] = ALPHA * rate[j] + RN * np.random.randn()
+            pos[j] += rate[j] * dm + PN * np.random.randn()
+            tvt_j = pos[j] - z_v[i]
+            lo = vmin - 50.0
+            hi = vmin + len(grid) * step + 50.0
+            if tvt_j < lo: tvt_j = lo
+            if tvt_j > hi: tvt_j = hi
+            pos[j] = tvt_j + z_v[i]
+
+        if not np.isnan(gr_v[i]):
+            wsum = 0.0
+            for j in range(N):
+                expected_gr = _interp1(grid, pos[j] - z_v[i], vmin, step)
+                d = (gr_v[i] - expected_gr) / gr_sigma
+                dd = d * d
+                lk = np.exp(-0.5 * dd) if dd < 600.0 else 0.0
+                if lk < 1e-300: lk = 1e-300
+                w[j] *= lk
+                wsum += w[j]
+            if wsum > 0.0:
+                for j in range(N): w[j] /= wsum
+            else:
+                for j in range(N): w[j] = 1.0 / N
+
+        neff = 0.0
+        for j in range(N): neff += w[j] * w[j]
+        neff = 1.0 / neff
+        if neff < RESAMP * N:
+            pos, rate = _pf_resample(pos, rate, w, N, RP, RR)
+            for j in range(N): w[j] = 1.0 / N
+
+        tvt_est = 0.0
+        for j in range(N): tvt_est += w[j] * (pos[j] - z_v[i])
+        pts[i] = tvt_est
+        var = 0.0
+        for j in range(N): var += w[j] * (pos[j] - z_v[i] - tvt_est) ** 2
+        stds[i] = var ** 0.5
+        prev_md = md_v[i]
+
+    return pts, stds
+
+
+def run_pf_ancc(h, eval_row_idx, tw_clean, last_TVT, last_MD, last_Z, visible, N=PF_ANCC_N, seed=SEED):
+    """Run the ANCC-anchored particle filter over ALL hidden rows for this well
+    (eval_row_idx, in MD order — the full post-anchor sequence, not just the
+    labeled subset), returning (pf_tvt, pf_std) aligned to that index. Falls
+    back to a flat last_TVT prediction if there's no usable typewell to
+    compare GR against."""
+    n = len(eval_row_idx)
+    if n == 0:
+        return np.array([], np.float32), np.array([], np.float32)
+    if tw_clean is None or len(tw_clean) < 3:
+        return np.full(n, last_TVT, np.float32), np.zeros(n, np.float32)
+
+    tw_tvt = tw_clean["TVT"].to_numpy(np.float64)
+    tw_gr  = tw_clean["GR"].to_numpy(np.float64)
+    grid, vmin, step = _typewell_grid(tw_tvt, tw_gr)
+
+    # GR noise level: spread of known-zone GR around the typewell's expected GR.
+    kn_gr = visible["GR"].values if "GR" in visible.columns else np.array([])
+    if len(kn_gr):
+        expected_at_kn = np.interp(visible["TVT_input"].values, tw_tvt, tw_gr)
+        gr_sigma = float(np.clip(np.nanstd(kn_gr - expected_at_kn),
+                                  PF_ANCC_GR_SIG_MIN, PF_ANCC_GR_SIG_MAX))
+    else:
+        gr_sigma = PF_ANCC_GR_SIG_DEF
+
+    # Initial rate of change of (TVT + Z) vs MD, estimated from the last 30 known rows.
+    tail = visible.tail(30)
+    dt = np.diff(tail["TVT_input"].values)
+    dz = np.diff(tail["Z"].values)
+    dmd = np.diff(tail["MD"].values)
+    m = dmd > 0
+    init_rate = float(np.median((dt + dz)[m] / dmd[m])) if m.sum() >= 3 else 0.0
+
+    md_v = h["MD"].values[eval_row_idx].astype(np.float64)
+    z_v  = h["Z"].values[eval_row_idx].astype(np.float64)
+    gr_series = pd.Series(h["GR"].values).interpolate(limit_direction="both")
+    gr_v = gr_series.values[eval_row_idx].astype(np.float64)
+
+    start_pos = last_TVT + last_Z
+    if seed is not None:
+        _pf_seed(int(seed))
+    pts, stds = _pf_ancc_kernel(md_v, z_v, gr_v, grid, vmin, step, gr_sigma, start_pos, init_rate, N,
+                                 PF_ANCC_ALPHA, PF_ANCC_RN, PF_ANCC_PN, PF_ANCC_INIT_SPREAD,
+                                 PF_ANCC_RP, PF_ANCC_RR, PF_ANCC_RESAMP)
+    return pts.astype(np.float32), stds.astype(np.float32)
+
+
+# ---- second, independent tracker: TVT directly, velocity-constrained against Z ----
+PF_Z_N = 600
+PF_Z_MOM = 0.993          # momentum on TVT velocity
+PF_Z_VN = 0.005           # process noise on velocity
+PF_Z_PN = 0.01            # process noise on position (TVT)
+PF_Z_GR_WT = 0.3          # weight of smoothed-GR likelihood vs raw-GR likelihood
+PF_Z_ROUGH_P = 0.2        # resample jitter on position
+PF_Z_ROUGH_V = 0.003      # resample jitter on velocity
+PF_Z_RESAMP = 0.5
+PF_Z_GR_WIN = 5           # rolling window used for the smoothed GR comparison
+PF_Z_INIT_POS_STD = 0.5
+PF_Z_INIT_VEL_STD = 0.02
+
+
+@njit(cache=True)
+def _pf_z_kernel(md_v, z_v, gr_v, gr_sm_v, grid_p, grid_s, vmin, step, gr_sigma,
+                  init_pos, init_vel, beta, icpt, zsig, N,
+                  MOM, VN, PN, GR_WT, RP, RV, RESAMP):
+    """Particle filter over TVT directly. Each particle's velocity is softly
+    pulled toward `beta * (current Z-rate) + icpt` — the expected TVT-rate
+    given how fast Z is changing, learned from the known section — in
+    addition to being reweighted by GR match (both raw and smoothed)."""
+    pos = np.empty(N); vel = np.empty(N); w = np.ones(N) / N
+    for j in range(N):
+        pos[j] = init_pos + 0.5 * np.random.randn()
+        vel[j] = init_vel + 0.02 * np.random.randn()
+
+    n = len(md_v)
+    pts = np.empty(n); stds = np.empty(n)
+    prev_md = md_v[0] - 1.0
+    prev_z = z_v[0] - 1.0
+
+    for i in range(n):
+        dm = md_v[i] - prev_md
+        if dm < 1.0:
+            dm = 1.0
+        z_rate = (z_v[i] - prev_z) / dm
+        expected_vel = beta * z_rate + icpt
+
+        for j in range(N):
+            vel[j] = MOM * vel[j] + VN * np.random.randn()
+            pos[j] += vel[j] * dm + PN * np.random.randn()
+            lo = vmin - 50.0
+            hi = vmin + len(grid_p) * step + 50.0
+            if pos[j] < lo: pos[j] = lo
+            if pos[j] > hi: pos[j] = hi
+
+        if not np.isnan(gr_v[i]):
+            wsum = 0.0
+            for j in range(N):
+                ep = _interp1(grid_p, pos[j], vmin, step)
+                dp = (gr_v[i] - ep) / gr_sigma
+                ddp = dp * dp
+                lp = np.exp(-0.5 * ddp) if ddp < 600.0 else 0.0
+                if lp < 1e-300: lp = 1e-300
+                if not np.isnan(gr_sm_v[i]):
+                    es = _interp1(grid_s, pos[j], vmin, step)
+                    ds = (gr_sm_v[i] - es) / (gr_sigma * 1.5)
+                    dds = ds * ds
+                    lsm = np.exp(-0.5 * dds) if dds < 600.0 else 0.0
+                    if lsm < 1e-300: lsm = 1e-300
+                    lk = (1.0 - GR_WT) * lp + GR_WT * lsm
+                else:
+                    lk = lp
+                if lk < 1e-300: lk = 1e-300
+                w[j] *= lk
+                wsum += w[j]
+            if wsum > 0.0:
+                for j in range(N): w[j] /= wsum
+            else:
+                for j in range(N): w[j] = 1.0 / N
+
+        # Velocity-physics constraint: penalize particles whose TVT-rate strays
+        # from the Z-rate-implied expectation.
+        wsum2 = 0.0
+        vzsig = zsig * 2.0
+        if vzsig < 0.005: vzsig = 0.005
+        for j in range(N):
+            dv = (vel[j] - expected_vel) / vzsig
+            ddv = dv * dv
+            lz = np.exp(-0.5 * ddv) if ddv < 600.0 else 0.0
+            if lz < 1e-300: lz = 1e-300
+            w[j] *= lz
+            wsum2 += w[j]
+        if wsum2 > 0.0:
+            for j in range(N): w[j] /= wsum2
+        else:
+            for j in range(N): w[j] = 1.0 / N
+
+        neff = 0.0
+        for j in range(N): neff += w[j] * w[j]
+        neff = 1.0 / neff
+        if neff < RESAMP * N:
+            pos, vel = _pf_resample(pos, vel, w, N, RP, RV)
+            for j in range(N): w[j] = 1.0 / N
+
+        wm = 0.0
+        for j in range(N): wm += w[j] * pos[j]
+        pts[i] = wm
+        var = 0.0
+        for j in range(N): var += w[j] * (pos[j] - wm) ** 2
+        stds[i] = var ** 0.5
+        prev_md = md_v[i]; prev_z = z_v[i]
+
+    return pts, stds
+
+
+def run_pf_z(h, eval_row_idx, tw_clean, last_TVT, last_MD, last_Z, visible, N=PF_Z_N, seed=SEED):
+    """Run the Z-velocity-coupled particle filter over ALL hidden rows for
+    this well, returning (pf_z_tvt, pf_z_std) aligned to eval_row_idx. Falls
+    back to a flat last_TVT prediction (=> pf_z_delta of 0) if there's no
+    usable typewell or too little known-section data to fit the velocity
+    regression."""
+    n = len(eval_row_idx)
+    if n == 0:
+        return np.array([], np.float32), np.array([], np.float32)
+    if tw_clean is None or len(tw_clean) < 3 or len(visible) < 15:
+        return np.full(n, last_TVT, np.float32), np.zeros(n, np.float32)
+
+    tw_tvt = tw_clean["TVT"].to_numpy(np.float64)
+    tw_gr  = tw_clean["GR"].to_numpy(np.float64)
+    grid_p, vmin, step = _typewell_grid(tw_tvt, tw_gr)
+
+    tw_gr_smooth = pd.Series(tw_gr).rolling(PF_Z_GR_WIN, center=True, min_periods=1).mean().to_numpy(np.float64)
+    grid_s, _, _ = _typewell_grid(tw_tvt, tw_gr_smooth)
+
+    kn_gr = visible["GR"].values if "GR" in visible.columns else np.array([])
+    if len(kn_gr):
+        expected_at_kn = np.interp(visible["TVT_input"].values, tw_tvt, tw_gr)
+        gr_sigma = float(np.clip(np.nanstd(kn_gr - expected_at_kn),
+                                  PF_ANCC_GR_SIG_MIN, PF_ANCC_GR_SIG_MAX))
+    else:
+        gr_sigma = PF_ANCC_GR_SIG_DEF
+
+    # Regress TVT-rate on Z-rate over the whole known section: how much does
+    # TVT typically move per unit of Z movement, at this well's inclination?
+    dz_k  = np.diff(visible["Z"].values)
+    dvt_k = np.diff(visible["TVT_input"].values)
+    dmd_k = np.diff(visible["MD"].values)
+    mk = dmd_k > 0
+    if mk.sum() >= 10:
+        vz = dz_k[mk] / dmd_k[mk]
+        vt = dvt_k[mk] / dmd_k[mk]
+        A = np.column_stack([vz, np.ones_like(vz)])
+        coef, _, _, _ = np.linalg.lstsq(A, vt, rcond=None)
+        beta, icpt = float(coef[0]), float(coef[1])
+        zsig = max(float(np.std(vt - (coef[0] * vz + coef[1]))), 0.001)
+    else:
+        beta, icpt, zsig = -1.0, 0.0, 0.1
+
+    # Initial TVT velocity from the last 20 known rows.
+    tail = visible.tail(20)
+    dvt2 = np.diff(tail["TVT_input"].values)
+    dmd2 = np.diff(tail["MD"].values)
+    m2 = dmd2 > 0
+    init_vel = float(np.median(dvt2[m2] / dmd2[m2])) if m2.sum() >= 3 else 0.0
+
+    md_v = h["MD"].values[eval_row_idx].astype(np.float64)
+    z_v  = h["Z"].values[eval_row_idx].astype(np.float64)
+    gr_series = pd.Series(h["GR"].values).interpolate(limit_direction="both")
+    gr_v = gr_series.values[eval_row_idx].astype(np.float64)
+    gr_sm_series = pd.Series(h["GR"].values).rolling(PF_Z_GR_WIN, center=True, min_periods=1).mean()
+    gr_sm_v = gr_sm_series.values[eval_row_idx].astype(np.float64)
+
+    if seed is not None:
+        _pf_seed(int(seed) + 1)  # distinct stream from pf_ancc
+    pts, stds = _pf_z_kernel(md_v, z_v, gr_v, gr_sm_v, grid_p, grid_s, vmin, step, gr_sigma,
+                              last_TVT, init_vel, beta, icpt, zsig, N,
+                              PF_Z_MOM, PF_Z_VN, PF_Z_PN, PF_Z_GR_WT,
+                              PF_Z_ROUGH_P, PF_Z_ROUGH_V, PF_Z_RESAMP)
+    return pts.astype(np.float32), stds.astype(np.float32)
+
+
+
+################ Feature engineering ################
 def estimate_alignment_from_visible(hw_visible, tw):
     """Estimate the typewell shift Δ, correlation r, and bias from the visible portion.
 
@@ -369,6 +810,26 @@ def build_features_for_well(wid, split, test_eval_idx=None):
     cur["dense_std"]  = dense_std
     cur["dense_dist"] = dense_dist
 
+    # Particle-filter TVT tracker (ANCC-anchored). Run once over the FULL hidden
+    # region (all rows past the anchor, in order) so the simulation's momentum
+    # is continuous, then subset down to this well's selected rows.
+    eval_row_idx = np.flatnonzero(eval_mask)
+    pf_full, pf_std_full = run_pf_ancc(h, eval_row_idx, tw_clean, last_TVT, last_MD, last_Z, visible)
+    pos_in_eval = np.searchsorted(eval_row_idx, sel_idx)
+    cur["pf_ancc"] = pf_full[pos_in_eval]
+    cur["pf_ancc_std"] = pf_std_full[pos_in_eval]
+    cur["pf_ancc_delta"] = (cur["pf_ancc"].values - last_TVT).astype(np.float32)
+
+    # Second, independent tracker: TVT directly, velocity-constrained against
+    # the well's Z-rate. Falls back to a flat last_TVT (=> zero delta) when
+    # there isn't enough known-section data to fit the velocity regression.
+    pf_z_full, pf_z_std_full = run_pf_z(h, eval_row_idx, tw_clean, last_TVT, last_MD, last_Z, visible)
+    cur["pf_z"] = pf_z_full[pos_in_eval]
+    cur["pf_z_std"] = pf_z_std_full[pos_in_eval]
+    cur["pf_z_delta"] = (cur["pf_z"].values - last_TVT).astype(np.float32)
+    # Disagreement between the two independent trackers — large values flag
+    # rows where the GR-only tracker and the Z-constrained tracker diverge.
+    cur["pf_vs_z"] = (cur["pf_ancc"].values - cur["pf_z"].values).astype(np.float32)
     
     # GR comparison with typewell at last_known_TVT − Δ (a fixed depth proxy).
     if tw_clean is not None and len(tw_clean):
@@ -509,16 +970,17 @@ def objective(trial):
     # Define parameter search space
     param = {
         "objective": "regression",
-        #"n_estimators": trial.suggest_categorical("n_estimators", [500, 1000, 1500, 2000]),
+        #"n_estimators": trial.suggest_categorical("n_estimators", [500, 1000, 1500, 2000])
+        "n_estimators": 5000,
         "metric": "rmse",  
         #"boosting_type": trial.suggest_categorical("boosting_type", ["gbdt", "dart"]),
         "num_leaves": trial.suggest_int("num_leaves", 8, 256),
         "learning_rate": trial.suggest_loguniform("learning_rate", 1e-3, 1e-1),
-        #"feature_fraction": trial.suggest_categorical("feature_fraction", [0.8, 0.85, 0.9, 0.95]),
-        #"bagging_fraction": trial.suggest_categorical("bagging_fraction", [0.8, 0.85, 0.9, 0.95]),
+        "feature_fraction": trial.suggest_categorical("feature_fraction", [0.8, 0.85, 0.9, 0.95]),
+        "bagging_fraction": trial.suggest_categorical("bagging_fraction", [0.8, 0.85, 0.9, 0.95]),
         "bagging_freq": trial.suggest_int("bagging_freq", 5, 12),
-        "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 10, 200),
-        "max_depth": trial.suggest_int("max_depth", -1, 32),  # -1 means no limit
+        "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 12, 256),
+        "max_depth": trial.suggest_int("max_depth", 2, 32),  # -1 means no limit
         "lambda_l1": trial.suggest_float("lambda_l1", 1e-8, 10, log=True),
         "lambda_l2": trial.suggest_float("lambda_l2", 1e-8, 10, log=True),
         #"min_split_gain": trial.suggest_float("min_split_gain", 1e-8, 1.0, log=True),
@@ -530,6 +992,10 @@ def objective(trial):
 
     fold_rmse_tvt = []
     for fold, (tr_idx, va_idx) in enumerate(cv_folds):
+        assert tr_idx.max() < X_train.shape[0] and tr_idx.min() >= 0, \
+           f"corrupt tr_idx at fold {fold}: max={tr_idx.max()}, min={tr_idx.min()}, X_train rows={X_train.shape[0]}"
+        assert va_idx.max() < X_train.shape[0] and va_idx.min() >= 0, \
+           f"corrupt va_idx at fold {fold}: max={va_idx.max()}, min={va_idx.min()}"
         dtrain = lgb.Dataset(X_train[tr_idx], y_train[tr_idx], feature_name=feature_cols)
         dvalid = lgb.Dataset(X_train[va_idx], y_train[va_idx], feature_name=feature_cols, reference=dtrain)
 
@@ -560,10 +1026,13 @@ def objective(trial):
 # Run Optuna study
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(
+    study_name="lgb_TVT_tuning_20260712_1",
+    storage="sqlite:///lgb_TVT_tuning_20260712_1.db" ,
+    load_if_exists=True,
     direction="minimize",
     sampler=TPESampler(seed=SEED),
     pruner=optuna.pruners.MedianPruner(n_warmup_steps=2))
-study.optimize(objective, timeout=10*3600) # n hour
+study.optimize(objective, timeout=12*3600, n_jobs=3) # n hour
 
 # Print the best hyperparameters and score
 print("Best hyperparameters:", study.best_params)
@@ -582,6 +1051,11 @@ best_score = study.best_value
 #df_param.to_csv(file_name, index=False)  # Save to CSV
 study.trials_dataframe().to_csv(f"lgb_rogii_{best_score:.6f}.csv", index=False)
 #print(f"Best parameters saved to {file_name}")
+
+#### Check optuna results ###
+s = optuna.load_study(study_name="lgb_TVT_tuning_20260712_1", storage="sqlite:///lgb_TVT_tuning_20260712_1db")
+print(s.best_value, s.best_params)
+#s.trials_dataframe().tail(10) 
 
 
 
