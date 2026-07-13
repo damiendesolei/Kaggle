@@ -809,6 +809,12 @@ def build_features_for_well(wid, split, test_eval_idx=None):
     cur["dense_ancc"] = dense_ancc
     cur["dense_std"]  = dense_std
     cur["dense_dist"] = dense_dist
+    
+    # Well-level formation plane fit (distinct from the point-level DenseANCCImputer
+    # above): each well collapses to one representative point, and spatial_knn_dist
+    # is the distance to the nearest neighbouring well used in that plane fit.
+    _, spatial_knn_dist = FI.impute(xy_ev, self_wid=self_wid)
+    cur["spatial_knn_dist"] = spatial_knn_dist
 
     # Particle-filter TVT tracker (ANCC-anchored). Run once over the FULL hidden
     # region (all rows past the anchor, in order) so the simulation's momentum
@@ -898,6 +904,10 @@ print("Building spatial ANCC imputer from training wells...")
 DI = DenseANCCImputer(train_wells, TRAIN_DIR)
 print(f"  index built from {len(DI.ancc):,} sample points across "
       f"{len(set(DI.wids)):,} wells")
+
+print("Building formation-plane KNN imputer from training wells...")
+FI = FormationPlaneKNN(train_wells, TRAIN_DIR)
+print(f"  index built from {len(FI.df):,} wells")
 
 t0 = time.time()
 train_parts = []
@@ -1026,13 +1036,13 @@ def objective(trial):
 # Run Optuna study
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(
-    study_name="lgb_TVT_tuning_20260712_1",
-    storage="sqlite:///lgb_TVT_tuning_20260712_1.db" ,
+    study_name="lgb_TVT_tuning_20260712_2",
+    storage="sqlite:///lgb_TVT_tuning.db" ,
     load_if_exists=True,
     direction="minimize",
     sampler=TPESampler(seed=SEED),
     pruner=optuna.pruners.MedianPruner(n_warmup_steps=2))
-study.optimize(objective, timeout=12*3600, n_jobs=3) # n hour
+study.optimize(objective, timeout=9*3600, n_jobs=5) # n hour
 
 # Print the best hyperparameters and score
 print("Best hyperparameters:", study.best_params)
@@ -1053,7 +1063,7 @@ study.trials_dataframe().to_csv(f"lgb_rogii_{best_score:.6f}.csv", index=False)
 #print(f"Best parameters saved to {file_name}")
 
 #### Check optuna results ###
-s = optuna.load_study(study_name="lgb_TVT_tuning_20260712_1", storage="sqlite:///lgb_TVT_tuning_20260712_1db")
+s = optuna.load_study(study_name="lgb_TVT_tuning_20260712_2", storage="sqlite:///lgb_TVT_tuning.db")
 print(s.best_value, s.best_params)
 #s.trials_dataframe().tail(10) 
 
