@@ -813,8 +813,23 @@ def build_features_for_well(wid, split, test_eval_idx=None):
     # Well-level formation plane fit (distinct from the point-level DenseANCCImputer
     # above): each well collapses to one representative point, and spatial_knn_dist
     # is the distance to the nearest neighbouring well used in that plane fit.
-    _, spatial_knn_dist = FI.impute(xy_ev, self_wid=self_wid)
+    form_ev, spatial_knn_dist = FI.impute(xy_ev, self_wid=self_wid)
     cur["spatial_knn_dist"] = spatial_knn_dist
+    xy_kn = visible[["X", "Y"]].to_numpy(np.float64)
+    form_kn, _ = FI.impute(xy_kn, self_wid=self_wid)
+    ktvt = visible["TVT_input"].values
+    kz = visible["Z"].values
+
+    form_tvt_list = []
+    for fi2 in range(len(FORMATIONS)):
+        bias = float(np.median(ktvt + kz - form_kn[:, fi2]))
+        tvt_f = (-cur["Z"].values + form_ev[:, fi2] + bias).astype(np.float32)
+        form_tvt_list.append(tvt_f)
+
+    form_stack = np.stack(form_tvt_list, axis=1)   # shape: (n_rows, n_formations)
+    cur["form_mean_d"] = (form_stack.mean(axis=1) - last_TVT).astype(np.float32)
+    cur["form_std_d"]  = form_stack.std(axis=1).astype(np.float32)
+    cur["form_rng_d"]  = (form_stack.max(axis=1) - form_stack.min(axis=1)).astype(np.float32)
 
     # Particle-filter TVT tracker (ANCC-anchored). Run once over the FULL hidden
     # region (all rows past the anchor, in order) so the simulation's momentum
@@ -981,7 +996,7 @@ def objective(trial):
     param = {
         "objective": "regression",
         #"n_estimators": trial.suggest_categorical("n_estimators", [500, 1000, 1500, 2000])
-        "n_estimators": 5000,
+        "n_estimators": 4000,
         "metric": "rmse",  
         #"boosting_type": trial.suggest_categorical("boosting_type", ["gbdt", "dart"]),
         "num_leaves": trial.suggest_int("num_leaves", 8, 256),
@@ -990,7 +1005,7 @@ def objective(trial):
         "bagging_fraction": trial.suggest_categorical("bagging_fraction", [0.8, 0.85, 0.9, 0.95]),
         "bagging_freq": trial.suggest_int("bagging_freq", 5, 12),
         "min_data_in_leaf": trial.suggest_int("min_data_in_leaf", 12, 256),
-        "max_depth": trial.suggest_int("max_depth", 2, 32),  # -1 means no limit
+        "max_depth": trial.suggest_int("max_depth", 3, 32),  # -1 means no limit
         "lambda_l1": trial.suggest_float("lambda_l1", 1e-8, 10, log=True),
         "lambda_l2": trial.suggest_float("lambda_l2", 1e-8, 10, log=True),
         #"min_split_gain": trial.suggest_float("min_split_gain", 1e-8, 1.0, log=True),
@@ -1036,13 +1051,13 @@ def objective(trial):
 # Run Optuna study
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(
-    study_name="lgb_TVT_tuning_20260712_2",
+    study_name="lgb_TVT_tuning_20260714",
     storage="sqlite:///lgb_TVT_tuning.db" ,
     load_if_exists=True,
     direction="minimize",
     sampler=TPESampler(seed=SEED),
     pruner=optuna.pruners.MedianPruner(n_warmup_steps=2))
-study.optimize(objective, timeout=9*3600, n_jobs=5) # n hour
+study.optimize(objective, timeout=12*3600, n_jobs=6) # n hour
 
 # Print the best hyperparameters and score
 print("Best hyperparameters:", study.best_params)
@@ -1063,7 +1078,7 @@ study.trials_dataframe().to_csv(f"lgb_rogii_{best_score:.6f}.csv", index=False)
 #print(f"Best parameters saved to {file_name}")
 
 #### Check optuna results ###
-s = optuna.load_study(study_name="lgb_TVT_tuning_20260712_2", storage="sqlite:///lgb_TVT_tuning.db")
+s = optuna.load_study(study_name="lgb_TVT_tuning_20260714", storage="sqlite:///lgb_TVT_tuning.db")
 print(s.best_value, s.best_params)
 #s.trials_dataframe().tail(10) 
 
