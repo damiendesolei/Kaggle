@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.spatial import cKDTree
+from scipy.signal import savgol_filter
 
 import lightgbm as lgb
 from sklearn.model_selection import GroupKFold
@@ -48,6 +49,16 @@ LGB_PARAMS = dict(
 )
 NUM_BOOST_ROUND = 5000
 EARLY_STOPPING = 100
+# Postprocessing params (blend model delta with pf_ancc delta, ramp up from
+# the anchor point, then rescale). Ported from the reference notebook's
+# `pp_params` (LB 7.156 run); alpha/tau/w_pf are not re-tuned here.
+PP_PARAMS = {
+    "alpha": 1.0,
+    "tau": 85,
+    "w_pf": 0.09,
+}
+PP_SG_WINDOW = 17
+PP_SG_POLY = 3
 
 
 
@@ -94,6 +105,42 @@ def first_nan_idx(s: pd.Series):
     if not mask.any(): return None
     return int(mask.idxmax()) if mask.iloc[0] else int(np.argmax(mask.values))
 
+################ Postprocessing ################
+def apply_pp(df, md, pd_, alpha, tau, w_pf):
+    """Blend model-predicted TVT delta (md) with the particle-filter TVT
+    delta (pd_), ramp the blended delta up from 0 at the anchor point
+    (md_from_ps == 0) over a `tau`-length MD window, then rescale by alpha.
+
+    df   : DataFrame containing 'md_from_ps' (MD since the last-known/anchor
+           point), aligned row-for-row with md/pd_.
+    md   : array-like, model-predicted TVT delta from last_known_TVT
+           (e.g. LightGBM's predicted residual).
+    pd_  : array-like, particle-filter TVT delta from last_known_TVT
+           (pf_ancc - last_known_TVT).
+    """
+    d = md * (1 - w_pf) + pd_ * w_pf
+    if tau:
+        d = d * (1. - np.exp(-np.maximum(df["md_from_ps"].values, 0.) / tau))
+    return d * alpha
+
+
+def sg_smooth(df, col, well_col="well_id", sg_w=PP_SG_WINDOW, sg_p=PP_SG_POLY):
+    """Per-well Savitzky-Golay smoothing of a predicted column.
+
+    Falls back to leaving the well's values untouched if it has too few
+    rows for the requested (odd) window length / polynomial order.
+    """
+    df = df.copy()
+    for _, g in df.groupby(well_col, sort=False):
+        v = g[col].values
+        n = len(v)
+        wl = min(sg_w, n)
+        if wl % 2 == 0:
+            wl -= 1
+        if wl >= sg_p + 2:
+            v = savgol_filter(v, wl, sg_p)
+        df.loc[g.index, col] = v
+    return df
 
 
 #CZ 20260709
@@ -813,23 +860,8 @@ def build_features_for_well(wid, split, test_eval_idx=None):
     # Well-level formation plane fit (distinct from the point-level DenseANCCImputer
     # above): each well collapses to one representative point, and spatial_knn_dist
     # is the distance to the nearest neighbouring well used in that plane fit.
-    form_ev, spatial_knn_dist = FI.impute(xy_ev, self_wid=self_wid)
+    _, spatial_knn_dist = FI.impute(xy_ev, self_wid=self_wid)
     cur["spatial_knn_dist"] = spatial_knn_dist
-    xy_kn = visible[["X", "Y"]].to_numpy(np.float64)
-    form_kn, _ = FI.impute(xy_kn, self_wid=self_wid)
-    ktvt = visible["TVT_input"].values
-    kz = visible["Z"].values
-
-    form_tvt_list = []
-    for fi2 in range(len(FORMATIONS)):
-        bias = float(np.median(ktvt + kz - form_kn[:, fi2]))
-        tvt_f = (-cur["Z"].values + form_ev[:, fi2] + bias).astype(np.float32)
-        form_tvt_list.append(tvt_f)
-
-    form_stack = np.stack(form_tvt_list, axis=1)   # shape: (n_rows, n_formations)
-    cur["form_mean_d"] = (form_stack.mean(axis=1) - last_TVT).astype(np.float32)
-    cur["form_std_d"]  = form_stack.std(axis=1).astype(np.float32)
-    cur["form_rng_d"]  = (form_stack.max(axis=1) - form_stack.min(axis=1)).astype(np.float32)
 
     # Particle-filter TVT tracker (ANCC-anchored). Run once over the FULL hidden
     # region (all rows past the anchor, in order) so the simulation's momentum
@@ -919,10 +951,6 @@ print("Building spatial ANCC imputer from training wells...")
 DI = DenseANCCImputer(train_wells, TRAIN_DIR)
 print(f"  index built from {len(DI.ancc):,} sample points across "
       f"{len(set(DI.wids)):,} wells")
-
-print("Building formation-plane KNN imputer from training wells...")
-FI = FormationPlaneKNN(train_wells, TRAIN_DIR)
-print(f"  index built from {len(FI.df):,} wells")
 
 t0 = time.time()
 train_parts = []
@@ -1051,7 +1079,7 @@ def objective(trial):
 # Run Optuna study
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(
-    study_name="lgb_TVT_tuning_20260714",
+    study_name="lgb_TVT_tuning_20260715",
     storage="sqlite:///lgb_TVT_tuning.db" ,
     load_if_exists=True,
     direction="minimize",
@@ -1078,7 +1106,7 @@ study.trials_dataframe().to_csv(f"lgb_rogii_{best_score:.6f}.csv", index=False)
 #print(f"Best parameters saved to {file_name}")
 
 #### Check optuna results ###
-s = optuna.load_study(study_name="lgb_TVT_tuning_20260714", storage="sqlite:///lgb_TVT_tuning.db")
+s = optuna.load_study(study_name="lgb_TVT_tuning_20260715", storage="sqlite:///lgb_TVT_tuning.db")
 print(s.best_value, s.best_params)
 #s.trials_dataframe().tail(10) 
 
@@ -1163,6 +1191,25 @@ print(f"\nWells where the model beats B0: {(per_well['delta_vs_b0'] > 0).sum()} 
 
 
 
+################ Postprocessing (OOF check) ################
+# Blend the raw model delta with the particle-filter delta, ramp up from the
+# anchor point, rescale, then smooth per well. Evaluated on OOF so we can see
+# whether it actually helps before applying it to test.
+pf_oof_delta = train_df["pf_ancc"].values - last_tvt_all
+oof_residual_pp = apply_pp(train_df, oof_residual, pf_oof_delta, **PP_PARAMS)
+oof_tvt_pp = last_tvt_all + oof_residual_pp
+
+oof_pp_df = train_df[["well_id"]].copy()
+oof_pp_df["tvt_pred"] = oof_tvt_pp
+oof_pp_df = sg_smooth(oof_pp_df, "tvt_pred", well_col="well_id")
+oof_tvt_pp_sm = oof_pp_df["tvt_pred"].values
+
+rmse_oof_pp    = float(np.sqrt(np.mean((oof_tvt_pp    - y_true_all) ** 2)))
+rmse_oof_pp_sm = float(np.sqrt(np.mean((oof_tvt_pp_sm - y_true_all) ** 2)))
+print(f"OOF RMSE — model (raw):        {rmse_oof_tvt:.4f}")
+print(f"OOF RMSE — model + pp:         {rmse_oof_pp:.4f}")
+print(f"OOF RMSE — model + pp + sg:    {rmse_oof_pp_sm:.4f}")
+print(f"OOF RMSE — B0:                 {rmse_oof_b0:.4f}")
 # Histogram and scatter.
 fig, ax = plt.subplots(1, 2, figsize=(13, 4.5), constrained_layout=True)
 ax[0].hist(per_well["delta_vs_b0"], bins=50, color="#1f77b4", edgecolor="white")
@@ -1214,12 +1261,19 @@ if len(test_df):
     residual_clip = 400.0
     pred_residual = np.clip(pred_residual, -residual_clip, residual_clip)
     
-    pred_tvt = test_df["last_known_TVT"].values + pred_residual
+    # Postprocessing: blend with the particle-filter delta, ramp up from the
+    # anchor point, rescale — same PP_PARAMS validated on OOF above.
+    pf_test_delta = test_df["pf_ancc"].values - test_df["last_known_TVT"].values
+    pred_residual_pp = apply_pp(test_df, pred_residual, pf_test_delta, **PP_PARAMS)
+    
+    pred_tvt = test_df["last_known_TVT"].values + pred_residual_pp
     test_df["tvt_pred"] = pred_tvt
-    print(f"Predicted residual stats — mean: {pred_residual.mean():+.3f}  "
+    test_df = sg_smooth(test_df, "tvt_pred", well_col="well_id")
+    pred_tvt = test_df["tvt_pred"].values
+    print(f"Predicted residual stats (pre-pp)  — mean: {pred_residual.mean():+.3f}  "
           f"std: {pred_residual.std():.3f}  "
           f"min: {pred_residual.min():.3f}  max: {pred_residual.max():.3f}")
-    print(f"Predicted TVT stats     — mean: {pred_tvt.mean():.1f}  "
+    print(f"Predicted TVT stats (post-pp+sg)   — mean: {pred_tvt.mean():.1f}  "
           f"min: {pred_tvt.min():.1f}  max: {pred_tvt.max():.1f}")
 else:
     print("Test feature matrix is empty.")
