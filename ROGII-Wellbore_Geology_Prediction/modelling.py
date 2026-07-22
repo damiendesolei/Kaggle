@@ -952,6 +952,10 @@ DI = DenseANCCImputer(train_wells, TRAIN_DIR)
 print(f"  index built from {len(DI.ancc):,} sample points across "
       f"{len(set(DI.wids)):,} wells")
 
+print("Building formation-plane KNN imputer from training wells...")
+FI = FormationPlaneKNN(train_wells, TRAIN_DIR)
+print(f"  index built from {len(FI.df):,} wells")
+
 t0 = time.time()
 train_parts = []
 for k, wid in enumerate(train_wells):
@@ -965,7 +969,7 @@ train_df = pd.concat(train_parts, ignore_index=True)
 del train_parts; gc.collect()
 print(f"\nTrain feature matrix: {train_df.shape}  (built in {time.time()-t0:.1f}s)")
 print(train_df.head(2))
-train_df.to_csv("train_df.csv", index=False)
+#train_df.to_csv("train_df.csv", index=False)
 
 
 # Define the feature column list.
@@ -981,6 +985,10 @@ exclude = {
 feature_cols = [c for c in train_df.columns if c not in exclude]
 print(f"Number of features: {len(feature_cols)}")
 print("First 20 features:", feature_cols[:20])
+
+###### back fill nans in the train df ######
+numeric_cols = train_df.select_dtypes(include=[np.number]).columns
+train_df[numeric_cols] = (train_df.groupby("well_id")[numeric_cols].ffill())
 
 # Cast to float32 for memory and speed.
 X_train = train_df[feature_cols].astype(np.float32).values
@@ -1079,13 +1087,13 @@ def objective(trial):
 # Run Optuna study
 print("Start running hyper parameter tuning..")
 study = optuna.create_study(
-    study_name="lgb_TVT_tuning_20260715",
+    study_name="lgb_TVT_tuning_20260721",
     storage="sqlite:///lgb_TVT_tuning.db" ,
     load_if_exists=True,
     direction="minimize",
     sampler=TPESampler(seed=SEED),
     pruner=optuna.pruners.MedianPruner(n_warmup_steps=2))
-study.optimize(objective, timeout=12*3600, n_jobs=6) # n hour
+study.optimize(objective, timeout=10*3600, n_jobs=6) # n hour
 
 # Print the best hyperparameters and score
 print("Best hyperparameters:", study.best_params)
@@ -1106,9 +1114,81 @@ study.trials_dataframe().to_csv(f"lgb_rogii_{best_score:.6f}.csv", index=False)
 #print(f"Best parameters saved to {file_name}")
 
 #### Check optuna results ###
-s = optuna.load_study(study_name="lgb_TVT_tuning_20260715", storage="sqlite:///lgb_TVT_tuning.db")
+s = optuna.load_study(study_name="lgb_TVT_tuning_20260721", storage="sqlite:///lgb_TVT_tuning.db")
 print(s.best_value, s.best_params)
 #s.trials_dataframe().tail(10) 
+
+
+
+############### Ridge Hyper-parameter Tuning ##############
+# Ridge needs a) no NaNs and b) comparably-scaled features, neither of which
+# LightGBM cares about, so each trial fits a small Imputer -> Scaler -> Ridge
+# pipeline. Reuses the same `cv_folds` (and TVT reconstruction) as the
+# LightGBM objective above so the two models are compared on identical splits.
+from sklearn.linear_model import Ridge
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
+
+
+def ridge_objective(trial):
+    param = {
+        "alpha": trial.suggest_float("alpha", 1e-3, 1e3, log=True),
+        "imputer_strategy": trial.suggest_categorical("imputer_strategy", ["mean", "median"]),
+        #"fit_intercept": trial.suggest_categorical("fit_intercept", [True, False]),
+    }
+
+    fold_rmse_tvt = []
+    for fold, (tr_idx, va_idx) in enumerate(cv_folds):
+        pipe = Pipeline([
+            ("imputer", SimpleImputer(strategy=param["imputer_strategy"])),
+            ("scaler", StandardScaler()),
+            ("ridge", Ridge(alpha=param["alpha"],
+                             #fit_intercept=param["fit_intercept"],
+                             random_state=SEED)),
+        ])
+        pipe.fit(X_train[tr_idx], y_train[tr_idx])
+        pred_residual = pipe.predict(X_train[va_idx])
+
+        # Reconstruct TVT from the persistence anchor, same as the LightGBM objective.
+        y_true_tvt = train_df["target_tvt"].values[va_idx]
+        last_tvt   = train_df["last_known_TVT"].values[va_idx]
+        pred_tvt   = last_tvt + pred_residual
+
+        rmse_tvt = float(np.sqrt(np.mean((pred_tvt - y_true_tvt) ** 2)))
+        fold_rmse_tvt.append(rmse_tvt)
+
+        trial.report(np.mean(fold_rmse_tvt), step=fold)
+        if trial.should_prune():
+            raise optuna.TrialPruned()
+
+    return float(np.mean(fold_rmse_tvt))
+
+
+# Run Optuna study for Ridge
+print("Start running Ridge hyper parameter tuning..")
+ridge_study = optuna.create_study(
+    study_name="ridge_TVT_tuning_20260721",
+    storage="sqlite:///ridge_TVT_tuning.db",
+    load_if_exists=True,
+    direction="minimize",
+    sampler=TPESampler(seed=SEED),
+    pruner=optuna.pruners.MedianPruner(n_warmup_steps=2))
+ridge_study.optimize(ridge_objective, timeout=0.5*3600, n_jobs=3)  # Ridge is cheap; 1h is plenty
+
+# Print the best hyperparameters and score
+print("Best Ridge hyperparameters:", ridge_study.best_params)
+print("Best Ridge average rmse:", ridge_study.best_value)
+
+ridge_best_score = ridge_study.best_value
+ridge_study.trials_dataframe().to_csv(f"ridge_rogii_{ridge_best_score:.6f}.csv", index=False)
+
+#### Check Ridge optuna results ###
+rs = optuna.load_study(study_name="ridge_TVT_tuning_20260721", storage="sqlite:///ridge_TVT_tuning.db")
+print(rs.best_value, rs.best_params)
+#rs.trials_dataframe().tail(10)
+
+RIDGE_PARAMS = dict(rs.best_params)
 
 
 
