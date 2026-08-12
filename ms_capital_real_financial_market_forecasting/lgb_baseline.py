@@ -159,53 +159,75 @@ def build_features(split):
     return df
 
 
-def main():
-    tr_feats = build_features("train")
-    te_feats = build_features("test")
+#def main():
+tr_feats = build_features("train")
+te_feats = build_features("test")
 
-    label = pl.read_ipc(f"{DATA}/train/label.feather", memory_map=False)
-    tr = tr_feats.join(label, on="sample_id", how="inner")
-    del tr_feats; gc.collect()
-    print(f"\ntrain w/ label: {tr.shape}", flush=True)
+label = pl.read_ipc(f"{DATA}/train/label.feather", memory_map=False)
+# label.write_csv("label.csv")
+# market = pl.read_ipc(f"{DATA}/train/market.feather", memory_map=False)
+# market.write_csv("market.csv")
+# order = pl.read_ipc(f"{DATA}/train/order.feather", memory_map=False)
+# order.write_csv("order.csv")
+# transaction = pl.read_ipc(f"{DATA}/train/transaction.feather", memory_map=False)
+# transaction.write_csv("transaction.csv")
+tr = tr_feats.join(label, on="sample_id", how="inner")
+# del tr_feats; gc.collect()
+tr.write_csv("tr.csv")
+print(f"\ntrain w/ label: {tr.shape}", flush=True)
 
-    feat_cols = [c for c in tr.columns if c not in ("sample_id", "month", "target")]
-    print(f"n_features={len(feat_cols)}", flush=True)
-    tr_df = tr.filter(pl.col("month") <= 50)
-    va_df = tr.filter((pl.col("month") > 50) & (pl.col("month") <= 70))
-    del tr; gc.collect()
+feat_cols = [c for c in tr.columns if c not in ("sample_id", "month", "target")]
+print(f"n_features={len(feat_cols)}", flush=True)
+tr_df = tr.filter(pl.col("month") <= 50)
+va_df = tr.filter((pl.col("month") > 50) & (pl.col("month") <= 70))
+del tr; gc.collect()
 
-    X_tr = tr_df.select(feat_cols).to_numpy().astype(np.float32)
-    y_tr = tr_df["target"].to_numpy().astype(np.float32)
-    X_va = va_df.select(feat_cols).to_numpy().astype(np.float32)
-    y_va = va_df["target"].to_numpy().astype(np.float32)
-    del tr_df, va_df; gc.collect()
+X_tr = tr_df.select(feat_cols).to_numpy().astype(np.float32)
+y_tr = tr_df["target"].to_numpy().astype(np.float32)
+X_va = va_df.select(feat_cols).to_numpy().astype(np.float32)
+y_va = va_df["target"].to_numpy().astype(np.float32)
+del tr_df, va_df; gc.collect()
 
-    print(f"\ntrain X: {X_tr.shape}, valid X: {X_va.shape}", flush=True)
-    params = dict(
-        objective="regression",   # L2 (MSE) loss - RMSE 优化同样目标
-        metric="rmse",
-        learning_rate=0.02, num_leaves=32, min_data_in_leaf=300,
-        feature_fraction=0.8, bagging_fraction=0.8, bagging_freq=5,
-        lambda_l2=5.0, max_bin=255, verbose=-1, num_threads=16, seed=0)
-    dtr = lgb.Dataset(X_tr, y_tr)
-    dva = lgb.Dataset(X_va, y_va, reference=dtr)
-    t0 = time.time()
-    model = lgb.train(params, dtr, num_boost_round=10000, valid_sets=[dva],
-                      callbacks=[lgb.early_stopping(200), lgb.log_evaluation(period=100)])
-    print(f"train took {time.time()-t0:.1f}s, best_iter={model.best_iteration}", flush=True)
+print(f"\ntrain X: {X_tr.shape}, valid X: {X_va.shape}", flush=True)
+params = dict(
+    objective="regression",   # L2 (MSE) loss - RMSE 优化同样目标
+    metric="rmse",
+    learning_rate=0.02, num_leaves=32, min_data_in_leaf=300,
+    feature_fraction=0.8, bagging_fraction=0.8, bagging_freq=5,
+    lambda_l2=5.0, max_bin=255, verbose=-1, num_threads=16, seed=0)
+dtr = lgb.Dataset(X_tr, y_tr)
+dva = lgb.Dataset(X_va, y_va, reference=dtr)
+t0 = time.time()
+model = lgb.train(params, dtr, num_boost_round=10000, valid_sets=[dva],
+                  callbacks=[lgb.early_stopping(200), lgb.log_evaluation(period=100)])
+print(f"train took {time.time()-t0:.1f}s, best_iter={model.best_iteration}", flush=True)
 
-    p_va = model.predict(X_va, num_iteration=model.best_iteration)
-    v_cos = cos_uncenter(p_va, y_va)
-    print(f"\n>>> valid_cos = {v_cos:.6f}", flush=True)
-
-    X_te = te_feats.select(feat_cols).to_numpy().astype(np.float32)
-    ids_te = te_feats["sample_id"].to_numpy()
-    p_te = model.predict(X_te, num_iteration=model.best_iteration)
-    pl.DataFrame({"sample_id": pl.Series(ids_te, dtype=pl.Int32),
-                  "prediction": pl.Series(p_te, dtype=pl.Float64)}).sort("sample_id").write_csv(OUT_CSV)
-    print(f"submission saved: {OUT_CSV}", flush=True)
+p_va = model.predict(X_va, num_iteration=model.best_iteration)
+v_cos = cos_uncenter(p_va, y_va)
+print(f"\n>>> valid_cos = {v_cos:.6f}", flush=True)
 
 
-if __name__ == "__main__":
-    main()
+####### Feature Importance #######
+fi_gain = model.feature_importance(importance_type="gain")
+fi_split = model.feature_importance(importance_type="split")
+fi_df = pl.DataFrame({
+    "feature": feat_cols,
+    "gain": fi_gain,
+    "split": fi_split,
+}).sort("gain", descending=True)
+fi_df.write_csv("feature_importance.csv")
+print(f"\n feature importance saved: feature_importance.csv", flush=True)
+print(fi_df.head(20), flush=True)
+
+
+X_te = te_feats.select(feat_cols).to_numpy().astype(np.float32)
+ids_te = te_feats["sample_id"].to_numpy()
+p_te = model.predict(X_te, num_iteration=model.best_iteration)
+pl.DataFrame({"sample_id": pl.Series(ids_te, dtype=pl.Int32),
+              "prediction": pl.Series(p_te, dtype=pl.Float64)}).sort("sample_id").write_csv(OUT_CSV)
+print(f"submission saved: {OUT_CSV}", flush=True)
+
+
+# if __name__ == "__main__":
+#     main()
 
