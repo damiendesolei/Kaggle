@@ -7,14 +7,6 @@ import lightgbm as lgb
 DATA = r"H:\kaggle\ms-capital-real-financial-market-forecasting"
 OUT_CSV = "submission_baseline.csv"
 
-# --- sample_id extraction ---
-# Set this to an int or a list of ints to export that sample_id's full engineered
-# feature row(s) to CSV instead of running the full training pipeline.
-# Leave as None to run training as normal.
-EXPORT_SAMPLE_ID = None
-EXPORT_SPLIT = "train"       # "train" or "test"
-EXPORT_CSV = "sample_export.csv"
-
 def cos_uncenter(a, b):
     return float((a * b).sum() / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-12))
 
@@ -168,11 +160,6 @@ def build_features(split):
 
 
 def main():
-    if EXPORT_SAMPLE_ID is not None:
-        sample_ids = EXPORT_SAMPLE_ID if isinstance(EXPORT_SAMPLE_ID, (list, tuple)) else [EXPORT_SAMPLE_ID]
-        export_sample(EXPORT_SPLIT, sample_ids, EXPORT_CSV)
-        return
-
     tr_feats = build_features("train")
     te_feats = build_features("test")
 
@@ -180,14 +167,6 @@ def main():
     tr = tr_feats.join(label, on="sample_id", how="inner")
     del tr_feats; gc.collect()
     print(f"\ntrain w/ label: {tr.shape}", flush=True)
-
-    if EXPORT_SAMPLE_ID is not None:
-        sample_ids = EXPORT_SAMPLE_ID if isinstance(EXPORT_SAMPLE_ID, (list, tuple)) else [EXPORT_SAMPLE_ID]
-        src = tr if EXPORT_SPLIT == "train" else te_feats
-        export_df = src.filter(pl.col("sample_id").is_in(sample_ids)).sort("sample_id")
-        export_df.write_csv(EXPORT_CSV)
-        print(f"\nexported {export_df.shape[0]} row(s), {export_df.shape[1]} column(s) -> {EXPORT_CSV}", flush=True)
-        return
 
     feat_cols = [c for c in tr.columns if c not in ("sample_id", "month", "target")]
     print(f"n_features={len(feat_cols)}", flush=True)
