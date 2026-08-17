@@ -1,0 +1,137 @@
+"""
+lgb_hyper_capital.py
+Optuna hyperparameter tuning for the ms-capital LightGBM baseline.
+
+Reads tr.csv (produced by your feature-engineering script), reuses the same
+month-based train/valid split, and tunes LightGBM params to maximize the
+competition's uncentered-cosine metric. Trials are persisted to a SQLite
+study so tuning can be paused/resumed and inspected later.
+
+Usage:
+    python lgb_hyper_capital.py
+"""
+
+import time
+import numpy as np
+import polars as pl
+import optuna
+import lightgbm as lgb
+
+# --------------------------------------------------------------------------
+# Config
+# --------------------------------------------------------------------------
+TR_CSV = "tr.csv"
+N_TRIALS = 1000
+STUDY_NAME = "ms_capital_lgb_20260817"
+STORAGE = "sqlite:///ms_capital_lgb_tuning.db"
+GPU = True  # flip to True to use your OpenCL GPU backend (device="gpu")
+
+VALID_MONTH_LO = 50   # train: month <= 50
+VALID_MONTH_HI = 70   # valid: 50 < month <= 70
+
+
+def cos_uncenter(a, b):
+    return float((a * b).sum() / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-12))
+
+
+# --------------------------------------------------------------------------
+# Data (loaded once, reused across all trials)
+# --------------------------------------------------------------------------
+def load_data():
+    tr = pl.read_csv(TR_CSV)
+    feat_cols = [c for c in tr.columns if c not in ("sample_id", "month", "target")]
+
+    tr_df = tr.filter(pl.col("month") <= VALID_MONTH_LO)
+    va_df = tr.filter((pl.col("month") > VALID_MONTH_LO) & (pl.col("month") <= VALID_MONTH_HI))
+
+    X_tr = tr_df.select(feat_cols).to_numpy().astype(np.float32)
+    y_tr = tr_df["target"].to_numpy().astype(np.float32)
+    X_va = va_df.select(feat_cols).to_numpy().astype(np.float32)
+    y_va = va_df["target"].to_numpy().astype(np.float32)
+    return X_tr, y_tr, X_va, y_va, feat_cols
+
+
+X_TR, Y_TR, X_VA, Y_VA, FEAT_COLS = load_data()
+print(f"train: {X_TR.shape}, valid: {X_VA.shape}, n_features={len(FEAT_COLS)}", flush=True)
+
+NUM_BOOST_ROUND = 10000
+EARLY_STOPPING = 200
+
+
+# --------------------------------------------------------------------------
+# Objective
+# --------------------------------------------------------------------------
+def objective(trial):
+    param = dict(
+        objective="regression",
+        metric="rmse",
+        learning_rate=trial.suggest_float("learning_rate", 0.005, 0.1, log=True),
+        num_leaves=trial.suggest_int("num_leaves", 16, 255),
+        min_data_in_leaf=trial.suggest_int("min_data_in_leaf", 50, 1000),
+        feature_fraction=trial.suggest_float("feature_fraction", 0.5, 1.0),
+        bagging_fraction=trial.suggest_float("bagging_fraction", 0.5, 1.0),
+        bagging_freq=trial.suggest_int("bagging_freq", 1, 12),
+        lambda_l1=trial.suggest_float("lambda_l1", 1e-8, 10.0, log=True),
+        lambda_l2=trial.suggest_float("lambda_l2", 1e-8, 10.0, log=True),
+        max_bin=trial.suggest_categorical("max_bin", [63, 127, 255]),
+        #min_gain_to_split=trial.suggest_float("min_gain_to_split", 0.0, 1.0),
+        max_depth=trial.suggest_int("max_depth", 2, 64),
+        verbose=-1,
+        #num_threads=16,
+        seed=0,
+    )
+    if GPU:
+        param.update(device="gpu", gpu_platform_id=0, gpu_device_id=0)
+
+    # Built fresh each trial (like the ROGII script) so max_bin / min_data_in_leaf
+    # can vary freely without hitting LightGBM's "Dataset already constructed" errors.
+    dtrain = lgb.Dataset(X_TR, Y_TR, feature_name=FEAT_COLS)
+    dvalid = lgb.Dataset(X_VA, Y_VA, feature_name=FEAT_COLS, reference=dtrain)
+
+    model = lgb.train(
+        param, dtrain,
+        num_boost_round=NUM_BOOST_ROUND,
+        valid_sets=[dvalid],
+        valid_names=["valid"],
+        callbacks=[lgb.early_stopping(EARLY_STOPPING, verbose=False), lgb.log_evaluation(0)],
+    )
+
+    p_va = model.predict(X_VA, num_iteration=model.best_iteration)
+    v_cos = cos_uncenter(p_va, Y_VA)
+
+    trial.set_user_attr("best_iteration", model.best_iteration)
+    trial.set_user_attr("cos_uncenter", v_cos)
+
+    # Optuna minimizes; negate cosine so a higher cosine = lower (better) loss.
+    return -v_cos
+
+
+# --------------------------------------------------------------------------
+# Run study
+# --------------------------------------------------------------------------
+sampler = optuna.samplers.TPESampler(seed=0, multivariate=True)
+pruner = optuna.pruners.MedianPruner(n_warmup_steps=5)
+study = optuna.create_study(
+    study_name=STUDY_NAME,
+    storage=STORAGE,
+    load_if_exists=True,
+    direction="minimize",
+    sampler=sampler,
+    pruner=pruner,
+)
+
+t0 = time.time()
+study.optimize(objective, timeout=12*3600, n_trials=N_TRIALS, show_progress_bar=True)
+print(f"\ntuning took {time.time() - t0:.1f}s", flush=True)
+
+print(f"\nbest cos_uncenter = {-study.best_value:.4f}")
+print("best params:")
+for k, v in study.best_params.items():
+    print(f"  {k}: {v}")
+print(f"best_iteration: {study.best_trial.user_attrs.get('best_iteration')}")
+
+study.trials_dataframe().sort_values("value").to_csv("optuna_trials.csv", index=False)
+print("\nall trials saved to optuna_trials.csv")
+
+
+
