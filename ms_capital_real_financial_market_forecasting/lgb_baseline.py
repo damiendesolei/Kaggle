@@ -67,35 +67,61 @@ def market_feats(split):
 
 def tx_feats(split):
     """~25 tx features. Lazy + single agg."""
+    # Lazy-scan the transaction (tick-level trade) data for this split.
+    # memory_map=False avoids mmap, likely to sidestep file-locking/perf issues on Windows.
     lf = pl.scan_ipc(f"{DATA}/{split}/transaction.feather", memory_map=False)
+
+    # Sort each sample_id's trades by recency: seconds_before_predict descending=True
+    # means the *largest* "seconds before predict" (i.e. furthest from prediction time)
+    # comes first, so trades are ordered oldest -> newest within each sample_id.
     lf = lf.sort(["sample_id", "seconds_before_predict"], descending=[False, True])
+
     lf = lf.with_columns([
+        # Trade direction sign: +1 for buy-side trades (side == 0), -1 for sell-side.
+        # Encodes aggressor direction so later expressions can compute signed volume/value.
         (pl.when(pl.col("side") == 0).then(1.0).otherwise(-1.0)).cast(pl.Float32).alias("_sgn"),
+
+        # Log-transformed volume (log1p handles volume == 0 safely).
+        # Compresses skew/heavy tails typical of trade-size distributions.
         pl.col("volume").log1p().alias("_lv"),
     ])
+
     lf = lf.with_columns([
+        # Signed volume: positive for buy-initiated trades, negative for sell-initiated.
+        # Sum across trades approximates net order flow imbalance.
         (pl.col("_sgn") * pl.col("volume")).alias("_sv"),
+
+        # Signed dollar (notional) value of each trade: price * volume, signed by direction.
+        # Sum approximates net signed trading value / dollar order flow imbalance.
         (pl.col("_sgn") * pl.col("price") * pl.col("volume")).alias("_sd"),
     ])
+
+    # --- Full-window (unrestricted) aggregate features ---
     exprs = [
-        pl.col("volume").sum().alias("t_vol_sum"),
-        pl.col("_sv").sum().alias("t_sv_sum"),
-        pl.col("_sd").sum().alias("t_sd_sum"),
-        pl.col("_lv").mean().alias("t_lv_mean"),
-        pl.col("price").std().alias("t_px_std"),
-        pl.col("price").last().alias("t_px_last"),
-        (pl.col("_sgn") > 0).mean().alias("t_buy_ratio"),
+        pl.col("volume").sum().alias("t_vol_sum"),        # total traded volume over full window
+        pl.col("_sv").sum().alias("t_sv_sum"),             # net signed volume (order flow imbalance)
+        pl.col("_sd").sum().alias("t_sd_sum"),             # net signed dollar value (money flow imbalance)
+        pl.col("_lv").mean().alias("t_lv_mean"),           # average log trade size (typical trade size)
+        pl.col("price").std().alias("t_px_std"),           # trade price volatility/dispersion
+        pl.col("price").last().alias("t_px_last"),         # most recent trade price (last known level)
+        (pl.col("_sgn") > 0).mean().alias("t_buy_ratio"),  # fraction of trades that were buy-initiated
     ]
+
+    # --- Rolling-window features over the last w seconds before prediction time ---
+    # Captures short-term dynamics at multiple horizons: 15s (very recent), 45s, 120s (2min).
     for w in [15, 45, 120]:
-        cond = pl.col("seconds_before_predict") <= w
+        cond = pl.col("seconds_before_predict") <= w  # filter: only trades within last w seconds
         exprs += [
-            pl.col("volume").filter(cond).sum().alias(f"t_vol_{w}"),
-            pl.col("_sv").filter(cond).sum().alias(f"t_sv_{w}"),
-            pl.col("_sd").filter(cond).sum().alias(f"t_sd_{w}"),
-            pl.col("_lv").filter(cond).mean().alias(f"t_lv_mean_{w}"),
-            (pl.col("_sgn").filter(cond) > 0).mean().alias(f"t_buy_ratio_{w}"),
-            pl.col("_sgn").filter(cond).count().alias(f"t_n_{w}"),
+            pl.col("volume").filter(cond).sum().alias(f"t_vol_{w}"),         # volume traded in last w sec
+            pl.col("_sv").filter(cond).sum().alias(f"t_sv_{w}"),             # signed volume in last w sec (short-term flow imbalance)
+            pl.col("_sd").filter(cond).sum().alias(f"t_sd_{w}"),             # signed dollar value in last w sec
+            pl.col("_lv").filter(cond).mean().alias(f"t_lv_mean_{w}"),       # avg log trade size in last w sec
+            (pl.col("_sgn").filter(cond) > 0).mean().alias(f"t_buy_ratio_{w}"),  # buy ratio in last w sec (short-term buy pressure)
+            pl.col("_sgn").filter(cond).count().alias(f"t_n_{w}"),           # number of trades in last w sec (trading intensity/activity)
         ]
+
+    # Single group_by + agg call materializes all ~25 features per sample_id in one pass
+    # (efficient: avoids repeated scans/filters across separate aggregations).
     return lf.group_by("sample_id").agg(exprs).collect(streaming=True)
 
 
@@ -190,11 +216,23 @@ del tr_df, va_df; gc.collect()
 
 print(f"\ntrain X: {X_tr.shape}, valid X: {X_va.shape}", flush=True)
 params = dict(
-    objective="regression",   # L2 (MSE) loss - RMSE 优化同样目标
-    metric="rmse",
-    learning_rate=0.02, num_leaves=32, min_data_in_leaf=300,
-    feature_fraction=0.8, bagging_fraction=0.8, bagging_freq=5,
-    lambda_l2=5.0, max_bin=255, verbose=-1, num_threads=16, seed=0)
+        objective="regression",   # L2 (MSE) loss - RMSE 优化同样目标 
+        metric="rmse",
+        learning_rate=0.013238185700441068, 
+        num_leaves=253, 
+        min_data_in_leaf=688,
+        feature_fraction=0.520506625459195, 
+        bagging_fraction=0.8339416243424527, 
+        bagging_freq=6,
+        lambda_l1=5.877789019296412e-08,
+        lambda_l2=1.8461571297337404e-06, 
+        max_bin=255, 
+        #min_gain_to_split=0.00022526657860905087,
+        max_depth=19,
+        verbose=-1, 
+        #num_threads=16, 
+        seed=0
+        )
 dtr = lgb.Dataset(X_tr, y_tr)
 dva = lgb.Dataset(X_va, y_va, reference=dtr)
 t0 = time.time()
