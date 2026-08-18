@@ -77,7 +77,7 @@ def objective(trial):
         #min_gain_to_split=trial.suggest_float("min_gain_to_split", 0.0, 1.0),
         max_depth=trial.suggest_int("max_depth", 2, 64),
         verbose=-1,
-        #num_threads=16,
+        #num_threads=16 ,
         seed=0,
     )
     if GPU:
