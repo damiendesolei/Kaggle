@@ -21,8 +21,8 @@ import lightgbm as lgb
 # Config
 # --------------------------------------------------------------------------
 TR_CSV = "tr.csv"
-N_TRIALS = 1000
-STUDY_NAME = "ms_capital_lgb_20260817"
+N_TRIALS = 10000
+STUDY_NAME = "ms_capital_lgb_20260818"
 STORAGE = "sqlite:///ms_capital_lgb_tuning.db"
 GPU = True  # flip to True to use your OpenCL GPU backend (device="gpu")
 
@@ -121,7 +121,7 @@ study = optuna.create_study(
 )
 
 t0 = time.time()
-study.optimize(objective, timeout=12*3600, n_trials=N_TRIALS, show_progress_bar=True)
+study.optimize(objective, timeout=1*3600, n_trials=N_TRIALS, show_progress_bar=True)
 print(f"\ntuning took {time.time() - t0:.1f}s", flush=True)
 
 print(f"\nbest cos_uncenter = {-study.best_value:.4f}")

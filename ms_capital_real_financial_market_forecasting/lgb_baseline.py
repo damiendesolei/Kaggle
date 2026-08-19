@@ -65,6 +65,26 @@ def market_feats(split):
     return lf.group_by("sample_id").agg(exprs).collect(streaming=True)
 
 
+# 20260818
+# for calculating the slope
+def slope_expr(y_col, cond, x_col="seconds_before_predict"):
+    """Least-squares slope of y_col vs. time within the window, per sample_id.
+    x is negated seconds_before_predict, so a positive slope means the signal
+    is increasing as trades approach prediction time."""
+    x = (-pl.col(x_col)).filter(cond)
+    y = pl.col(y_col).filter(cond)
+    n = x.count()
+    sx, sy = x.sum(), y.sum()
+    sxy = (x * y).sum()
+    sxx = (x * x).sum()
+    denom = n * sxx - sx * sx
+    return (
+        pl.when((n > 1) & (denom != 0))
+        .then((n * sxy - sx * sy) / denom)
+        .otherwise(None)
+    )
+
+
 def tx_feats(split):
     """~25 tx features. Lazy + single agg."""
     # Lazy-scan the transaction (tick-level trade) data for this split.
@@ -98,7 +118,7 @@ def tx_feats(split):
 
     # --- Full-window (unrestricted) aggregate features ---
     exprs = [
-        pl.col("volume").sum().alias("t_vol_sum"),        # total traded volume over full window
+        pl.col("volume").sum().alias("t_vol_sum"),         # total traded volume over full window
         pl.col("_sv").sum().alias("t_sv_sum"),             # net signed volume (order flow imbalance)
         pl.col("_sd").sum().alias("t_sd_sum"),             # net signed dollar value (money flow imbalance)
         pl.col("_lv").mean().alias("t_lv_mean"),           # average log trade size (typical trade size)
@@ -115,9 +135,16 @@ def tx_feats(split):
             pl.col("volume").filter(cond).sum().alias(f"t_vol_{w}"),         # volume traded in last w sec
             pl.col("_sv").filter(cond).sum().alias(f"t_sv_{w}"),             # signed volume in last w sec (short-term flow imbalance)
             pl.col("_sd").filter(cond).sum().alias(f"t_sd_{w}"),             # signed dollar value in last w sec
+            # 20260818
+            slope_expr("_sv", cond).alias(f"t_sv_slope_{w}"),                # slope of signed volume in last w sec
+            slope_expr("_sd", cond).alias(f"t_sd_slope_{w}"),                # slope of signed dollar value in last w sec
+            
             pl.col("_lv").filter(cond).mean().alias(f"t_lv_mean_{w}"),       # avg log trade size in last w sec
             (pl.col("_sgn").filter(cond) > 0).mean().alias(f"t_buy_ratio_{w}"),  # buy ratio in last w sec (short-term buy pressure)
             pl.col("_sgn").filter(cond).count().alias(f"t_n_{w}"),           # number of trades in last w sec (trading intensity/activity)
+            # 20260818
+            (pl.col("_sgn").filter(cond) > 0).cast(pl.Int32).sum().alias(f"t_buy_count_{w}"), # cumulative count of buy (+1) orders
+            pl.col("_sgn").filter(cond).sum().alias(f"t_buy_sell_net_count_{w}"),  # cumulative count of buy minus sell orders 
         ]
 
     # Single group_by + agg call materializes all ~25 features per sample_id in one pass
