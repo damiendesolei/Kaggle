@@ -33,6 +33,10 @@ def market_feats(split):
         pl.col("_mid").mean().alias("m_mid_mean"),
         pl.col("_mid").std().alias("m_mid_std"),
         (pl.col("_mid").max() - pl.col("_mid").min()).alias("m_mid_range"),
+        #20260819
+        (pl.col("_mid").quantile(0.75, interpolation="linear") - pl.col("_mid").quantile(0.25, interpolation="linear")).alias("m_mid_50pct_range"),
+        (pl.col("_mid").quantile(0.875, interpolation="linear") - pl.col("_mid").quantile(0.125, interpolation="linear")).alias("m_mid_75pct_range"),
+        
         pl.col("_sp").last().alias("m_sp_last"),
         pl.col("_sp").mean().alias("m_sp_mean"),
         pl.col("_imb").last().alias("m_imb_last"),
@@ -185,7 +189,7 @@ def ord_feats(split):
 
 def cross_feats(df):
     """~8 cross-source features."""
-    return df.with_columns([
+    df = df.with_columns([
         (pl.col("m_sp_mean") * pl.col("m_imb_mean")).alias("x_sp_imb"),
         (pl.col("t_sv_sum") / (pl.col("t_vol_sum") + 1.0)).alias("x_t_signed_ratio"),
         (pl.col("o_sv_sum") / (pl.col("o_vol_sum") + 1.0)).alias("x_o_signed_ratio"),
@@ -195,6 +199,21 @@ def cross_feats(df):
         (pl.col("t_sv_15") / (pl.col("t_vol_15") + 1.0)).alias("x_t_signed_ratio_15"),
         (pl.col("m_rv_15") / (pl.col("m_rv") + 1e-8)).alias("x_rv_15_over_full"),
     ])
+
+    # 20260819: pairwise diffs of slope features across windows [15, 45, 120]
+    windows = [15, 45, 120]
+    slope_groups = ["t_sv_slope", "t_sd_slope"]
+    diff_exprs = []
+    for prefix in slope_groups:
+        for i in range(len(windows)):
+            for j in range(i + 1, len(windows)):
+                w_a, w_b = windows[i], windows[j]
+                diff_exprs.append(
+                    (pl.col(f"{prefix}_{w_a}") - pl.col(f"{prefix}_{w_b}")).alias(f"x_{prefix}_diff_{w_a}_{w_b}")
+                )
+    df = df.with_columns(diff_exprs)
+
+    return df
 
 
 def build_features(split):
@@ -242,24 +261,24 @@ y_va = va_df["target"].to_numpy().astype(np.float32)
 del tr_df, va_df; gc.collect()
 
 print(f"\ntrain X: {X_tr.shape}, valid X: {X_va.shape}", flush=True)
-params = dict(
+params = dict( # 0.13616
         objective="regression",   # L2 (MSE) loss - RMSE 优化同样目标 
         metric="rmse",
-        learning_rate=0.011888341076657752, 
-        num_leaves=184, 
-        min_data_in_leaf=802,
-        feature_fraction=0.6383586658795594, 
-        bagging_fraction=0.877242520135172, 
-        bagging_freq=10,
-        lambda_l1=0.022796299595762223,
-        lambda_l2=1.6204644139253978e-08, 
+        learning_rate=0.005127040245516146, 
+        num_leaves=247, 
+        min_data_in_leaf=582,
+        feature_fraction=0.5455837960528863, 
+        bagging_fraction=0.9015583553040001, 
+        bagging_freq=8,
+        lambda_l1=4.799416347996385e-07,
+        lambda_l2=4.8311665804950615e-08, 
         max_bin=255, 
         #min_gain_to_split=0.00022526657860905087,
-        max_depth=14,
+        max_depth=11,
         verbose=-1, 
         #num_threads=16, 
         seed=0
-        )
+    )
 dtr = lgb.Dataset(X_tr, y_tr)
 dva = lgb.Dataset(X_va, y_va, reference=dtr)
 t0 = time.time()

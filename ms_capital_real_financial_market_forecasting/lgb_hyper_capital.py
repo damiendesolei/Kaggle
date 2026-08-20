@@ -22,7 +22,7 @@ import lightgbm as lgb
 # --------------------------------------------------------------------------
 TR_CSV = "tr.csv"
 N_TRIALS = 10000
-STUDY_NAME = "ms_capital_lgb_20260818"
+STUDY_NAME = "ms_capital_lgb_20260819"
 STORAGE = "sqlite:///ms_capital_lgb_tuning.db"
 GPU = True  # flip to True to use your OpenCL GPU backend (device="gpu")
 
@@ -121,7 +121,7 @@ study = optuna.create_study(
 )
 
 t0 = time.time()
-study.optimize(objective, timeout=1*3600, n_trials=N_TRIALS, show_progress_bar=True)
+study.optimize(objective, timeout=10*3600, n_trials=N_TRIALS, show_progress_bar=True)
 print(f"\ntuning took {time.time() - t0:.1f}s", flush=True)
 
 print(f"\nbest cos_uncenter = {-study.best_value:.4f}")
@@ -130,7 +130,7 @@ for k, v in study.best_params.items():
     print(f"  {k}: {v}")
 print(f"best_iteration: {study.best_trial.user_attrs.get('best_iteration')}")
 
-study.trials_dataframe().sort_values("value").to_csv("optuna_trials.csv", index=False)
+study.trials_dataframe().sort_values("value").to_csv("optuna_trials_20260819.csv", index=False)
 print("\nall trials saved to optuna_trials.csv")
 
 
