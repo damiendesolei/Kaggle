@@ -20,9 +20,9 @@ import lightgbm as lgb
 # --------------------------------------------------------------------------
 # Config
 # --------------------------------------------------------------------------
-TR_CSV = "tr.csv"
+TR_CSV = "train.csv"
 N_TRIALS = 10000
-STUDY_NAME = "ms_capital_lgb_20260819"
+STUDY_NAME = "ms_capital_lgb_20260821"
 STORAGE = "sqlite:///ms_capital_lgb_tuning.db"
 GPU = True  # flip to True to use your OpenCL GPU backend (device="gpu")
 
@@ -40,9 +40,13 @@ def cos_uncenter(a, b):
 def load_data():
     tr = pl.read_csv(TR_CSV)
     feat_cols = [c for c in tr.columns if c not in ("sample_id", "month", "target")]
-
-    tr_df = tr.filter(pl.col("month") <= VALID_MONTH_LO)
-    va_df = tr.filter((pl.col("month") > VALID_MONTH_LO) & (pl.col("month") <= VALID_MONTH_HI))
+    
+    
+    #tr_df = tr.filter(pl.col("month") <= VALID_MONTH_LO)
+    tr_df = tr.filter(pl.col("sample_id") <= 904390)
+    #va_df = tr.filter((pl.col("month") > VALID_MONTH_LO) & (pl.col("month") <= VALID_MONTH_HI))
+    va_df = tr.filter((pl.col("sample_id") > 904390) & (pl.col("sample_id") <= 1257636))
+    #print(va_df.select("sample_id").describe())
 
     X_tr = tr_df.select(feat_cols).to_numpy().astype(np.float32)
     y_tr = tr_df["target"].to_numpy().astype(np.float32)
@@ -130,7 +134,7 @@ for k, v in study.best_params.items():
     print(f"  {k}: {v}")
 print(f"best_iteration: {study.best_trial.user_attrs.get('best_iteration')}")
 
-study.trials_dataframe().sort_values("value").to_csv("optuna_trials_20260819.csv", index=False)
+study.trials_dataframe().sort_values("value").to_csv("optuna_trials_20260821.csv", index=False)
 print("\nall trials saved to optuna_trials.csv")
 
 

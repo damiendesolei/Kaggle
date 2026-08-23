@@ -264,17 +264,17 @@ print(f"\ntrain X: {X_tr.shape}, valid X: {X_va.shape}", flush=True)
 params = dict( # 0.13616
         objective="regression",   # L2 (MSE) loss - RMSE 优化同样目标 
         metric="rmse",
-        learning_rate=0.005127040245516146, 
-        num_leaves=247, 
-        min_data_in_leaf=582,
-        feature_fraction=0.5455837960528863, 
-        bagging_fraction=0.9015583553040001, 
-        bagging_freq=8,
-        lambda_l1=4.799416347996385e-07,
-        lambda_l2=4.8311665804950615e-08, 
-        max_bin=255, 
+        learning_rate=0.006062312041794416, 
+        num_leaves=245, 
+        min_data_in_leaf=961,
+        feature_fraction=0.5396338326135655, 
+        bagging_fraction=0.9847335064086064, 
+        bagging_freq=4,
+        lambda_l1=2.227480201172718e-05,
+        lambda_l2=0.9542891498527163, 
+        max_bin=63, 
         #min_gain_to_split=0.00022526657860905087,
-        max_depth=11,
+        max_depth=52,
         verbose=-1, 
         #num_threads=16, 
         seed=0
@@ -300,7 +300,7 @@ fi_df = pl.DataFrame({
     "split": fi_split,
 }).sort("gain", descending=True)
 fi_df.write_csv("feature_importance.csv")
-print(f"\n feature importance saved: feature_importance.csv", flush=True)
+print(f"\n feature importance saved: feature_importance_yunsu.csv", flush=True)
 print(fi_df.head(20), flush=True)
 
 
