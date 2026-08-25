@@ -14,18 +14,42 @@ def market_feats(split):
     """~40 market features. Lazy scan + 单次 collect."""
     lf = pl.scan_ipc(f"{DATA}/{split}/market.feather", memory_map=False)
     lf = lf.sort(["sample_id", "seconds_before_predict"], descending=[False, True])
+    
+    # 20260824 fix possible zero denom
+    _ask_denom = pl.col("ask_volume_2") - pl.col("ask_volume_1")
+    _ask_denom_safe = pl.when(_ask_denom.abs() < 1.0).then(None).otherwise(_ask_denom)
+    _bid_denom = pl.col("bid_volume_1") - pl.col("bid_volume_2")
+    _bid_denom_safe = pl.when(_bid_denom.abs() < 1.0).then(None).otherwise(_bid_denom)
+    
     lf = lf.with_columns([
-        ((pl.col("ask_price_1") + pl.col("bid_price_1")) * 0.5).alias("_mid"),
-        (pl.col("ask_price_1") - pl.col("bid_price_1")).alias("_sp"),
-        ((pl.col("ask_volume_1") - pl.col("bid_volume_1"))
-         / (pl.col("ask_volume_1") + pl.col("bid_volume_1") + 1.0)).alias("_imb"),
-        (pl.col("ask_volume_1") + pl.col("bid_volume_1")).alias("_depth"),
+    ((pl.col("ask_price_1") + pl.col("bid_price_1")) * 0.5).alias("_mid"),
+    (pl.col("ask_price_1") - pl.col("bid_price_1")).alias("_sp"),
+    # 2026084
+    ((pl.col("ask_price_1") - pl.col("bid_price_1")) / ((pl.col("ask_price_1") + pl.col("bid_price_1")) / 2 + 1e-8)).alias("_spread_ratio"),
+    ((pl.col("ask_price_2") - pl.col("ask_price_1")) / _ask_denom_safe).alias("_ask_slope"),
+    ((pl.col("bid_price_1") - pl.col("bid_price_2")) / _bid_denom_safe).alias("_bid_slope"),
+    
+    ((pl.col("ask_volume_1") - pl.col("bid_volume_1")) / (pl.col("ask_volume_1") + pl.col("bid_volume_1") + 1.0)).alias("_imb"),
+    (pl.col("ask_volume_1") + pl.col("bid_volume_1")).alias("_depth"),
     ])
+    
     lf = lf.with_columns([
         pl.col("_mid").diff().over("sample_id").fill_null(0.0).alias("_dmid"),
         (pl.col("ask_volume_1").diff().over("sample_id").fill_null(0.0)
          - pl.col("bid_volume_1").diff().over("sample_id").fill_null(0.0)).alias("_ofi"),
     ])
+    
+    # 20260824
+    for w in [60, 300]:
+        weight = (-pl.col("seconds_before_predict") / w).exp()
+        lf = lf.with_columns([
+            (weight * pl.col("_mid")).sum().over("sample_id").alias(f"m_mid_weighted_{w}"),
+            (weight * pl.col("_imb")).sum().over("sample_id").alias(f"m_imb_weighted_{w}"),
+            (weight * pl.col("_ofi")).sum().over("sample_id").alias(f"m_ofi_weighted_{w}"),
+            (weight * pl.col("transaction_volume")).sum().over("sample_id").alias(f"m_vol_weighted_{w}"),
+        ])
+    
+        
     # 用 filter-in-agg 方式一次 group_by 出所有 window stats + 全序列
     exprs = [
         # 全序列 12
@@ -45,8 +69,22 @@ def market_feats(split):
         pl.col("_depth").mean().alias("m_depth_mean"),
         (pl.col("_dmid") ** 2).sum().sqrt().alias("m_rv"),
         pl.col("_ofi").sum().alias("m_ofi_sum"),
+        # 20260824
+        pl.col("m_mid_weighted_60").first().alias("m_mid_weighted_60"),
+        pl.col("m_mid_weighted_300").first().alias("m_mid_weighted_300"),
+        pl.col("m_imb_weighted_60").first().alias("m_imb_weighted_60"),
+        pl.col("m_imb_weighted_300").first().alias("m_imb_weighted_300"),
+        pl.col("m_ofi_weighted_60").first().alias("m_ofi_weighted_60"),
+        pl.col("m_ofi_weighted_300").first().alias("m_ofi_weighted_300"),
+        pl.col("m_vol_weighted_60").first().alias("m_vol_weighted_60"),
+        pl.col("m_vol_weighted_300").first().alias("m_vol_weighted_300"),
+        pl.col("_spread_ratio").mean().alias("m_spread_ratio_mean"),
+        pl.col("_ask_slope").mean().alias("m_ask_slope_mean"),
+        pl.col("_bid_slope").mean().alias("m_bid_slope_mean"),
+        pl.col("_mid").skew().alias("m_mid_skew"),
     ]
-    # 3 短窗口, 每个 7 feats (agg 时用 filter 表达式)
+    
+    # 3 短窗口, 每个 7 feats (agg 时用 filter 表达式) + 1 for `market mid range`
     for w in [15, 60, 180]:
         cond = pl.col("seconds_before_predict") <= w
         exprs += [
@@ -58,6 +96,11 @@ def market_feats(split):
             pl.col("_ofi").filter(cond).sum().alias(f"m_ofi_sum_{w}"),
             pl.col("transaction_volume").filter(cond).sum().alias(f"m_txv_sum_{w}"),
         ]
+        if w == 60:
+            exprs += [
+                (pl.col("_mid").filter(cond).max()-pl.col("_mid").filter(cond).min())
+                .alias(f"m_mid_range_{w}")]
+               
     # EWM 2 τ × 3 signals = 6
     for tau in [30, 120]:
         w_expr = pl.col("seconds_before_predict").mul(-1.0 / tau).exp()
@@ -129,6 +172,7 @@ def tx_feats(split):
         pl.col("price").std().alias("t_px_std"),           # trade price volatility/dispersion
         pl.col("price").last().alias("t_px_last"),         # most recent trade price (last known level)
         (pl.col("_sgn") > 0).mean().alias("t_buy_ratio"),  # fraction of trades that were buy-initiated
+
     ]
 
     # --- Rolling-window features over the last w seconds before prediction time ---
@@ -261,23 +305,23 @@ y_va = va_df["target"].to_numpy().astype(np.float32)
 del tr_df, va_df; gc.collect()
 
 print(f"\ntrain X: {X_tr.shape}, valid X: {X_va.shape}", flush=True)
-params = dict( # 0.13616
-        objective="regression",   # L2 (MSE) loss - RMSE 优化同样目标 
-        metric="rmse",
-        learning_rate=0.006062312041794416, 
-        num_leaves=245, 
-        min_data_in_leaf=961,
-        feature_fraction=0.5396338326135655, 
-        bagging_fraction=0.9847335064086064, 
-        bagging_freq=4,
-        lambda_l1=2.227480201172718e-05,
-        lambda_l2=0.9542891498527163, 
-        max_bin=63, 
-        #min_gain_to_split=0.00022526657860905087,
-        max_depth=52,
-        verbose=-1, 
-        #num_threads=16, 
-        seed=0
+params = dict( # 0.136795
+    objective="regression",   # L2 (MSE) loss - RMSE 优化同样目标 
+    metric="rmse",
+    learning_rate=0.005002549852434712, 
+    num_leaves=235, 
+    min_data_in_leaf=463,
+    feature_fraction=0.5602830864427383, 
+    bagging_fraction=0.7810851179313609, 
+    bagging_freq=5,
+    lambda_l1=4.94649101817862e-07,
+    lambda_l2=4.4837990388653335, 
+    #max_bin=255, 
+    #min_gain_to_split=0.00022526657860905087,
+    max_depth=15,
+    verbose=-1, 
+    #num_threads=16, 
+    seed=0 
     )
 dtr = lgb.Dataset(X_tr, y_tr)
 dva = lgb.Dataset(X_va, y_va, reference=dtr)
