@@ -963,7 +963,7 @@ print(f"测试集: {test.shape}")
 #print(f"\ntrain w/ label: {tr.shape}", flush=True)
 
 
-OUT_CSV = 'submission_140807.csv'
+OUT_CSV = 'submission_140807_2.csv'
 BASE_PATH = r"H:\kaggle\ms-capital-real-financial-market-forecasting"
 tr = pl.read_csv(BASE_PATH+'\\processed_data\\train.csv')
 te_feats = pl.read_csv(BASE_PATH+'\\processed_data\\test.csv')
@@ -982,10 +982,28 @@ X_va = va_df.select(feat_cols).to_numpy().astype(np.float32)
 y_va = va_df["target"].to_numpy().astype(np.float32)
 del tr_df, va_df; gc.collect()
 
+
+def cosine_similarity_score(y_pred, y_true):
+    y_pred = np.array(y_pred).flatten()
+    y_true = np.array(y_true).flatten()
+    
+    pred_centered = y_pred - y_pred.mean()
+    true_centered = y_true - y_true.mean()
+    
+    cos_sim = (pred_centered * true_centered).sum() / (np.linalg.norm(pred_centered) + 1e-8) / (np.linalg.norm(true_centered) + 1e-8)
+    return float(cos_sim)
+
+# --- NEW: custom feval so LightGBM early-stops/monitors on cosine similarity, not RMSE ---
+def cos_sim_feval(preds, train_data):
+    y_true = train_data.get_label()
+    val = cosine_similarity_score(preds, y_true)
+    return "cos_sim", val, True  # True = higher is better
+
 print(f"\ntrain X: {X_tr.shape}, valid X: {X_va.shape}", flush=True)
 params = dict( # 0.136795
     objective="regression",   # L2 (MSE) loss - RMSE 优化同样目标 
-    metric="rmse",
+    # metric="rmse",          # REMOVED: no longer the metric LightGBM reports/early-stops on
+    metric="None",             # tells LightGBM not to compute its built-in metric, only feval
     learning_rate=0.00550010656425676, 
     num_leaves=225, 
     min_data_in_leaf=940,
@@ -1004,21 +1022,24 @@ params = dict( # 0.136795
 dtr = lgb.Dataset(X_tr, y_tr)
 dva = lgb.Dataset(X_va, y_va, reference=dtr)
 t0 = time.time()
-model = lgb.train(params, dtr, num_boost_round=10000, valid_sets=[dva],
-                  callbacks=[lgb.early_stopping(200), lgb.log_evaluation(period=100)])
+model = lgb.train(params, dtr, num_boost_round=10000,
+                  valid_sets=[dtr, dva],
+                  valid_names=["train", "valid"],
+                  feval=cos_sim_feval,
+                  callbacks=[lgb.early_stopping(200, first_metric_only=True),
+                             lgb.log_evaluation(period=100)])
 print(f"train took {time.time()-t0:.1f}s, best_iter={model.best_iteration}", flush=True)
+
+p_va = model.predict(X_va, num_iteration=model.best_iteration)
+p_tr = model.predict(X_tr, num_iteration=model.best_iteration)
+v_cos = cosine_similarity_score(p_va, y_va)
+t_cos = cosine_similarity_score(p_tr, y_tr)
+print(f"\n>>> train_cos = {t_cos:.6f}", flush=True)
+print(f">>> valid_cos = {v_cos:.6f}", flush=True)
 
 # def cos_uncenter(a, b):
 #     return float((a * b).sum() / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-12))
-def cosine_similarity_score(y_pred, y_true):
-    y_pred = np.array(y_pred).flatten()
-    y_true = np.array(y_true).flatten()
-    
-    pred_centered = y_pred - y_pred.mean()
-    true_centered = y_true - y_true.mean()
-    
-    cos_sim = (pred_centered * true_centered).sum() / (np.linalg.norm(pred_centered) + 1e-8) / (np.linalg.norm(true_centered) + 1e-8)
-    return float(cos_sim)
+
 
 p_va = model.predict(X_va, num_iteration=model.best_iteration)
 v_cos = cosine_similarity_score(p_va, y_va)
