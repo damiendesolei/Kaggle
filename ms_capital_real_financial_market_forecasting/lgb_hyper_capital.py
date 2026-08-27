@@ -20,9 +20,10 @@ import lightgbm as lgb
 # --------------------------------------------------------------------------
 # Config
 # --------------------------------------------------------------------------
-TR_CSV = "tr.csv"
-N_TRIALS = 10000
-STUDY_NAME = "ms_capital_lgb_20260824"
+BASE_PATH = r"H:\kaggle\ms-capital-real-financial-market-forecasting"
+#TR_CSV = "train.csv"
+N_TRIALS = 5000
+STUDY_NAME = "ms_capital_lgb_20260826"
 STORAGE = "sqlite:///ms_capital_lgb_tuning.db"
 GPU = True  # flip to True to use your OpenCL GPU backend (device="gpu")
 
@@ -46,14 +47,14 @@ def cosine_similarity_score(y_pred, y_true):
 # Data (loaded once, reused across all trials)
 # --------------------------------------------------------------------------
 def load_data():
-    tr = pl.read_csv(TR_CSV)
+    tr = pl.read_csv(BASE_PATH+'\\processed_data\\train.csv')
     feat_cols = [c for c in tr.columns if c not in ("sample_id", "month", "target")]
     
     
-    tr_df = tr.filter(pl.col("month") <= VALID_MONTH_LO)
-    #tr_df = tr.filter(pl.col("sample_id") <= 904390)
-    va_df = tr.filter((pl.col("month") > VALID_MONTH_LO) & (pl.col("month") <= VALID_MONTH_HI))
-    #va_df = tr.filter((pl.col("sample_id") > 904390) & (pl.col("sample_id") <= 1257636))
+    #tr_df = tr.filter(pl.col("month") <= VALID_MONTH_LO)
+    tr_df = tr.filter(pl.col("sample_id") <= 904390)
+    #va_df = tr.filter((pl.col("month") > VALID_MONTH_LO) & (pl.col("month") <= VALID_MONTH_HI))
+    va_df = tr.filter((pl.col("sample_id") > 904390) & (pl.col("sample_id") <= 1257636))
     #print(va_df.select("sample_id").describe())
 
     X_tr = tr_df.select(feat_cols).to_numpy().astype(np.float32)
@@ -79,7 +80,7 @@ def objective(trial):
         metric="rmse",
         learning_rate=trial.suggest_float("learning_rate", 0.005, 0.1, log=True),
         num_leaves=trial.suggest_int("num_leaves", 16, 255),
-        min_data_in_leaf=trial.suggest_int("min_data_in_leaf", 100, 1000),
+        min_data_in_leaf=trial.suggest_int("min_data_in_leaf", 100, 10000),
         feature_fraction=trial.suggest_float("feature_fraction", 0.5, 1.0),
         bagging_fraction=trial.suggest_float("bagging_fraction", 0.5, 1.0),
         bagging_freq=trial.suggest_int("bagging_freq", 1, 12),
@@ -142,7 +143,7 @@ for k, v in study.best_params.items():
     print(f"  {k}: {v}")
 print(f"best_iteration: {study.best_trial.user_attrs.get('best_iteration')}")
 
-study.trials_dataframe().sort_values("value").to_csv("optuna_trials_20260824.csv", index=False)
+study.trials_dataframe().sort_values("value").to_csv("optuna_trials_20260826.csv", index=False)
 print("\nall trials saved to optuna_trials.csv")
 
 
