@@ -27,7 +27,7 @@ warnings.filterwarnings('ignore')
 # --------------------------------------------------------------------------
 BASE_PATH = r"H:\kaggle\ms-capital-real-financial-market-forecasting"
 N_TRIALS = 5000
-STUDY_NAME = "ms_capital_catboost_20260827"
+STUDY_NAME = "ms_capital_catboost_20260828"
 STORAGE = "sqlite:///ms_capital_catboost_tuning.db"
 GPU = True  # flip to True to train on GPU (task_type="GPU")
 
@@ -188,14 +188,14 @@ for k, v in study.best_params.items():
     print(f"  {k}: {v}")
 print(f"best_iteration: {study.best_trial.user_attrs.get('best_iteration')}")
 
-study.trials_dataframe().sort_values("value").to_csv("optuna_trials_catboost_20260827.csv", index=False)
-print("\nall trials saved to optuna_trials_catboost_20260827.csv")
+study.trials_dataframe().sort_values("value").to_csv("optuna_trials_catboost_20260828.csv", index=False)
+print("\nall trials saved to optuna_trials_catboost_20260828.csv")
 
 
 # --------------------------------------------------------------------------
 # Create submission (using best Optuna params)
 # --------------------------------------------------------------------------
-OUT_CSV = 'catboost_submission_140022.csv'
+OUT_CSV = 'catboost_submission_139507.csv'
 BASE_PATH = r"H:\kaggle\ms-capital-real-financial-market-forecasting"
 tr = pl.read_csv(BASE_PATH + '\\processed_data\\train.csv')
 te_feats = pl.read_csv(BASE_PATH + '\\processed_data\\test.csv')

@@ -188,17 +188,19 @@ PROCESSED_PATH = r"H:\kaggle\ms-capital-real-financial-market-forecasting\proces
 
 # 所有需要删除的特征（合并你给的两个列表）
 DROP_FEATURES = {
-    # 't_px_last', 'o_cancel_order_ratio', 'o_cancel_ratio', 
-    # 'o_cancel_ratio_15', 'o_cancel_ratio_45', 'o_cancel_ratio_120', 
-    # 'x_cancel_spread', 't_vol_120', 't_sv_120', 't_sd_120', 
-    # 't_lv_mean_120', 't_buy_ratio_120', 't_px_std_120', 't_avg_signed_vol_120', 
-    # 'o_market_order_ratio', 'o_sv_120', 'o_av_120', 'o_buy_ratio_120', 
-    # 'o_market_ratio_120', 'x_t_signed_ratio', 'm_spread_ratio_15', 
-    # 'm_value_imbalance_mean', 'm_spread_ratio_60', 'm_spread_ratio_180', 
-    # 'm_spread_ratio_mean', 'o_avg_signed_vol', 't_sd_45', 
-    # 't_buy_sell_cnt_ratio', 'o_limit_order_ratio', 't_avg_signed_vol_45', 
-    # 't_sd_15', 'x_vwap_vs_mid', 't_px_rms', 't_avg_signed_vol_15', 
-    # 'm_spread_ewm_120', 'm_spread_ewm_30', 'm_txv_sum_60',
+    'x_sharpe_like','o_cancel_ratio_120','o_cancel_ratio_45','o_cancel_ratio_30'
+    ,'o_cancel_ratio_15','o_cancel_ratio_first_half_vs_second','o_cancel_weighted_60'
+    ,'o_cancel_weighted_30','o_cancel_weighted_15','o_cancel_ratio','t_price_momentum_10'
+    ,'t_sec_vol_60','o_sec_vol_60','t_sec_total_row_count','t_sec_vol_sum'
+    ,'t_sec_row_count_60','o_sec_row_count_60','o_sec_vol_sum','o_vol_120','t_vol_120'
+    ,'o_sec_total_row_count','t_n_120','x_sec_o_max_missing_ratio','t_value_weighted_60'
+    ,'t_value_weighted_30','o_sec_vol_weighted_60','o_sec_vol_weighted_30','o_n_120'
+    ,'o_vol_weighted_60','o_sec_has_data_60','t_sec_vol_weighted_60','t_vol_weighted_60'
+    ,'t_vol_weighted_30','t_sec_vol_weighted_30','o_vol_weighted_30','t_sd_120'
+    ,'t_sv_120','t_sec_has_data_60','t_avg_signed_vol_120','o_sec_vol_weighted_15'
+    ,'t_value_weighted_15','t_transaction_rate','o_vol_45','o_sec_has_data_ratio'
+    ,'o_vol_weighted_15','t_sec_buy_ratio_60','o_sec_has_data_15','t_vol_sum'
+    ,'o_sec_vol_45','o_vol_sum'
     
     # # 你给的额外删除列表
     # 'm_sp_mean', 'o_sec_has_data_30', 't_sec_vol_sum', 't_sv_15', 'o_sec_has_data_60', 
