@@ -195,7 +195,7 @@ print("\nall trials saved to optuna_trials_catboost_20260909.csv")
 # --------------------------------------------------------------------------
 # Create submission (using best Optuna params)
 # --------------------------------------------------------------------------
-OUT_CSV = 'catboost_submission_139507.csv'
+OUT_CSV = 'catboost_submission_138462.csv'
 BASE_PATH = r"H:\kaggle\ms-capital-real-financial-market-forecasting"
 tr = pl.read_csv(BASE_PATH + '\\processed_data\\train.csv')
 te_feats = pl.read_csv(BASE_PATH + '\\processed_data\\test.csv')
