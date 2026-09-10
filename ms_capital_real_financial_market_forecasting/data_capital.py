@@ -394,6 +394,7 @@ def get_data(mode='train', return_pandas=True, start_id=None, end_id=None):
         tx_agg_exprs.append(pl.col("_lv").filter(cond).mean().alias(f"t_lv_mean_{w}"))
         tx_agg_exprs.append((pl.col("_sgn").filter(cond) > 0).mean().alias(f"t_buy_ratio_{w}"))
         tx_agg_exprs.append(pl.col("_sgn").filter(cond).len().alias(f"t_n_{w}"))
+        tx_agg_exprs.append(pl.col("_sgn").filter(cond).sum().alias(f"t_buy_sell_net_count_{w}"))  # 20260908 cumulative count of buy minus sell orders 
         tx_agg_exprs.append(pl.col("price").filter(cond).std().alias(f"t_px_std_{w}"))
         tx_agg_exprs.append((pl.col("_sv").filter(cond) / (pl.col("volume").filter(cond) + 1e-8)).mean().alias(f"t_avg_signed_vol_{w}"))
         if w == 15:

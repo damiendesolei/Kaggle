@@ -14,7 +14,7 @@ Usage:
 import time
 import numpy as np
 import polars as pl
-import optuna.
+import optuna
 import lightgbm as lgb
 import gc, time
 
@@ -24,7 +24,7 @@ import gc, time
 BASE_PATH = r"H:\kaggle\ms-capital-real-financial-market-forecasting"
 #TR_CSV = "train.csv"
 N_TRIALS = 5000
-STUDY_NAME = "ms_capital_lgb_20260906"
+STUDY_NAME = "ms_capital_lgb_20260908"
 STORAGE = "sqlite:///ms_capital_lgb_tuning.db"
 GPU = True  # flip to True to use your OpenCL GPU backend (device="gpu")
 
@@ -135,7 +135,7 @@ study = optuna.create_study(
 )
 
 t0 = time.time()
-study.optimize(objective, timeout=1*3600, n_trials=N_TRIALS, show_progress_bar=True)
+study.optimize(objective, timeout=24*3600, n_trials=N_TRIALS, show_progress_bar=True)
 print(f"\ntuning took {time.time() - t0:.1f}s", flush=True)
 
 print(f"\nbest cos_similarity = {study.best_value:.4f}")
@@ -144,7 +144,7 @@ for k, v in study.best_params.items():
     print(f"  {k}: {v}")
 print(f"best_iteration: {study.best_trial.user_attrs.get('best_iteration')}")
 
-study.trials_dataframe().sort_values("value").to_csv("optuna_trials_20260906.csv", index=False)
+study.trials_dataframe().sort_values("value").to_csv("optuna_trials_20260908.csv", index=False)
 print("\nall trials saved to optuna_trials.csv")
 
 
@@ -153,7 +153,7 @@ print("\nall trials saved to optuna_trials.csv")
 # --------------------------------------------------------------------------
 # Create submission
 # --------------------------------------------------------------------------
-OUT_CSV = 'lgb_submission_140592.csv'
+OUT_CSV = 'lgb_submission_141106.csv'
 BASE_PATH = r"H:\kaggle\ms-capital-real-financial-market-forecasting"
 tr = pl.read_csv(BASE_PATH+'\\processed_data\\train.csv')
 te_feats = pl.read_csv(BASE_PATH+'\\processed_data\\test.csv')
@@ -194,17 +194,17 @@ params = dict( # 0.136795
     objective="regression",   # L2 (MSE) loss - RMSE 优化同样目标 
     # metric="rmse",          # REMOVED: no longer the metric LightGBM reports/early-stops on
     metric="None",             # tells LightGBM not to compute its built-in metric, only feval
-    learning_rate=0.00500924616238409, 
-    num_leaves=217, 
-    min_data_in_leaf=1008,
-    feature_fraction=0.643570599541409, 
-    bagging_fraction=0.925162372027514, 
-    bagging_freq=6,
-    lambda_l1=3.88309824004649E-07,
-    lambda_l2=5.94742501160636E-07, 
+    learning_rate=0.006058991424681395,
+    num_leaves=228, 
+    min_data_in_leaf=1927,
+    feature_fraction=0.7825634299254792,
+    bagging_fraction=0.9947144532584501, 
+    bagging_freq=11,
+    lambda_l1=0.08920655610126783,
+    lambda_l2=3.2890897174386944e-07, 
     #max_bin=255, 
     #min_gain_to_split=0.00022526657860905087,
-    max_depth=23,
+    max_depth=15,
     verbose=-1, 
     #num_threads=16, 
     seed=0 
@@ -244,7 +244,7 @@ fi_df = pl.DataFrame({
     "gain": fi_gain,
     "split": fi_split,
 }).sort("gain", descending=True)
-fi_df.write_csv("feature_importance_20260906.csv")
+fi_df.write_csv("feature_importance_20260908.csv")
 print(f"\n feature importance saved: feature_importance_lgb.csv", flush=True)
 print(fi_df.head(20), flush=True)
 
