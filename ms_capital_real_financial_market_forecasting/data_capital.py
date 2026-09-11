@@ -200,7 +200,20 @@ DROP_FEATURES = {
     ,'t_sv_120','t_sec_has_data_60','t_avg_signed_vol_120','o_sec_vol_weighted_15'
     ,'t_value_weighted_15','t_transaction_rate','o_vol_45','o_sec_has_data_ratio'
     ,'o_vol_weighted_15','t_sec_buy_ratio_60','o_sec_has_data_15','t_vol_sum'
-    ,'o_sec_vol_45','o_vol_sum'
+    ,'o_sec_vol_45','o_vol_sum''o_av_weighted_60','t_sec_row_count_45','o_sec_cancel_count_15'
+    ,'x_m_rv_60_180_ratio','o_sec_buy_ratio_45','o_sec_cancel_count_30','o_av_sum'
+    ,'m_txv_sum_180','t_sv_45','o_sv_weighted_30','t_sec_price_std_60','t_price_weighted_15'
+    ,'t_vol_weighted_15','t_sec_rowcount_weighted_15','t_sec_vol_weighted_15'
+    ,'o_sv_weighted_60','t_avg_time_gap','o_sec_cancel_near_far_ratio_15','o_sec_vol_15'
+    ,'o_sec_cancel_count_60','t_sv_sum','t_avg_signed_vol','o_sec_cancel_new_ratio_60'
+    ,'t_vol_30','t_sec_vol_30','m_txv_sum_60','x_sec_trans_order_vol_ratio'
+    ,'t_sec_price_mean_60','t_vol_45','o_order_rate','o_vol_15','t_sd_sum'
+    ,'o_sec_buy_ratio_60','o_market_ratio','t_sec_rowcount_weighted_60','m_vol_weighted_60'
+    ,'o_sec_has_data_30','t_sec_rowcount_weighted_30','t_lv_mean_120','x_o_cancel_trend_15'
+    ,'t_price_weighted_60','o_sec_has_data_45','o_sec_vol_30','o_vol_30','t_price_weighted_30'
+    ,'t_sec_vol_45','x_sec_tx_order_activity_ratio','o_sv_120','x_sec_o_cancel_trend_15'
+    ,'o_av_120','t_buy_ratio_120','o_market_ratio_120'
+
     
     # # 你给的额外删除列表
     # 'm_sp_mean', 'o_sec_has_data_30', 't_sec_vol_sum', 't_sv_15', 'o_sec_has_data_60', 
