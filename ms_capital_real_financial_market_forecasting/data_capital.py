@@ -200,7 +200,7 @@ DROP_FEATURES = {
     ,'t_sv_120','t_sec_has_data_60','t_avg_signed_vol_120','o_sec_vol_weighted_15'
     ,'t_value_weighted_15','t_transaction_rate','o_vol_45','o_sec_has_data_ratio'
     ,'o_vol_weighted_15','t_sec_buy_ratio_60','o_sec_has_data_15','t_vol_sum'
-    ,'o_sec_vol_45','o_vol_sum''o_av_weighted_60','t_sec_row_count_45','o_sec_cancel_count_15'
+    ,'o_sec_vol_45','o_vol_sum','o_av_weighted_60','t_sec_row_count_45','o_sec_cancel_count_15'
     ,'x_m_rv_60_180_ratio','o_sec_buy_ratio_45','o_sec_cancel_count_30','o_av_sum'
     ,'m_txv_sum_180','t_sv_45','o_sv_weighted_30','t_sec_price_std_60','t_price_weighted_15'
     ,'t_vol_weighted_15','t_sec_rowcount_weighted_15','t_sec_vol_weighted_15'
@@ -773,6 +773,29 @@ def get_data(mode='train', return_pandas=True, start_id=None, end_id=None):
         pl.col("_mid").pct_change().abs().alias("_mid_ret_abs"),
     ])
 
+    # seconds_before_predict phase bucket (0 = closest to prediction, using 10/35/60 thresholds)
+    market = market.with_columns(
+        pl.when(pl.col('seconds_before_predict') < 10).then(0)
+          .when(pl.col('seconds_before_predict') < 35).then(1)
+          .when(pl.col('seconds_before_predict') < 60).then(2)
+          .otherwise(3)
+          .cast(pl.Float32)
+          .alias('seconds_before_predict_group')
+    )
+
+    # _mid group-relative features, grouped by (seconds_before_predict_group, sample_id)
+    market = market.with_columns([
+        (pl.col('_mid').first() / pl.col('_mid'))
+            .over(['seconds_before_predict_group', 'sample_id'])
+            .cast(pl.Float32)
+            .alias('_mid_group_first_ratio'),
+
+        (pl.col('_mid').rolling_mean(25, min_periods=1) / pl.col('_mid'))
+            .over(['seconds_before_predict_group', 'sample_id'])
+            .cast(pl.Float32)
+            .alias('_mid_group_expanding_mean25'),
+    ])
+
     for w in [60, 300]:
         weight = (-pl.col("seconds_before_predict") / w).exp()
         market = market.with_columns([
@@ -786,6 +809,14 @@ def get_data(mode='train', return_pandas=True, start_id=None, end_id=None):
         pl.col("_mid").pct_change().abs().rolling_mean(window_size=5).over("sample_id").alias("_vol_5"),
         pl.col("_mid").pct_change().abs().rolling_mean(window_size=20).over("sample_id").alias("_vol_20"),
     ])
+
+    # Save a row-level example (all engineered market features) for sample_id = 0,
+    # before it gets collapsed to one row per sample_id below
+    example_market = market.filter(pl.col('sample_id') == 1)
+    if example_market.height > 0:
+        Path(OUTPUT_PATH).mkdir(parents=True, exist_ok=True)
+        example_market.write_csv(f'{OUTPUT_PATH}/example_market_sample1.csv')
+        print(f"   已保存 sample_id=0 示例: {OUTPUT_PATH}/example_market_sample1.csv ({example_market.height} 行)")
 
     market_agg_exprs = [
         pl.col("_mid").last().alias("m_mid_last"),
@@ -813,6 +844,8 @@ def get_data(mode='train', return_pandas=True, start_id=None, end_id=None):
         pl.col("_vol_5").mean().alias("m_vol_short"),
         pl.col("_vol_20").mean().alias("m_vol_long"),
         (pl.col("_vol_5").mean() / (pl.col("_vol_20").mean() + 1e-8)).alias("m_vol_short_long_ratio"),
+        pl.col("_mid_group_first_ratio").mean().alias("m_mid_group_first_ratio_mean"),
+        pl.col("_mid_group_expanding_mean25").mean().alias("m_mid_group_expanding_mean25_mean"),
     ]
 
     for w in [60, 180]:
