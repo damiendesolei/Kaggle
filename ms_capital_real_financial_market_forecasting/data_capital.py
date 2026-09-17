@@ -825,7 +825,7 @@ def get_data(mode='train', return_pandas=True, start_id=None, end_id=None):
 
     # Save a row-level example (all engineered market features) for sample_id = 0,
     # before it gets collapsed to one row per sample_id below
-    example_market = market.filter(pl.col('sample_id') == 2)
+    example_market = market.filter(pl.col('sample_id') == 802)
     if example_market.height > 0:
         Path(OUTPUT_PATH).mkdir(parents=True, exist_ok=True)
         example_market.write_csv(f'{OUTPUT_PATH}/example_market_sample2.csv')
@@ -888,6 +888,19 @@ def get_data(mode='train', return_pandas=True, start_id=None, end_id=None):
         market_agg_exprs.append(pl.col("_spread_ratio").filter(cond).mean().alias(f"m_spread_ratio_{w}"))
         if w == 60:
             market_agg_exprs.append((pl.col("_mid").filter(cond).max() - pl.col("_mid").filter(cond).min()).alias(f"m_mid_range_{w}"))
+            x = pl.col("seconds_before_predict").filter(cond)
+            y = pl.col("_mid").filter(cond)
+            market_agg_exprs.append(
+                (((x - x.mean()) * (y - y.mean())).sum() / (((x - x.mean()) ** 2).sum() + 1e-8)).alias("m_mid_slope_60")
+            )
+
+    for w in [15]:
+        cond = pl.col("seconds_before_predict") <= w
+        x = pl.col("seconds_before_predict").filter(cond)
+        y = pl.col("_mid").filter(cond)
+        market_agg_exprs.append(
+            (((x - x.mean()) * (y - y.mean())).sum() / (((x - x.mean()) ** 2).sum() + 1e-8)).alias("m_mid_slope_15")
+        )
 
     for tau in [120]:
         w_expr = pl.col("seconds_before_predict").mul(-1.0 / tau).exp()

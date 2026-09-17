@@ -5,153 +5,162 @@ Created on Mon Sep 14 20:31:09 2026
 @author: azz
 """
 
-import pandas as pd
-import numpy as np
-#from pathlib import Path
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
+import numpy as np
+import pandas as pd
 
 
-DATA_DIR =  r"H:\kaggle\ms-capital-real-financial-market-forecasting"
+DATA_DIR = r"H:\kaggle\ms-capital-real-financial-market-forecasting"
 
 files = {
     "label": DATA_DIR + "\\train\\label.feather",
-    "market": DATA_DIR +"\\train\\market.feather",
+    "market": DATA_DIR + "\\train\\market.feather",
     "order": DATA_DIR + "\\train\\order.feather",
-    "transaction": DATA_DIR  + "\\train\\transaction.feather",
+    "transaction": DATA_DIR + "\\train\\transaction.feather",
 }
 
-
-
-def profile_df(df, name):
-    print("=" * 80)
-    print(name)
-    print("=" * 80)
-
-    print("Shape:", df.shape)
-    print("\nDtypes:")
-    print(df.dtypes)
-
-    print("\nMissing %:")
-    print(
-        (df.isna().mean() * 100)
-        .sort_values(ascending=False)
-        .round(2)
-    )
-
-    print("\nUnique values:")
-    print(df.nunique().sort_values())
-
-    print("\nMemory:")
-    print(f"{df.memory_usage(deep=True).sum() / 1024**2:.0f} MB")
-    
-    
-    
-################ label file ###############    
 label = pd.read_feather(files["label"])
-# profile_df(label, "LABEL")
-
-# label.describe(include="all")
-# label.groupby("month")["target"].agg(
-#     ["count", "mean", "std", "min", "median", "max"]
-# )
-
-# label.groupby("month").agg(
-#     n_samples=("sample_id", "size"),
-#     min_sample_id=("sample_id", "min"),
-#     max_sample_id=("sample_id", "max"),
-# )
-
-# label["sample_id"].is_unique
-# label["sample_id"].duplicated().sum()
-# label["month"].value_counts().sort_index()
-
-
-
-
-################ Market ###############
 market = pd.read_feather(files["market"])
-# profile_df(market, "MARKET")
+extract_id = 802
+#market[market.sample_id==extract_id].to_csv(f"H:\kaggle\ms-capital-real-financial-market-forecasting\processed_data\market_sample_id_{extract_id}.csv", index=False)
 
-# market.groupby("sample_id").size().describe()
-# market.groupby("sample_id")["seconds_before_predict"].agg(
-#     ["count", "min", "max"]
-# ).describe()
-
-# market = market.sort_values(
-#     ["sample_id", "seconds_before_predict"],
-#     ascending=[True, False]
-# )
-
-# market["dt"] = (
-#     market.groupby("sample_id")["seconds_before_predict"]
-#     .diff()
-#     .abs()
-# )
-
-# market["dt"].describe()
-
-
-# Build once, outside the loop/function
 market_label = market.merge(
-    label[["sample_id", "target"]],
-    on="sample_id",
-    how="left"
+    label[["sample_id", "target"]], on="sample_id", how="left"
 )
-market_label["_mid"] = (market_label["ask_price_1"] + market_label["bid_price_1"]) * 0.5
+market_label["_mid"] = (
+    market_label["ask_price_1"] + market_label["bid_price_1"]
+) * 0.5
 
 
-def plot_sample(sample_id, max_seconds_before_predict=None, market_label=market_label):
-    """Plot _mid vs seconds_before_predict for a single sample_id.
+def fit_linear_regression(x, y):
+  """Closed-form OLS linear regression: y = intercept + slope * x."""
+  x = np.asarray(x, dtype=float)
+  y = np.asarray(y, dtype=float)
+  x_mean, y_mean = x.mean(), y.mean()
+  denom = np.sum((x - x_mean) ** 2)
+  slope = np.sum((x - x_mean) * (y - y_mean)) / denom if denom > 0 else 0.0
+  intercept = y_mean - slope * x_mean
+  return slope, intercept
 
-    max_seconds_before_predict: if given, only keep rows where
-        seconds_before_predict <= this value.
-    """
-    plot_df = (
-        market_label[market_label["sample_id"] == sample_id]
-        .sort_values("seconds_before_predict", ascending=False)
+
+def plot_sample(
+    sample_id,
+    max_seconds_before_predict=None,
+    fit_max_seconds=60,  # changed threshold parameter to capture <= 60s
+    market_label=market_label,
+):
+  plot_df = (
+      market_label[market_label["sample_id"] == sample_id]
+      .sort_values("seconds_before_predict", ascending=False)
+      .copy()
+  )
+
+  if max_seconds_before_predict is not None:
+    plot_df = plot_df[
+        plot_df["seconds_before_predict"] <= max_seconds_before_predict
+    ]
+
+  if plot_df.empty:
+    raise ValueError(f"No rows found for sample_id={sample_id}")
+
+  target = plot_df["target"].iloc[0]
+  line_color = "blue" if target >= 0 else "red"
+
+  # --- linear regression fit on seconds_before_predict <= fit_max_seconds ---
+  fit_df = plot_df[
+      plot_df["seconds_before_predict"] <= fit_max_seconds
+  ].copy()
+
+  reg_line = None
+  slope = None
+  predicted_at_0 = None
+  actual_time = None
+  actual_mid = None
+  reg_line_color = "red"
+
+  if len(fit_df) >= 2:
+    # Fit OLS using seconds_before_predict <= 60 and _mid
+    slope, intercept = fit_linear_regression(
+        fit_df["seconds_before_predict"], fit_df["_mid"]
     )
+    
+    # Set regression line color based on slope sign (red if negative, blue otherwise)
+    reg_line_color = "blue" if slope < 0 else "red"
+    
+    # Prediction at seconds_before_predict = 0
+    predicted_at_0 = intercept + slope * 0
 
-    if max_seconds_before_predict is not None:
-        plot_df = plot_df[plot_df["seconds_before_predict"] <= max_seconds_before_predict]
+    # Generate regression line from the max of the fit window down to 0
+    reg_sec = np.linspace(fit_df["seconds_before_predict"].max(), 0, 100)
+    reg_y = intercept + slope * reg_sec
+    reg_line = pd.DataFrame({"seconds_before_predict": reg_sec, "fitted": reg_y})
 
-    if plot_df.empty:
-        raise ValueError(
-            f"No rows found for sample_id={sample_id}"
-            + (f" with seconds_before_predict <= {max_seconds_before_predict}"
-               if max_seconds_before_predict is not None else "")
-        )
+    # closest actual observation to the prediction point, for comparison
+    actual_row = plot_df.loc[plot_df["seconds_before_predict"].idxmin()]
+    actual_time = actual_row["seconds_before_predict"]
+    actual_mid = actual_row["_mid"]
 
-    target = plot_df["target"].iloc[0]
-    line_color = "blue" if target >= 0 else "red"
+  fig, ax1 = plt.subplots(figsize=(12, 6))
+  
+  # Reverse/invert the x-axis so countdown time runs right-to-left
+  ax1.invert_xaxis()
 
-    fig, ax1 = plt.subplots(figsize=(12, 6))
-    ax1.invert_xaxis()
+  ax1.plot(
+      plot_df["seconds_before_predict"],
+      plot_df["_mid"],
+      marker="o",
+      markersize=3,
+      color=line_color,
+      label="_mid (actual)",
+  )
 
+  if reg_line is not None:
     ax1.plot(
-        plot_df["seconds_before_predict"],
-        plot_df["_mid"],
-        marker="o",
-        markersize=3,
-        color=line_color,
-        label="_mid"
+        reg_line["seconds_before_predict"],
+        reg_line["fitted"],
+        linestyle="--",
+        color=reg_line_color,  # Dynamic color based on slope
+        linewidth=1.5,
+        label=f"linear fit (seconds <= {fit_max_seconds}, slope={slope:.6f})",
     )
 
-    ax1.set_xlabel("seconds_before_predict")
-    ax1.set_ylabel("_mid")
-    ax1.set_title(f"Sample ID = {sample_id}, Target = {target:.6f}")
-    ax1.grid(True, alpha=0.3)
-    ax1.xaxis.set_major_locator(mticker.MultipleLocator(5))
+    ax1.scatter([0], [predicted_at_0], marker="x", s=100, color="orange", zorder=5)
 
-    plt.show()
-    return plot_df
+    # Display slope and predictions clearly in the annotation box
+    annotation = f"slope = {slope:.6f}\npredicted @0 = {predicted_at_0:.6f}"
+    if actual_time is not None:
+      annotation += f"\nactual @{actual_time:.1f}s = {actual_mid:.6f}"
+      if actual_time <= 5.0:
+        annotation += f"\nresid = {actual_mid - predicted_at_0:+.6f}"
+      ax1.scatter(
+          [actual_time], [actual_mid], marker="x", s=100, color="green", zorder=5
+      )
 
+    ax1.annotate(
+        annotation,
+        xy=(0, predicted_at_0),
+        xytext=(10, 20),
+        textcoords="offset points",
+        fontsize=9,
+        bbox=dict(boxstyle="round", fc="white", ec="gray", alpha=0.9),
+    )
+
+  ax1.set_xlabel("seconds_before_predict")
+  ax1.set_ylabel("_mid")
+  ax1.set_title(f"Sample ID = {sample_id}, Target = {target:.6f}")
+  ax1.grid(True, alpha=0.3)
+  ax1.xaxis.set_major_locator(mticker.MultipleLocator(5))
+  ax1.legend(loc="best", fontsize=8)
+
+  plt.show()
+  return plot_df
 
 
 # Plot out each sample_id
-for i in range(500, 1000):
-    try:
-        plot_sample(i, 100)
-    except Exception as e:
-        print(f"Skipping sample_id={i}: {e}")
-        continue
+for i in range(800, 850):
+  try:
+    plot_sample(i, 100)
+  except Exception as e:
+    print(f"Skipping sample_id={i}: {e}")
+    continue
