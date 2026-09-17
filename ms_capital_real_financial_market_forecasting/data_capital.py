@@ -773,18 +773,22 @@ def get_data(mode='train', return_pandas=True, start_id=None, end_id=None):
         pl.col("_mid").pct_change().abs().alias("_mid_ret_abs"),
     ])
 
-    # seconds_before_predict phase bucket (0 = closest to prediction, using 10/35/60 thresholds)
-    market = market.with_columns(
+    # --- seconds_before_predict phase bucket + _mid group-relative features ---
+    # Computed ONLY on rows with seconds_before_predict <= 60 (rows beyond 60s are
+    # ignored here), then left-joined back onto the full `market` table so every
+    # other existing feature (which needs the full history, e.g. m_rv_180) is
+    # unaffected. Rows with seconds_before_predict > 60 get null in these 3 columns.
+    market_last60 = market.filter(pl.col('seconds_before_predict') <= 60)
+
+    market_last60 = market_last60.with_columns(
         pl.when(pl.col('seconds_before_predict') < 10).then(0)
           .when(pl.col('seconds_before_predict') < 35).then(1)
-          .when(pl.col('seconds_before_predict') < 60).then(2)
-          .otherwise(3)
+          .otherwise(2)
           .cast(pl.Float32)
           .alias('seconds_before_predict_group')
     )
 
-    # _mid group-relative features, grouped by (seconds_before_predict_group, sample_id)
-    market = market.with_columns([
+    market_last60 = market_last60.with_columns([
         (pl.col('_mid').first() / pl.col('_mid'))
             .over(['seconds_before_predict_group', 'sample_id'])
             .cast(pl.Float32)
@@ -795,6 +799,15 @@ def get_data(mode='train', return_pandas=True, start_id=None, end_id=None):
             .cast(pl.Float32)
             .alias('_mid_group_expanding_mean25'),
     ])
+
+    market = market.join(
+        market_last60.select([
+            'sample_id', 'seconds_before_predict',
+            'seconds_before_predict_group', '_mid_group_first_ratio', '_mid_group_expanding_mean25'
+        ]),
+        on=['sample_id', 'seconds_before_predict'],
+        how='left'
+    )
 
     for w in [60, 300]:
         weight = (-pl.col("seconds_before_predict") / w).exp()
@@ -812,11 +825,11 @@ def get_data(mode='train', return_pandas=True, start_id=None, end_id=None):
 
     # Save a row-level example (all engineered market features) for sample_id = 0,
     # before it gets collapsed to one row per sample_id below
-    example_market = market.filter(pl.col('sample_id') == 1)
+    example_market = market.filter(pl.col('sample_id') == 2)
     if example_market.height > 0:
         Path(OUTPUT_PATH).mkdir(parents=True, exist_ok=True)
-        example_market.write_csv(f'{OUTPUT_PATH}/example_market_sample1.csv')
-        print(f"   已保存 sample_id=0 示例: {OUTPUT_PATH}/example_market_sample1.csv ({example_market.height} 行)")
+        example_market.write_csv(f'{OUTPUT_PATH}/example_market_sample2.csv')
+        print(f"   已保存 sample_id=0 示例: {OUTPUT_PATH}/example_market_sample2.csv ({example_market.height} 行)")
 
     market_agg_exprs = [
         pl.col("_mid").last().alias("m_mid_last"),
@@ -844,9 +857,24 @@ def get_data(mode='train', return_pandas=True, start_id=None, end_id=None):
         pl.col("_vol_5").mean().alias("m_vol_short"),
         pl.col("_vol_20").mean().alias("m_vol_long"),
         (pl.col("_vol_5").mean() / (pl.col("_vol_20").mean() + 1e-8)).alias("m_vol_short_long_ratio"),
-        pl.col("_mid_group_first_ratio").mean().alias("m_mid_group_first_ratio_mean"),
-        pl.col("_mid_group_expanding_mean25").mean().alias("m_mid_group_expanding_mean25_mean"),
     ]
+
+    # Per-bucket LAST value of the _mid group-relative features. Each bucket
+    # (0: <10s, 1: 10-35s, 2: 35-60s) starts its ratio at 1.0 by construction,
+    # so the terminal (last) value within that bucket is the single most
+    # informative snapshot — it captures the net drift accumulated by the time
+    # that phase closes out. This pivots the 3 buckets into fixed columns so
+    # LightGBM sees one row per sample_id instead of the raw time series.
+    # (A plain .mean() across all buckets was tried first but smears together
+    # windows of very different length/meaning, diluting the signal.)
+    for g in [0, 1, 2]:
+        cond = pl.col('seconds_before_predict_group') == g
+        market_agg_exprs.append(
+            pl.col('_mid_group_first_ratio').filter(cond).last().alias(f'm_mid_group_first_ratio_g{g}_last')
+        )
+        market_agg_exprs.append(
+            pl.col('_mid_group_expanding_mean25').filter(cond).last().alias(f'm_mid_group_expanding_mean25_g{g}_last')
+        )
 
     for w in [60, 180]:
         cond = pl.col("seconds_before_predict") <= w
