@@ -135,7 +135,7 @@ study = optuna.create_study(
 )
 
 t0 = time.time()
-study.optimize(objective, timeout=0.25*3600, n_trials=N_TRIALS, show_progress_bar=True)
+study.optimize(objective, timeout=21*3600, n_trials=N_TRIALS, show_progress_bar=True)
 print(f"\ntuning took {time.time() - t0:.1f}s", flush=True)
 
 print(f"\nbest cos_similarity = {study.best_value:.6f}")
@@ -153,7 +153,7 @@ print("\nall trials saved to optuna_trials_lgb_20260917.csv")
 # --------------------------------------------------------------------------
 # Create submission
 # --------------------------------------------------------------------------
-OUT_CSV = 'lgb_submission_140370.csv'
+OUT_CSV = 'lgb_submission_141720.csv'
 BASE_PATH = r"H:\kaggle\ms-capital-real-financial-market-forecasting"
 tr = pl.read_csv(BASE_PATH+'\\processed_data\\train.csv')
 te_feats = pl.read_csv(BASE_PATH+'\\processed_data\\test.csv')
@@ -194,17 +194,17 @@ params = dict( # 0.136795
     objective="regression",   # L2 (MSE) loss - RMSE 优化同样目标 
     # metric="rmse",          # REMOVED: no longer the metric LightGBM reports/early-stops on
     metric="None",             # tells LightGBM not to compute its built-in metric, only feval
-    learning_rate=0.0043517309474267905,
-    num_leaves=130, 
-    min_data_in_leaf=2042,
-    feature_fraction=0.8698937126473683,
-    bagging_fraction=0.6177763697792469, 
-    bagging_freq=3,
-    lambda_l1=0.06373835901044149,
-    lambda_l2=8.615765603853884, 
+    learning_rate=0.0008196569534914723,
+    num_leaves=249, 
+    min_data_in_leaf=688,
+    feature_fraction=0.642542279437675,
+    bagging_fraction=0.7816987894442541, 
+    bagging_freq=6,
+    lambda_l1=7.890203324816621e-06,
+    lambda_l2=3.467711986165988e-05, 
     #max_bin=255, 
     #min_gain_to_split=0.00022526657860905087,
-    max_depth=56,
+    max_depth=46,
     verbose=-1, 
     #num_threads=16, 
     seed=0 
