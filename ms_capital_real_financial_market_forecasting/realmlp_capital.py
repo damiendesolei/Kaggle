@@ -1037,6 +1037,6 @@ print(f"测试集预测完成，共 {len(test_preds)} 条")
 # ============ 9. 提交 ============
 sample_submission = pd.read_csv(f'{BASE_PATH}/submission.csv')
 sample_submission['prediction'] = test_preds
-sample_submission.to_csv('submission.csv', index=False)
+sample_submission.to_csv('realmlp_submission_145313.csv', index=False)
 print("提交文件已保存: submission.csv")
 print(sample_submission.head())

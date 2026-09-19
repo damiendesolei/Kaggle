@@ -650,7 +650,7 @@ def objective(trial: optuna.Trial, tune_epochs: int, train_bs: int):
 # ===================================================================
 def main():
     parser = argparse.ArgumentParser(description="Optuna tuning for RealMLP_RQ")
-    parser.add_argument("--n-trials", type=int, default=200)
+    parser.add_argument("--n-trials", type=int, default=500)
     parser.add_argument("--timeout", type=int, default=11*3600, help="seconds, overall study timeout")
     parser.add_argument("--tune-epochs", type=int, default=6, help="epochs per trial")
     parser.add_argument("--tune-train-size", type=int, default=300000,
