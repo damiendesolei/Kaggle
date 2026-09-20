@@ -393,7 +393,7 @@ def get_parameter_groups(model):
     scale_p, pbld_p, first_linear_p, other_w_p, bias_p = [], [], [], [], []
     first_linear_weight_id = None
     for name, param in model.named_parameters():
-        if "shared.2.weight" in name:  # shared[0]=LayerNorm, [1]=ScalingLayer, [2]=first NTPLinear
+        if "shared.0.weight" in name:  # exact original realmlp_capital.py behavior
             first_linear_weight_id = id(param)
             break
     for name, param in model.named_parameters():
@@ -468,17 +468,42 @@ def compute_loss_with_rq(y_pred, y_true, code_logits, y_codes, lambda_cos=0.01, 
 DATA = {}
 
 
-def load_data(tune_train_size, tune_val_size):
+def load_data():
+    """Reproduce the original realmlp_capital.py preprocessing and split."""
     set_seed(42)
+
     train = pd.read_csv(BASE_PATH + "\\processed_data\\train.csv").sort_values("sample_id")
     test = pd.read_csv(BASE_PATH + "\\processed_data\\test.csv").sort_values("sample_id")
 
-    drop = filter_high_correlation(train, target_col, corr_threshold=0.9, method="pearson")
-    drop += [c for c in train.columns if train[c].nunique() == 1]
-    print(f"Dropping {len(drop)} correlated/constant columns")
+    original_features = [c for c in train.columns if c not in ["sample_id", target_col]]
+
+    # Restore original feature elimination.
+    correlation_drop = filter_high_correlation(
+        train, target_col, corr_threshold=0.9, method="pearson"
+    )
+    constant_drop = [c for c in train.columns if train[c].nunique() == 1]
+    drop_set = set(correlation_drop) | set(constant_drop)
+    drop = [c for c in train.columns if c in drop_set]
+
+    print("\n" + "=" * 70)
+    print("ORIGINAL FEATURE ELIMINATION")
+    print("=" * 70)
+    print(f"Original feature count  : {len(original_features)}")
+    print(f"Eliminated feature count: {len(drop)}")
+    print(f"Remaining feature count : {len(original_features) - len(drop)}")
+    if drop:
+        print("\nEliminated features:")
+        for i, col in enumerate(drop, 1):
+            reasons = []
+            if col in correlation_drop:
+                reasons.append("correlation / low target correlation")
+            if col in constant_drop:
+                reasons.append("constant")
+            print(f"  {i:>3}. {col}  [{', '.join(reasons)}]")
+    print("=" * 70 + "\n")
+
     train.drop(drop, axis=1, inplace=True)
     test.drop(drop, axis=1, inplace=True)
-
     for col in test.select_dtypes(include=[np.number]):
         if col != "sample_id" and train[col].nunique() > 100:
             quantiles = np.linspace(0, 1, 41)
@@ -491,10 +516,16 @@ def load_data(tune_train_size, tune_val_size):
     train = reduce_mem_usage(train).fillna(0)
     test = reduce_mem_usage(test).fillna(0)
 
-    CATS = [c for c in train.columns if train[c].dtype == "object"
-            or train[c].dtype.name == "category" or train[c].nunique() <= 10]
+    CATS = [
+        c for c in train.columns
+        if train[c].dtype == "object"
+        or train[c].dtype.name == "category"
+        or train[c].nunique() <= 10
+    ]
     NUMS = [c for c in train.columns if c not in CATS + ["sample_id", target_col]]
-    print(f"categorical: {len(CATS)}  numerical: {len(NUMS)}")
+
+    print(f"categorical features: {len(CATS)}")
+    print(f"numerical features  : {len(NUMS)}")
 
     for c in CATS:
         mapping = {v: i for i, v in enumerate(train[c].unique())}
@@ -503,36 +534,44 @@ def load_data(tune_train_size, tune_val_size):
     cat_dims = [train[c].nunique() for c in CATS]
 
     rssc = RobustScaleSmoothClipTransform()
+    rssc.fit(train[NUMS].values)
     train[NUMS] = rssc.fit_transform(train[NUMS].values)
     test[NUMS] = rssc.transform(test[NUMS].values)
 
-    # Tuning uses a subsample of the full 800k/rest split for speed.
-    # sample_id is presort so this keeps a contiguous, chronologically
-    # ordered slice for both train and validation (no leakage).
-    full_train_size = 800000
-    train_slice = train.iloc[:full_train_size]
-    val_slice = train.iloc[full_train_size:]
+    # Exact original split: first 800k train, all remaining validation.
+    train_size = 800000
+    if len(train) <= train_size:
+        raise ValueError(
+            f"Need more than {train_size:,} rows; found {len(train):,}."
+        )
 
-    tune_train_size = min(tune_train_size, len(train_slice))
-    tune_val_size = min(tune_val_size, len(val_slice))
-    train_slice = train_slice.iloc[-tune_train_size:]  # most recent rows
-    val_slice = val_slice.iloc[:tune_val_size]
+    train_slice = train.iloc[:train_size]
+    val_slice = train.iloc[train_size:]
 
-    def to_tensors(df):
-        x_num = torch.tensor(df[NUMS].values, dtype=torch.float32).to(device)
-        x_cat = torch.tensor(df[CATS].values, dtype=torch.float32).to(device)
-        y = torch.tensor(df[target_col].round(4).values, dtype=torch.float32).to(device)
-        return x_num, x_cat, y
+    X_num_train = torch.tensor(train_slice[NUMS].values, dtype=torch.float32).to(device)
+    X_cat_train = torch.tensor(train_slice[CATS].values, dtype=torch.float32).to(device)
+    y_train = torch.tensor(
+        train_slice[target_col].round(4).values, dtype=torch.float32
+    ).to(device)
 
-    X_num_train, X_cat_train, y_train = to_tensors(train_slice)
-    X_num_val, X_cat_val, y_val = to_tensors(val_slice)
+    X_num_val = torch.tensor(val_slice[NUMS].values, dtype=torch.float32).to(device)
+    X_cat_val = torch.tensor(val_slice[CATS].values, dtype=torch.float32).to(device)
 
-    print(f"tuning train: {tuple(X_num_train.shape)}  tuning val: {tuple(X_num_val.shape)}")
+    # Exact original behavior: validation target is NOT rounded.
+    y_val = torch.tensor(
+        val_slice[target_col].values, dtype=torch.float32
+    ).to(device)
+
+    print(f"training rows   : {len(train_slice):,}")
+    print(f"validation rows : {len(val_slice):,}")
+    print(f"training shape  : {tuple(X_num_train.shape)}")
+    print(f"validation shape: {tuple(X_num_val.shape)}")
 
     DATA.update(dict(
         X_num_train=X_num_train, X_cat_train=X_cat_train, y_train=y_train,
         X_num_val=X_num_val, X_cat_val=X_cat_val, y_val=y_val,
         cat_dims=cat_dims, n_numerical=len(NUMS),
+        CATS=CATS, NUMS=NUMS, dropped_features=drop,
     ))
 
 
@@ -551,47 +590,72 @@ def build_param_groups(model, lr, lr_scale_mult, lr_pbld_mult, lr_first_mult,
     ], betas=(0.9, 0.98))
 
 
-def objective(trial: optuna.Trial, tune_epochs: int, train_bs: int):
+def objective(trial: optuna.Trial, tune_epochs: int):
     set_seed(42)
 
-    # ---- search space ----
-    n_ens = trial.suggest_categorical("n_ens", [8, 12, 16, 24])
-    embed_dim = trial.suggest_int("embed_dim", 4, 12)
-    n_rq_layers = trial.suggest_int("n_rq_layers", 1, 4)
-    rq_vocab_size = trial.suggest_int("rq_vocab_size", 2, 8)
-    pbld_out_dim = trial.suggest_int("pbld_out_dim", 2, 5)
-    pbld_hidden_dim = trial.suggest_categorical("pbld_hidden_dim", [8, 16, 24, 32])
-    pbld_freq_scale = trial.suggest_float("pbld_freq_scale", 0.1, 2.0, log=True)
-    hidden_width = trial.suggest_categorical("hidden_width", [256, 384, 512])
-    n_hidden_layers = trial.suggest_int("n_hidden_layers", 2, 3)
-    dropout = trial.suggest_float("dropout", 0.0, 0.15)
+    # ---- search space: tune only the top 10 parameters ----
+    # Architecture is intentionally FIXED to match realmlp_capital.py exactly:
+    #   n_ens=16, embed_dim=6, PBLD=(24, 3, 1.0), MLP=512->512->128, dropout=0.01,
+    #   model RQ heads: n_rq_layers=2, rq_vocab_size=3.
+    # Note: the original script builds 3 RQ target-code layers but the model has 2 RQ heads;
+    # the loss therefore uses the first 2 code layers, exactly as in realmlp_capital.py.
+    n_ens = 16
+    embed_dim = 6
+    model_n_rq_layers = 2
+    rq_target_layers = 3
+    rq_vocab_size = 3
+    pbld_hidden_dim = 24
+    pbld_out_dim = 3
+    pbld_freq_scale = 1.0
+    hidden_dims = (512, 512, 128)
+    dropout = 0.01
 
+    # Top 10 tuning parameters. These affect optimization/training only, not model structure.
+    # Batch size is tuned around the original realmlp_capital.py value of 256.
     lr = trial.suggest_float("lr", 1e-4, 5e-3, log=True)
     weight_decay = trial.suggest_float("weight_decay", 1e-3, 5e-2, log=True)
-    lambda_cos = trial.suggest_float("lambda_cos", 1e-3, 1e-1, log=True)
     lambda_rq = trial.suggest_float("lambda_rq", 1e-2, 5e-1, log=True)
+    lambda_cos = trial.suggest_float("lambda_cos", 1e-3, 1e-1, log=True)
     ema_decay = trial.suggest_float("ema_decay", 0.99, 0.9995)
-    use_ema = trial.suggest_categorical("use_ema", [True, False])
+    lr_scale_mult = trial.suggest_float("lr_scale_mult", 10.0, 30.0)
+    lr_pbld_mult = trial.suggest_float("lr_pbld_mult", 0.03, 0.30, log=True)
+    lr_first_mult = trial.suggest_float("lr_first_mult", 0.5, 2.0, log=True)
+    lr_bias_mult = trial.suggest_float("lr_bias_mult", 0.03, 0.30, log=True)
+    train_bs = trial.suggest_categorical("train_bs", [128, 256, 512])
 
-    hidden_dims = tuple([hidden_width] * n_hidden_layers + [max(hidden_width // 4, 32)])
+    # Keep gradient clipping identical to realmlp_capital.py.
+    grad_clip = 1.0
 
-    # ---- RQ target encoding (tied to n_rq_layers/rq_vocab_size, unlike the
-    # original notebook which fixed these independently of the model) ----
+    # ---- RQ target encoding: reproduce realmlp_capital.py ----
     y_train_np = DATA["y_train"].cpu().numpy()
-    rq_encoder = RQKMeansEncoder(n_layers=n_rq_layers, codebook_size=rq_vocab_size)
+    rq_encoder = RQKMeansEncoder(n_layers=rq_target_layers, codebook_size=rq_vocab_size)
     rq_encoder.fit(y_train_np.reshape(-1, 1))
-    y_train_rq = torch.tensor(rq_encoder.encode(y_train_np.reshape(-1, 1)), dtype=torch.long).to(device)
+    y_train_rq = torch.tensor(
+        rq_encoder.encode(y_train_np.reshape(-1, 1)), dtype=torch.long
+    ).to(device)
 
     model = RealMLP_RQ(
         output_dim=1, cat_dims=DATA["cat_dims"], n_numerical=DATA["n_numerical"],
-        n_ens=n_ens, embed_dim=embed_dim, n_rq_layers=n_rq_layers, rq_vocab_size=rq_vocab_size,
-        pbld_hidden_dim=pbld_hidden_dim, pbld_out_dim=pbld_out_dim, pbld_freq_scale=pbld_freq_scale,
-        hidden_dims=hidden_dims, dropout=dropout,
+        n_ens=n_ens, embed_dim=embed_dim,
+        n_rq_layers=model_n_rq_layers, rq_vocab_size=rq_vocab_size,
+        pbld_hidden_dim=pbld_hidden_dim, pbld_out_dim=pbld_out_dim,
+        pbld_freq_scale=pbld_freq_scale, hidden_dims=hidden_dims, dropout=dropout,
     ).to(device)
 
-    optimizer = build_param_groups(model, lr, lr_scale_mult=20.0, lr_pbld_mult=0.093,
-                                    lr_first_mult=1.0, lr_bias_mult=0.1, weight_decay=weight_decay)
-    ema = EMA(model, decay=ema_decay) if use_ema else None
+    optimizer = build_param_groups(
+        model, lr,
+        lr_scale_mult=lr_scale_mult,
+        lr_pbld_mult=lr_pbld_mult,
+        lr_first_mult=lr_first_mult,
+        lr_bias_mult=lr_bias_mult,
+        weight_decay=weight_decay,
+    )
+
+    # Original model always uses EMA; tune only its decay.
+    ema = EMA(model, decay=ema_decay)
+
+    # Keep LR multipliers in the same optimizer-group order used by build_param_groups().
+    lr_multipliers = [lr_scale_mult, lr_pbld_mult, lr_first_mult, 1.0, lr_bias_mult]
 
     X_num_train, X_cat_train, y_train = DATA["X_num_train"], DATA["X_cat_train"], DATA["y_train"]
     X_num_val, X_cat_val, y_val = DATA["X_num_val"], DATA["X_cat_val"], DATA["y_val"]
@@ -610,7 +674,7 @@ def objective(trial: optuna.Trial, tune_epochs: int, train_bs: int):
             global_step = epoch * ((len(y_train) + train_bs - 1) // train_bs) + batch_idx
             progress = min(global_step / total_steps, 1.0)
 
-            for pg, mult in zip(optimizer.param_groups, [20.0, 0.093, 1.0, 1.0, 0.1]):
+            for pg, mult in zip(optimizer.param_groups, lr_multipliers):
                 pg["lr"] = flat_anneal(lr * mult, progress)
 
             batch_x_num = X_num_s[i:i + train_bs]
@@ -627,7 +691,7 @@ def objective(trial: optuna.Trial, tune_epochs: int, train_bs: int):
                 lambda_cos=lambda_cos, lambda_rq=flat_anneal(lambda_rq, progress),
             )
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip)
             optimizer.step()
             if ema is not None:
                 ema.update()
@@ -651,18 +715,15 @@ def objective(trial: optuna.Trial, tune_epochs: int, train_bs: int):
 def main():
     parser = argparse.ArgumentParser(description="Optuna tuning for RealMLP_RQ")
     parser.add_argument("--n-trials", type=int, default=500)
-    parser.add_argument("--timeout", type=int, default=11*3600, help="seconds, overall study timeout")
-    parser.add_argument("--tune-epochs", type=int, default=6, help="epochs per trial")
-    parser.add_argument("--tune-train-size", type=int, default=300000,
-                         help="rows of the training split used per trial (subsample for speed)")
-    parser.add_argument("--tune-val-size", type=int, default=60000)
-    parser.add_argument("--train-bs", type=int, default=256)
-    parser.add_argument("--study-name", type=str, default="realmlp_capital")
-    parser.add_argument("--storage", type=str, default="sqlite:///realmlp_capital_optuna.db")
+    parser.add_argument("--timeout", type=int, default=10*3600, help="seconds, overall study timeout")
+    parser.add_argument("--tune-epochs", type=int, default=10, help="epochs per trial; 10 matches the original model")
+    parser.add_argument("--study-name", type=str, default="realmlp_exact_baseline_20260920")
+    parser.add_argument("--storage", type=str, default="sqlite:///realmlp_exact_baseline_20260920.db")
     parser.add_argument("--n-startup-trials", type=int, default=10)
     args = parser.parse_args()
 
-    load_data(args.tune_train_size, args.tune_val_size)
+    #load_data(args.tune_train_size, args.tune_val_size)
+    load_data()
 
     sampler = TPESampler(seed=42, n_startup_trials=args.n_startup_trials)
     pruner = MedianPruner(n_startup_trials=args.n_startup_trials, n_warmup_steps=1)
@@ -676,20 +737,53 @@ def main():
         pruner=pruner,
     )
 
+    baseline_params = {
+        "lr": 1e-3,
+        "weight_decay": 1e-2,
+        "lambda_rq": 0.1,
+        "lambda_cos": 0.01,
+        "ema_decay": 0.998,
+        "lr_scale_mult": 20.0,
+        "lr_pbld_mult": 0.093,
+        "lr_first_mult": 1.0,
+        "lr_bias_mult": 0.1,
+        "train_bs": 256,
+    }
+
+    # With the default fresh study/database, this is Trial 0.
+    # When resuming an existing study, do not enqueue the baseline again.
+    if len(study.trials) == 0:
+        print("\nEnqueuing ORIGINAL hyperparameters as Trial 0 baseline:")
+        for k, v in baseline_params.items():
+            print(f"  {k}: {v}")
+        study.enqueue_trial(baseline_params)
+    else:
+        print(
+            f"\nResuming study with {len(study.trials)} existing trial(s); "
+            "baseline is not enqueued again."
+        )
+
     study.optimize(
-        lambda trial: objective(trial, args.tune_epochs, args.train_bs),
+        lambda trial: objective(trial, args.tune_epochs),
         n_trials=args.n_trials,
         timeout=args.timeout,
         gc_after_trial=True,
     )
 
     print("\n" + "=" * 60)
+    completed_trials = [
+        t for t in study.trials
+        if t.state == optuna.trial.TrialState.COMPLETE
+    ]
+    baseline_trial = next((t for t in completed_trials if t.number == 0), None)
+    if baseline_trial is not None:
+        print(f"Original-parameter baseline (Trial 0): {baseline_trial.value:.6f}")
     print(f"Best val cosine similarity: {study.best_value:.6f}")
     print("Best params:")
     for k, v in study.best_params.items():
         print(f"  {k}: {v}")
 
-    out_path = "realmlp_capital_best_params.json"
+    out_path = "realmlp_capital_best_params_20260920.csv"
     with open(out_path, "w") as f:
         json.dump({"best_value": study.best_value, "best_params": study.best_params}, f, indent=2)
     print(f"\nSaved best params to {out_path}")
