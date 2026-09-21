@@ -218,6 +218,14 @@ class CategoricalFeatureLayer(nn.Module):
             embedded = embedded.view(batch_size, n_ens, -1)
             features.append(embedded)
 
+        # Handle the case where there are no categorical features.
+        if not features:
+            return torch.empty(
+                batch_size, n_ens, 0,
+                device=x.device,
+                dtype=torch.float32,
+            )
+
         return torch.cat(features, dim=2)
 
 
@@ -475,35 +483,39 @@ def load_data():
     train = pd.read_csv(BASE_PATH + "\\processed_data\\train.csv").sort_values("sample_id")
     test = pd.read_csv(BASE_PATH + "\\processed_data\\test.csv").sort_values("sample_id")
 
-    original_features = [c for c in train.columns if c not in ["sample_id", target_col]]
+    # Feature elimination disabled: keep all source-data features.
+    # original_features = [c for c in train.columns if c not in ["sample_id", target_col]]
+    # 
+    # # Restore original feature elimination.
+    # correlation_drop = filter_high_correlation(
+    #     train, target_col, corr_threshold=0.9, method="pearson"
+    # )
+    # constant_drop = [c for c in train.columns if train[c].nunique() == 1]
+    # drop_set = set(correlation_drop) | set(constant_drop)
+    # drop = [c for c in train.columns if c in drop_set]
+    # 
+    # print("\n" + "=" * 70)
+    # print("ORIGINAL FEATURE ELIMINATION")
+    # print("=" * 70)
+    # print(f"Original feature count  : {len(original_features)}")
+    # print(f"Eliminated feature count: {len(drop)}")
+    # print(f"Remaining feature count : {len(original_features) - len(drop)}")
+    # if drop:
+    #     print("\nEliminated features:")
+    #     for i, col in enumerate(drop, 1):
+    #         reasons = []
+    #         if col in correlation_drop:
+    #             reasons.append("correlation / low target correlation")
+    #         if col in constant_drop:
+    #             reasons.append("constant")
+    #         print(f"  {i:>3}. {col}  [{', '.join(reasons)}]")
+    # print("=" * 70 + "\n")
+    # 
+    # train.drop(drop, axis=1, inplace=True)
+    # test.drop(drop, axis=1, inplace=True)
 
-    # Restore original feature elimination.
-    correlation_drop = filter_high_correlation(
-        train, target_col, corr_threshold=0.9, method="pearson"
-    )
-    constant_drop = [c for c in train.columns if train[c].nunique() == 1]
-    drop_set = set(correlation_drop) | set(constant_drop)
-    drop = [c for c in train.columns if c in drop_set]
-
-    print("\n" + "=" * 70)
-    print("ORIGINAL FEATURE ELIMINATION")
-    print("=" * 70)
-    print(f"Original feature count  : {len(original_features)}")
-    print(f"Eliminated feature count: {len(drop)}")
-    print(f"Remaining feature count : {len(original_features) - len(drop)}")
-    if drop:
-        print("\nEliminated features:")
-        for i, col in enumerate(drop, 1):
-            reasons = []
-            if col in correlation_drop:
-                reasons.append("correlation / low target correlation")
-            if col in constant_drop:
-                reasons.append("constant")
-            print(f"  {i:>3}. {col}  [{', '.join(reasons)}]")
-    print("=" * 70 + "\n")
-
-    train.drop(drop, axis=1, inplace=True)
-    test.drop(drop, axis=1, inplace=True)
+    # Preserve the existing DATA.update(... dropped_features=drop) interface.
+    drop = []
     for col in test.select_dtypes(include=[np.number]):
         if col != "sample_id" and train[col].nunique() > 100:
             quantiles = np.linspace(0, 1, 41)
@@ -539,7 +551,7 @@ def load_data():
     test[NUMS] = rssc.transform(test[NUMS].values)
 
     # Exact original split: first 800k train, all remaining validation.
-    train_size = 800000
+    train_size = 904390
     if len(train) <= train_size:
         raise ValueError(
             f"Need more than {train_size:,} rows; found {len(train):,}."
@@ -715,10 +727,10 @@ def objective(trial: optuna.Trial, tune_epochs: int):
 def main():
     parser = argparse.ArgumentParser(description="Optuna tuning for RealMLP_RQ")
     parser.add_argument("--n-trials", type=int, default=500)
-    parser.add_argument("--timeout", type=int, default=10*3600, help="seconds, overall study timeout")
+    parser.add_argument("--timeout", type=int, default=0.5*3600, help="seconds, overall study timeout")
     parser.add_argument("--tune-epochs", type=int, default=10, help="epochs per trial; 10 matches the original model")
-    parser.add_argument("--study-name", type=str, default="realmlp_exact_baseline_20260920")
-    parser.add_argument("--storage", type=str, default="sqlite:///realmlp_exact_baseline_20260920.db")
+    parser.add_argument("--study-name", type=str, default="realmlp_exact_baseline_20260921")
+    parser.add_argument("--storage", type=str, default="sqlite:///realmlp_exact_baseline.db")
     parser.add_argument("--n-startup-trials", type=int, default=10)
     args = parser.parse_args()
 
@@ -737,31 +749,7 @@ def main():
         pruner=pruner,
     )
 
-    baseline_params = {
-        "lr": 1e-3,
-        "weight_decay": 1e-2,
-        "lambda_rq": 0.1,
-        "lambda_cos": 0.01,
-        "ema_decay": 0.998,
-        "lr_scale_mult": 20.0,
-        "lr_pbld_mult": 0.093,
-        "lr_first_mult": 1.0,
-        "lr_bias_mult": 0.1,
-        "train_bs": 256,
-    }
-
-    # With the default fresh study/database, this is Trial 0.
-    # When resuming an existing study, do not enqueue the baseline again.
-    if len(study.trials) == 0:
-        print("\nEnqueuing ORIGINAL hyperparameters as Trial 0 baseline:")
-        for k, v in baseline_params.items():
-            print(f"  {k}: {v}")
-        study.enqueue_trial(baseline_params)
-    else:
-        print(
-            f"\nResuming study with {len(study.trials)} existing trial(s); "
-            "baseline is not enqueued again."
-        )
+    print("\nSkipping original baseline run; starting Optuna tuning immediately.")
 
     study.optimize(
         lambda trial: objective(trial, args.tune_epochs),
@@ -771,19 +759,12 @@ def main():
     )
 
     print("\n" + "=" * 60)
-    completed_trials = [
-        t for t in study.trials
-        if t.state == optuna.trial.TrialState.COMPLETE
-    ]
-    baseline_trial = next((t for t in completed_trials if t.number == 0), None)
-    if baseline_trial is not None:
-        print(f"Original-parameter baseline (Trial 0): {baseline_trial.value:.6f}")
     print(f"Best val cosine similarity: {study.best_value:.6f}")
     print("Best params:")
     for k, v in study.best_params.items():
         print(f"  {k}: {v}")
 
-    out_path = "realmlp_capital_best_params_20260920.csv"
+    out_path = "realmlp_capital_best_params_20260921.csv"
     with open(out_path, "w") as f:
         json.dump({"best_value": study.best_value, "best_params": study.best_params}, f, indent=2)
     print(f"\nSaved best params to {out_path}")
