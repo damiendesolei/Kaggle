@@ -294,6 +294,152 @@ DROP_FEATURES = {
 }
 
 
+def market_feats_v2(market: pl.DataFrame, eps: float = 1e-8) -> pl.DataFrame:
+    """
+    Extra market features, one row per sample_id, all prefixed `m2_`.
+      Family 1 - book direction : microprice deviation, L1/L2 depth imbalance, Cont-Kukanov-Stoikov OFI
+      Family 2 - short returns  : log returns over 1..30s, vol-standardised returns, deviation from EWMA mid
+      Family 3 - scale-free vol : log-return RV, range/mid, Parkinson, bipower, up/down semivariance,
+                                  jump ratio, vol ratios, vol in spread units
+    Sign convention: positive = bullish (bid side stronger / price rising).
+    Needs columns: sample_id, seconds_before_predict, ask/bid_price_1/2, ask/bid_volume_1/2.
+    Time windows use seconds_before_predict, so they do not depend on row spacing.
+    """
+    sid, sec = "sample_id", "seconds_before_predict"
+    bp1, bq1, ap1, aq1 = "bid_price_1", "bid_volume_1", "ask_price_1", "ask_volume_1"
+    bp2, bq2, ap2, aq2 = "bid_price_2", "bid_volume_2", "ask_price_2", "ask_volume_2"
+    book_cols = [bp1, bq1, ap1, aq1, bp2, bq2, ap2, aq2]
+    eps2 = eps * eps
+
+    # oldest -> newest inside each sample (seconds_before_predict descending)
+    mk = market.select(
+        [pl.col(sid), pl.col(sec).cast(pl.Float64)] + [pl.col(c).cast(pl.Float64) for c in book_cols]
+    ).sort([sid, sec], descending=[False, True])
+
+    # ---------------- row-level building blocks ----------------
+    mk = mk.with_columns([
+        ((pl.col(ap1) + pl.col(bp1)) * 0.5).alias("_mid"),
+        (pl.col(ap1) - pl.col(bp1)).alias("_spread"),
+        (pl.col(bq1) + pl.col(aq1)).alias("_depth1"),
+        (pl.col(bq1) + pl.col(aq1) + pl.col(bq2) + pl.col(aq2)).alias("_depth12"),
+        ((pl.col(bq1) - pl.col(aq1)) / (pl.col(bq1) + pl.col(aq1) + eps)).alias("_imb1"),
+        ((pl.col(bq1) + pl.col(bq2) - pl.col(aq1) - pl.col(aq2))
+         / (pl.col(bq1) + pl.col(aq1) + pl.col(bq2) + pl.col(aq2) + eps)).alias("_imb12"),
+    ])
+    mk = mk.with_columns([
+        pl.when(pl.col("_mid") > 0).then(pl.col("_mid").log()).otherwise(None).alias("_lmid"),
+        # microprice = (bid*ask_vol + ask*bid_vol)/(bid_vol + ask_vol); bid-heavy book -> above mid
+        pl.when(pl.col("_depth1") > 0).then(
+            ((pl.col(bp1) * pl.col(aq1) + pl.col(ap1) * pl.col(bq1)) / (pl.col("_depth1") + eps)
+             - pl.col("_mid")) / (pl.col("_mid") + eps)
+        ).otherwise(0.0).alias("_micro_dev"),
+    ])
+    mk = mk.with_columns(
+        [pl.col(c).shift(1).over(sid).alias(f"_{c}_p") for c in book_cols]
+        + [pl.col("_lmid").diff().over(sid).fill_null(0.0).alias("_r")]
+    )
+
+    def _ofi(bp, bq, ap, aq, name):
+        # Cont-Kukanov-Stoikov order-flow imbalance contribution of one snapshot vs the previous one
+        bp_p, bq_p, ap_p, aq_p = (pl.col(f"_{c}_p") for c in (bp, bq, ap, aq))
+        e_bid = (pl.when(pl.col(bp) > bp_p).then(pl.col(bq))
+                 .when(pl.col(bp) == bp_p).then(pl.col(bq) - bq_p)
+                 .otherwise(-bq_p))
+        e_ask = (pl.when(pl.col(ap) < ap_p).then(-pl.col(aq))
+                 .when(pl.col(ap) == ap_p).then(-(pl.col(aq) - aq_p))
+                 .otherwise(aq_p))
+        return (e_bid + e_ask).fill_null(0.0).alias(name)
+
+    mk = mk.with_columns([
+        _ofi(bp1, bq1, ap1, aq1, "_ofi1"),
+        _ofi(bp2, bq2, ap2, aq2, "_ofi2"),
+        (pl.col("_r") ** 2).alias("_r2"),
+        pl.when(pl.col("_r") > 0).then(pl.col("_r") ** 2).otherwise(0.0).alias("_r2_up"),
+        pl.when(pl.col("_r") < 0).then(pl.col("_r") ** 2).otherwise(0.0).alias("_r2_dn"),
+        (pl.col("_r").abs() * pl.col("_r").abs().shift(1).over(sid)).fill_null(0.0).alias("_bvterm"),
+    ])
+
+    # ---------------- stage 1: per-sample aggregation ----------------
+    aggs = [
+        # ===== family 1: book direction =====
+        pl.col("_micro_dev").last().alias("m2_micro_dev_last"),
+        pl.col("_imb1").last().alias("m2_imb1_last"),
+        pl.col("_imb12").last().alias("m2_imb12_last"),
+    ]
+    for w in [5, 30]:
+        c = pl.col(sec) <= w
+        aggs.append(pl.col("_micro_dev").filter(c).mean().alias(f"m2_micro_dev_mean_{w}"))
+        aggs.append(pl.col("_imb12").filter(c).mean().alias(f"m2_imb12_mean_{w}"))
+    for w in [3, 5, 10, 30]:
+        c = pl.col(sec) <= w
+        aggs.append((pl.col("_ofi1").filter(c).sum() / (pl.col("_depth1").filter(c).mean() + eps)).alias(f"m2_ofi1_{w}"))
+    for w in [5, 30]:
+        c = pl.col(sec) <= w
+        aggs.append((pl.col("_ofi2").filter(c).sum() / (pl.col("_depth12").filter(c).mean() + eps)).alias(f"m2_ofi2_{w}"))
+    w10 = (-pl.col(sec) / 10.0).exp()
+    aggs.append(((w10 * pl.col("_ofi1")).sum() / ((w10 * pl.col("_depth1")).sum() + eps)).alias("m2_ofi1_ewm_10"))
+
+    # ===== family 2: short-horizon returns =====
+    for k in [1, 3, 5, 10, 30]:
+        # mid at the last snapshot that is at least k seconds old
+        aggs.append((pl.col("_lmid").last() - pl.col("_lmid").filter(pl.col(sec) >= k).last()).alias(f"m2_ret_{k}"))
+    for tau in [10, 30]:
+        wt = (-pl.col(sec) / float(tau)).exp()
+        aggs.append((pl.col("_lmid").last() - (wt * pl.col("_lmid")).sum() / (wt.sum() + eps)).alias(f"m2_dev_ewm_{tau}"))
+
+    # ===== family 3: scale-free volatility =====
+    for w in [10, 30, 60, 180]:
+        c = pl.col(sec) <= w
+        aggs.append(pl.col("_r2").filter(c).sum().sqrt().alias(f"m2_rv_{w}"))
+    for w in [10, 30, 60]:
+        c = pl.col(sec) <= w
+        aggs.append(((pl.col("_mid").filter(c).max() - pl.col("_mid").filter(c).min())
+                     / (pl.col("_mid").last() + eps)).alias(f"m2_range_{w}"))
+    for w in [30, 60]:
+        c = pl.col(sec) <= w
+        aggs.append((np.pi / 2.0 * pl.col("_bvterm").filter(c).sum()).alias(f"_bv2_{w}"))
+        aggs.append(pl.col("_r2_up").filter(c).sum().alias(f"_su_{w}"))
+        aggs.append(pl.col("_r2_dn").filter(c).sum().alias(f"_sd_{w}"))
+        aggs.append(pl.col("_r").filter(c).abs().max().alias(f"m2_maxabsret_{w}"))
+    c60 = pl.col(sec) <= 60
+    aggs.append(pl.col("_mid").filter(c60).mean().alias("_mid_mean_60"))
+    aggs.append(pl.col("_spread").filter(c60).mean().alias("_spread_mean_60"))
+
+    out = mk.group_by(sid).agg(aggs)
+
+    # ---------------- stage 2: normalised / combined features ----------------
+    rv60 = pl.col("m2_rv_60")
+    out = out.with_columns(
+        [(pl.col(f"m2_ret_{k}") / (rv60 * ((k / 60.0) ** 0.5) + eps)).alias(f"m2_retz_{k}") for k in [3, 5, 10, 30]]
+        + [(pl.col(f"m2_dev_ewm_{t}") / (rv60 * ((t / 60.0) ** 0.5) + eps)).alias(f"m2_devz_ewm_{t}") for t in [10, 30]]
+        + [pl.col(f"_bv2_{w}").sqrt().alias(f"m2_bv_{w}") for w in [30, 60]]
+        + [((pl.col(f"_su_{w}") - pl.col(f"_sd_{w}")) / (pl.col(f"_su_{w}") + pl.col(f"_sd_{w}") + eps2)).alias(f"m2_semi_asym_{w}")
+           for w in [30, 60]]
+        + [
+            pl.when(pl.col("m2_rv_60") ** 2 > pl.col("_bv2_60"))
+              .then((pl.col("m2_rv_60") ** 2 - pl.col("_bv2_60")) / (pl.col("m2_rv_60") ** 2 + eps2))
+              .otherwise(0.0).alias("m2_jump_60"),
+            (pl.col("m2_rv_10") / (rv60 + eps) * ((60.0 / 10.0) ** 0.5)).alias("m2_volratio_10_60"),
+            (pl.col("m2_rv_30") / (pl.col("m2_rv_180") + eps) * ((180.0 / 30.0) ** 0.5)).alias("m2_volratio_30_180"),
+            (rv60 * pl.col("_mid_mean_60") / (pl.col("_spread_mean_60") + eps)).alias("m2_rv_spread_60"),
+        ]
+    )
+
+    # Parkinson range volatility on 5s buckets of the last 60s
+    park = (
+        mk.filter((pl.col(sec) <= 60) & (pl.col("_mid") > 0))
+          .with_columns((pl.col(sec) / 5.0).floor().alias("_bin"))
+          .group_by([sid, "_bin"])
+          .agg(((pl.col("_mid").max() / pl.col("_mid").min()).log() ** 2).alias("_hl2"))
+          .group_by(sid)
+          .agg(((pl.col("_hl2").sum() / (4.0 * np.log(2.0))).sqrt()).alias("m2_park_60"))
+    )
+    out = out.join(park, on=sid, how="left")
+
+    keep = [sid] + [c for c in out.columns if c.startswith("m2_")]
+    return out.select(keep).sort(sid)
+
+
 def get_data(mode='train', return_pandas=True, start_id=None, end_id=None):
     """
     读取 5 个文件并构造所有特征，最后统一删除不需要的特征
@@ -936,6 +1082,9 @@ def get_data(mode='train', return_pandas=True, start_id=None, end_id=None):
 
     market_result = market.group_by('sample_id').agg(market_agg_exprs).sort('sample_id')
 
+    # v2 market features: book direction / short-horizon returns / scale-free volatility
+    market_v2_result = market_feats_v2(market)
+
 
     # ============================================================
     # 6. 合并所有数据
@@ -945,6 +1094,7 @@ def get_data(mode='train', return_pandas=True, start_id=None, end_id=None):
     result = result.join(t_sec_result, how='left', on='sample_id', suffix='_sec')
     result = result.join(o_sec_result, how='left', on='sample_id', suffix='_sec_o')
     result = result.join(market_result, how='left', on='sample_id', suffix='_market')
+    result = result.join(market_v2_result, how='left', on='sample_id')
 
 
     # ============================================================
@@ -967,7 +1117,7 @@ def get_data(mode='train', return_pandas=True, start_id=None, end_id=None):
         (pl.col("t_buy_ratio_15") - pl.col("o_buy_ratio_15")).alias("x_trans_order_buy_diff_15"),
         (pl.col("t_vol_15") / (pl.col("t_vol_45") + 1e-8)).alias("x_t_vol_15_45_ratio"),
         (pl.col("t_price_momentum_10") / (pl.col("t_price_volatility") + 1e-8)).alias("x_sharpe_like"),
-        (pl.col("m_mid_last") - pl.col("m_mid_mean")) / (pl.col("m_mid_std") + 1e-8).alias("x_mid_zscore"),
+        ((pl.col("m_mid_last") - pl.col("m_mid_mean")) / (pl.col("m_mid_std") + 1e-8)).alias("x_mid_zscore"),
         # 时间交叉
         (pl.col("t_vol_weighted_15") / (pl.col("t_vol_15") + 1e-8)).alias("x_t_vol_weight_ratio_15"),
         (pl.col("t_vol_weighted_30") / (pl.col("t_vol_30") + 1e-8)).alias("x_t_vol_weight_ratio_30"),
