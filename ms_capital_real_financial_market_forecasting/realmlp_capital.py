@@ -37,7 +37,7 @@ set_seed(42)
 onehotmax = 10
 n_ens = 16
 embed_dim = 6
-LR = 0.004993358209704179  # learning rate
+LR = 0.004519044213770554  # learning rate
 epochs = 10
 train_bs = 512   # batch size
 eval_bs = train_bs
@@ -669,7 +669,7 @@ def evaluate_model(model, x_num, x_cat, y_true, batch_size=2048):
     return cos_score, all_preds
 
 # param_2
-def compute_loss_with_rq(y_pred, y_true, code_logits, y_codes, lambda_cos=0.0015930702124258283, lambda_rq=0.014550911520507099):
+def compute_loss_with_rq(y_pred, y_true, code_logits, y_codes, lambda_cos=0.05954164603073119, lambda_rq=0.48857495227622183):
     if y_pred.dim() == 3:
         y_pred = y_pred.squeeze(-1)
     
@@ -802,17 +802,17 @@ scale_p, pbld_p, first_linear_p, other_w_p, bias_p = get_parameter_groups(model)
 
 # param_3
 optimizer = torch.optim.AdamW([
-    {'params': scale_p,        'lr': LR * 22.435516607591065,  'weight_decay': 0.0040038422680743644 * 0.1},  # lr_scale_mult
-    {'params': pbld_p,         'lr': LR * 0.17447272708355951, 'weight_decay': 0.0040038422680743644},   # lr_pbld_mult
-    {'params': first_linear_p, 'lr': LR * 1.00689300014131,   'weight_decay': 0.0040038422680743644 * 0.1},   # lr_first_mult
-    {'params': other_w_p,      'lr': LR,         'weight_decay': 0.0040038422680743644},
-    {'params': bias_p,         'lr': LR * 0.23263640298460928,   'weight_decay': 0.0040038422680743644 * 0.5},   # lr_bias_mult
+    {'params': scale_p,        'lr': LR * 29.439750605990298,  'weight_decay': 0.002032825490522624 * 0.1},  # lr_scale_mult
+    {'params': pbld_p,         'lr': LR * 0.13568521105080117, 'weight_decay': 0.002032825490522624},   # lr_pbld_mult
+    {'params': first_linear_p, 'lr': LR * 1.499102687446966,   'weight_decay': 0.002032825490522624 * 0.1},   # lr_first_mult
+    {'params': other_w_p,      'lr': LR,         'weight_decay': 0.002032825490522624},
+    {'params': bias_p,         'lr': LR * 0.1587050833717312,   'weight_decay': 0.002032825490522624 * 0.5},   # lr_bias_mult
 ], betas=(0.9, 0.98))
 
 # param_4
 # ============ EMA ============
 use_ema = True
-ema_decay = 0.9961399880412672
+ema_decay = 0.9964562988821075
 ema = EMA(model, decay=ema_decay) if use_ema else None
 
 # ============ 训练 ============
@@ -844,11 +844,11 @@ for epoch in range(epochs):
         
 		# param_5
         # ============ 动态更新学习率 ============
-        optimizer.param_groups[0]['lr'] = flat_anneal(LR * 22.435516607591065, progress)   # lr_scale_mult
-        optimizer.param_groups[1]['lr'] = flat_anneal(LR * 0.17447272708355951, progress)    # lr_pbld_mult
-        optimizer.param_groups[2]['lr'] = flat_anneal(LR * 1.00689300014131, progress) # lr_first_mult
+        optimizer.param_groups[0]['lr'] = flat_anneal(LR * 29.439750605990298, progress)   # lr_scale_mult
+        optimizer.param_groups[1]['lr'] = flat_anneal(LR * 0.13568521105080117, progress)    # lr_pbld_mult
+        optimizer.param_groups[2]['lr'] = flat_anneal(LR * 1.499102687446966, progress) # lr_first_mult
         optimizer.param_groups[3]['lr'] = flat_anneal(LR, progress)
-        optimizer.param_groups[4]['lr'] = flat_anneal(LR * 0.23263640298460928, progress) # lr_bias_mult
+        optimizer.param_groups[4]['lr'] = flat_anneal(LR * 0.1587050833717312, progress) # lr_bias_mult
         
         batch_x_num = X_num_shuffled[i:i+train_bs]
         batch_x_cat = X_cat_shuffled[i:i+train_bs]
@@ -868,7 +868,7 @@ for epoch in range(epochs):
         # 计算损失
         loss, cos_sim, mse_loss, rq_loss = compute_loss_with_rq(
             y_pred, batch_y_noisy, code_logits, batch_y_rq,
-            lambda_cos=0.0015930702124258283, lambda_rq=flat_anneal(0.014550911520507099, progress)  # lambda_cos lambda_rq
+            lambda_cos=0.05954164603073119, lambda_rq=flat_anneal(0.48857495227622183, progress)  # lambda_cos lambda_rq
         )
         
         loss.backward()
@@ -947,11 +947,11 @@ final_model = RealMLP_RQ(
 # 重新初始化优化器（使用相同分组）
 scale_p, pbld_p, first_linear_p, other_w_p, bias_p = get_parameter_groups(final_model)
 optimizer_final = torch.optim.AdamW([
-    {'params': scale_p,        'lr': LR * 22.435516607591065,  'weight_decay': 0.0040038422680743644 * 0.1},
-    {'params': pbld_p,         'lr': LR * 0.17447272708355951, 'weight_decay': 0.0040038422680743644},
-    {'params': first_linear_p, 'lr': LR * 1.00689300014131,   'weight_decay': 0.0040038422680743644 * 0.1},
-    {'params': other_w_p,      'lr': LR,         'weight_decay': 0.0040038422680743644},
-    {'params': bias_p,         'lr': LR * 0.23263640298460928,   'weight_decay': 0.0040038422680743644 * 0.5},
+    {'params': scale_p,        'lr': LR * 29.439750605990298,  'weight_decay': 0.002032825490522624 * 0.1},
+    {'params': pbld_p,         'lr': LR * 0.13568521105080117, 'weight_decay': 0.002032825490522624},
+    {'params': first_linear_p, 'lr': LR * 1.499102687446966,   'weight_decay': 0.002032825490522624 * 0.1},
+    {'params': other_w_p,      'lr': LR,         'weight_decay': 0.002032825490522624},
+    {'params': bias_p,         'lr': LR * 0.1587050833717312,   'weight_decay': 0.002032825490522624 * 0.5},
 ], betas=(0.9, 0.98))
 
 # ============ EMA ============
@@ -979,11 +979,11 @@ for epoch in range(epochs):
         
 		# param_8
         # ============ 动态更新学习率 ============
-        optimizer_final.param_groups[0]['lr'] = flat_anneal(LR * 22.435516607591065, progress)
-        optimizer_final.param_groups[1]['lr'] = flat_anneal(LR * 0.17447272708355951, progress)
-        optimizer_final.param_groups[2]['lr'] = flat_anneal(LR * 1.00689300014131, progress)
+        optimizer_final.param_groups[0]['lr'] = flat_anneal(LR * 29.439750605990298, progress)
+        optimizer_final.param_groups[1]['lr'] = flat_anneal(LR * 0.13568521105080117, progress)
+        optimizer_final.param_groups[2]['lr'] = flat_anneal(LR * 1.499102687446966, progress)
         optimizer_final.param_groups[3]['lr'] = flat_anneal(LR, progress)
-        optimizer_final.param_groups[4]['lr'] = flat_anneal(LR * 0.23263640298460928, progress)
+        optimizer_final.param_groups[4]['lr'] = flat_anneal(LR * 0.1587050833717312, progress)
         
         batch_x_num = X_num_shuffled[i:i+train_bs]
         batch_x_cat = X_cat_shuffled[i:i+train_bs]
@@ -999,7 +999,7 @@ for epoch in range(epochs):
 		# param_9
         loss, cos_sim, mse_loss, rq_loss = compute_loss_with_rq(
             y_pred, batch_y_noisy, code_logits, batch_y_rq,
-            lambda_cos=0.0015930702124258283, lambda_rq=0.014550911520507099
+            lambda_cos=0.05954164603073119, lambda_rq=0.48857495227622183
         )
         
         loss.backward()
@@ -1053,6 +1053,6 @@ print(f"测试集预测完成，共 {len(test_preds)} 条")
 # ============ 9. 提交 ============
 sample_submission = pd.read_csv(f'{BASE_PATH}/submission.csv')
 sample_submission['prediction'] = test_preds
-sample_submission.to_csv('realmlp_submission_148018.csv', index=False)
+sample_submission.to_csv('realmlp_submission_151526.csv', index=False)
 print("提交文件已保存: submission.csv")
 print(sample_submission.head())

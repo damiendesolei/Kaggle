@@ -727,9 +727,9 @@ def objective(trial: optuna.Trial, tune_epochs: int):
 def main():
     parser = argparse.ArgumentParser(description="Optuna tuning for RealMLP_RQ")
     parser.add_argument("--n-trials", type=int, default=500)
-    parser.add_argument("--timeout", type=int, default=0.5*3600, help="seconds, overall study timeout")
+    parser.add_argument("--timeout", type=int, default=22*3600, help="seconds, overall study timeout")
     parser.add_argument("--tune-epochs", type=int, default=10, help="epochs per trial; 10 matches the original model")
-    parser.add_argument("--study-name", type=str, default="realmlp_exact_baseline_20260921")
+    parser.add_argument("--study-name", type=str, default="realmlp_exact_baseline_20260922")
     parser.add_argument("--storage", type=str, default="sqlite:///realmlp_exact_baseline.db")
     parser.add_argument("--n-startup-trials", type=int, default=10)
     args = parser.parse_args()
@@ -764,7 +764,7 @@ def main():
     for k, v in study.best_params.items():
         print(f"  {k}: {v}")
 
-    out_path = "realmlp_capital_best_params_20260921.csv"
+    out_path = "realmlp_capital_best_params_20260922.csv"
     with open(out_path, "w") as f:
         json.dump({"best_value": study.best_value, "best_params": study.best_params}, f, indent=2)
     print(f"\nSaved best params to {out_path}")
