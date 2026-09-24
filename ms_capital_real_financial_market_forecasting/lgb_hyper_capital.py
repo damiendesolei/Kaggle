@@ -24,7 +24,7 @@ import gc, time
 BASE_PATH = r"H:\kaggle\ms-capital-real-financial-market-forecasting"
 #TR_CSV = "train.csv"
 N_TRIALS = 1000
-STUDY_NAME = "ms_capital_lgb_20260921"
+STUDY_NAME = "ms_capital_lgb_20260923"
 STORAGE = "sqlite:///ms_capital_lgb_tuning.db"
 GPU = True  # flip to True to use your OpenCL GPU backend (device="gpu")
 
@@ -135,7 +135,7 @@ study = optuna.create_study(
 )
 
 t0 = time.time()
-study.optimize(objective, timeout=12*3600, n_trials=N_TRIALS, show_progress_bar=True)
+study.optimize(objective, timeout=11*3600, n_trials=N_TRIALS, show_progress_bar=True)
 print(f"\ntuning took {time.time() - t0:.1f}s", flush=True)
 
 print(f"\nbest cos_similarity = {study.best_value:.6f}")
@@ -144,8 +144,8 @@ for k, v in study.best_params.items():
     print(f"  {k}: {v}")
 print(f"best_iteration: {study.best_trial.user_attrs.get('best_iteration')}")
 
-study.trials_dataframe().sort_values("value").to_csv("optuna_trials_lgb_20260921.csv", index=False)
-print("\nall trials saved to optuna_trials_lgb_20260921.csv")
+study.trials_dataframe().sort_values("value").to_csv("optuna_trials_lgb_20260923.csv", index=False)
+print("\nall trials saved to optuna_trials_lgb_20260923.csv")
 
 
 
@@ -153,7 +153,7 @@ print("\nall trials saved to optuna_trials_lgb_20260921.csv")
 # --------------------------------------------------------------------------
 # Create submission
 # --------------------------------------------------------------------------
-OUT_CSV = 'lgb_submission_144572.csv'
+OUT_CSV = 'lgb_submission_143056.csv'
 BASE_PATH = r"H:\kaggle\ms-capital-real-financial-market-forecasting"
 tr = pl.read_csv(BASE_PATH+'\\processed_data\\train.csv')
 te_feats = pl.read_csv(BASE_PATH+'\\processed_data\\test.csv')
@@ -194,17 +194,17 @@ params = dict( # 0.144572
     objective="regression",   # L2 (MSE) loss - RMSE 优化同样目标 
     # metric="rmse",          # REMOVED: no longer the metric LightGBM reports/early-stops on
     metric="None",             # tells LightGBM not to compute its built-in metric, only feval
-    learning_rate=0.0023544357780058175,
-    num_leaves=239, 
-    min_data_in_leaf=634,
-    feature_fraction=0.5005228391205967,
-    bagging_fraction=0.6447522129612558, 
-    bagging_freq=12,
-    lambda_l1=9.86761805221615e-06,
-    lambda_l2=6.894260539316823e-08, 
+    learning_rate=0.0017092774333423734,
+    num_leaves=212, 
+    min_data_in_leaf=777,
+    feature_fraction=0.561893960243649,
+    bagging_fraction=0.6056464593290555, 
+    bagging_freq=8,
+    lambda_l1=3.3803131796521134e-06,
+    lambda_l2=5.807692347324926, 
     #max_bin=255, 
     #min_gain_to_split=0.00022526657860905087,
-    max_depth=58,
+    max_depth=15,
     verbose=-1, 
     #num_threads=16, 
     seed=0 
@@ -244,7 +244,7 @@ fi_df = pl.DataFrame({
     "gain": fi_gain,
     "split": fi_split,
 }).sort("gain", descending=True)
-fi_df.write_csv("feature_importance_lgb_20260921.csv")
+fi_df.write_csv("feature_importance_lgb_20260923.csv")
 print(f"\n feature importance saved: feature_importance_lgb.csv", flush=True)
 print(fi_df.head(20), flush=True)
 

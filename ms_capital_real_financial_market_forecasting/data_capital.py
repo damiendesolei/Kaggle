@@ -240,6 +240,29 @@ DROP_FEATURES = {
     ,'t_px_std_120','t_large_buy_90','o_sec_has_data_count','o_sec_price_mean_60','t_sec_buy_ratio_30'
     ,'t_large_sell_90','t_sec_buy_ratio','o_sec_buy_ratio_30','t_sec_buy_ratio_45','t_large_buy_95'
     ,'o_sec_cancel_count_45','t_sec_has_data_ratio','o_sec_buy_ratio_15','t_large_sell_95','x_sec_t_max_missing_ratio'
+    
+    ,'m_imb_std','t_sec_price_near_far_diff_30','x_slope_imbalance','m2_semi_asym_60','t_lv_mean_15'
+    ,'t_price_range_ratio_15','x_tx_order_rate_ratio','t_sec_price_mean_30','t_sec_price_std_15'
+    ,'t_price_first_half_vs_second','m2_range_10','x_rv_60_over_full','x_trans_order_vol_ratio'
+    ,'x_trans_order_buy_diff_15','m2_dev_ewm_10','t_max_time_gap','m_mid_group_first_ratio_g1_last'
+    ,'t_gap_first_half_vs_second','x_sec_cancel_spread','t_sec_lv_mean','o_sec_price_mean_15','t_sec_price_min'
+    ,'t_price_change_first_to_last','m_imb_last','o_sec_cancel_weighted_15','x_trans_order_buy_diff'
+    ,'o_price_first_half_vs_second','x_o_signed_weight_diff_15','t_px_std_15','m_rv_60','m2_imb12_mean_5'
+    ,'x_m_mid_long_short_diff','t_sec_price_mean_45','o_av_15','t_price_volatility','o_sv_weighted_15'
+    ,'m_mid_weighted_60','m_spread_ewm_120','m2_rv_60','t_px_std_45','m_mid_slope_15','t_px_std'
+    ,'o_sec_rowcount_near_far_ratio_15','t_sec_rowcount_near_far_ratio_15','o_sec_rowcount_near_far_ratio_30'
+    ,'m_mid_weighted_300','o_sec_cancel_new_ratio_45','o_sec_cancel_new_ratio','x_m_ofi_long_short_diff'
+    ,'m2_imb12_mean_30','m_sp_mean_60','m2_imb1_last','m_imb_mean_60','m2_imb12_last','o_market_ratio_30'
+    ,'x_t_signed_weight_diff_15','o_market_ratio_15','t_buy_ratio_first_half_vs_second','o_market_ratio_45'
+    ,'o_sec_price_mean_30','o_sec_vol_near_far_ratio_30','x_t_signed_ratio_15','t_sec_price_std_30','m2_jump_60'
+    ,'t_px_std_30','o_sec_rowcount_near_far_ratio_60','x_t_vol_weight_ratio_30','t_sec_price_std','m_ofi_sum_60'
+    ,'x_rv_60_180_ratio','o_add_ratio','o_sec_price_mean','m_ofi_sum','t_vwap','x_o_vol_weight_ratio_15'
+    ,'o_sec_vol_near_far_ratio_15','t_vol_first_third_vs_last','t_sec_price_max','m2_volratio_30_180'
+    ,'o_vol_first_third_vs_last','o_sec_vol_near_far_ratio_60','m_ofi_sum_180','x_o_vol_weight_ratio_30','m2_ret_10'
+    ,'t_sec_price_std_45','m_mid_group_first_ratio_g0_last','m_mid_group_expanding_mean25_g0_last','m2_volratio_10_60'
+    ,'m2_devz_ewm_30','m2_ret_5','m2_semi_asym_30','m2_ret_3','m2_retz_30','m2_devz_ewm_10','o_market_ratio_120'
+    ,'m2_retz_10','m2_retz_5','m2_retz_3','m2_ret_1'
+
 
     # 'm_sp_mean', 'o_sec_has_data_30', 't_sec_vol_sum', 't_sv_15', 'o_sec_has_data_60', 
     # 't_sec_rowcount_weighted_60', 'o_sec_sgn_weighted_30', 't_sec_row_count_15', 
