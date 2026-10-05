@@ -24,7 +24,11 @@ import gc, time
 BASE_PATH = r"H:\kaggle\ms-capital-real-financial-market-forecasting"
 #TR_CSV = "train.csv"
 N_TRIALS = 1000
+<<<<<<< HEAD
 STUDY_NAME = "ms_capital_lgb_20260923"
+=======
+STUDY_NAME = "ms_capital_lgb_20260920"
+>>>>>>> parent of 5571d60 (LB 0.128)
 STORAGE = "sqlite:///ms_capital_lgb_tuning.db"
 GPU = True  # flip to True to use your OpenCL GPU backend (device="gpu")
 
@@ -135,7 +139,11 @@ study = optuna.create_study(
 )
 
 t0 = time.time()
+<<<<<<< HEAD
 study.optimize(objective, timeout=11*3600, n_trials=N_TRIALS, show_progress_bar=True)
+=======
+study.optimize(objective, timeout=5*3600, n_trials=N_TRIALS, show_progress_bar=True)
+>>>>>>> parent of 5571d60 (LB 0.128)
 print(f"\ntuning took {time.time() - t0:.1f}s", flush=True)
 
 print(f"\nbest cos_similarity = {study.best_value:.6f}")
@@ -144,8 +152,13 @@ for k, v in study.best_params.items():
     print(f"  {k}: {v}")
 print(f"best_iteration: {study.best_trial.user_attrs.get('best_iteration')}")
 
+<<<<<<< HEAD
 study.trials_dataframe().sort_values("value").to_csv("optuna_trials_lgb_20260923.csv", index=False)
 print("\nall trials saved to optuna_trials_lgb_20260923.csv")
+=======
+study.trials_dataframe().sort_values("value").to_csv("optuna_trials_lgb_20260920.csv", index=False)
+print("\nall trials saved to optuna_trials_lgb_20260920.csv")
+>>>>>>> parent of 5571d60 (LB 0.128)
 
 
 
@@ -153,7 +166,11 @@ print("\nall trials saved to optuna_trials_lgb_20260923.csv")
 # --------------------------------------------------------------------------
 # Create submission
 # --------------------------------------------------------------------------
+<<<<<<< HEAD
 OUT_CSV = 'lgb_submission_143056.csv'
+=======
+OUT_CSV = 'lgb_submission_141284.csv'
+>>>>>>> parent of 5571d60 (LB 0.128)
 BASE_PATH = r"H:\kaggle\ms-capital-real-financial-market-forecasting"
 tr = pl.read_csv(BASE_PATH+'\\processed_data\\train.csv')
 te_feats = pl.read_csv(BASE_PATH+'\\processed_data\\test.csv')
@@ -190,10 +207,11 @@ def cos_sim_feval(preds, train_data):
     return "cos_sim", val, True  # True = higher is better
 
 print(f"\ntrain X: {X_tr.shape}, valid X: {X_va.shape}", flush=True)
-params = dict( # 0.144572
+params = dict( # 0.136795
     objective="regression",   # L2 (MSE) loss - RMSE 优化同样目标 
     # metric="rmse",          # REMOVED: no longer the metric LightGBM reports/early-stops on
     metric="None",             # tells LightGBM not to compute its built-in metric, only feval
+<<<<<<< HEAD
     learning_rate=0.0017092774333423734,
     num_leaves=212, 
     min_data_in_leaf=777,
@@ -205,6 +223,19 @@ params = dict( # 0.144572
     #max_bin=255, 
     #min_gain_to_split=0.00022526657860905087,
     max_depth=15,
+=======
+    learning_rate=0.0005809342295683186,
+    num_leaves=234, 
+    min_data_in_leaf=917,
+    feature_fraction=0.8359431025548354,
+    bagging_fraction=0.9136329319483203, 
+    bagging_freq=5,
+    lambda_l1=6.862606617197267e-08,
+    lambda_l2=4.422616842472019e-05, 
+    #max_bin=255, 
+    #min_gain_to_split=0.00022526657860905087,
+    max_depth=29,
+>>>>>>> parent of 5571d60 (LB 0.128)
     verbose=-1, 
     #num_threads=16, 
     seed=0 
@@ -244,7 +275,11 @@ fi_df = pl.DataFrame({
     "gain": fi_gain,
     "split": fi_split,
 }).sort("gain", descending=True)
+<<<<<<< HEAD
 fi_df.write_csv("feature_importance_lgb_20260923.csv")
+=======
+fi_df.write_csv("feature_importance_lgb_20260920.csv")
+>>>>>>> parent of 5571d60 (LB 0.128)
 print(f"\n feature importance saved: feature_importance_lgb.csv", flush=True)
 print(fi_df.head(20), flush=True)
 
