@@ -16,16 +16,6 @@ FILES = {
     "cat": "catboost_submission_144387.csv",
     "mlp": "realmlp_submission_146082.csv",   # <- change to your RealMLP file name
 }
-# candidate weight sets (lgb, cat, mlp); submit a few and compare on LB
-CANDIDATES = {
-    "eq_111":   {"lgb": 1.0, "cat": 1.0, "mlp": 1.0},
-    "mlp_2x":   {"lgb": 1.0, "cat": 1.0, "mlp": 2.0},
-    "mlp_4x":   {"lgb": 1.0, "cat": 1.0, "mlp": 4.0},
-    "mlp_heavy": {"lgb": 0.5, "cat": 0.5, "mlp": 4.0},
-    "mlp_lgb":  {"lgb": 1.0, "cat": 0.0, "mlp": 2.0},
-    "mlp_cat":  {"lgb": 0.0, "cat": 1.0, "mlp": 2.0},
-}
-
 
 # correlation
 dfs = {k: pl.read_csv(v).sort("sample_id") for k, v in FILES.items()}
@@ -46,6 +36,8 @@ print("\nSpearman corr:")
 print(pl.DataFrame({"model": names, **{n: R[:, i] for i, n in enumerate(names)}}))
 
 
+GBM_FRACS = [0.05, 0.10]   # share of the blend given to the GBM component
+
 def z(x):
     return (x - x.mean()) / (x.std() + 1e-12)
 
@@ -57,28 +49,22 @@ ids = dfs["lgb"]["sample_id"].to_numpy()
 for k, d in dfs.items():
     assert (d["sample_id"].to_numpy() == ids).all(), f"sample_id mismatch in {k}"
 P = {k: d["prediction"].to_numpy().astype(np.float64) for k, d in dfs.items()}
-names = list(P)
 
 # ------------------------------------------------------------------
-# Sanity checks: are the files really different?
+# Treat lgb + cat as ONE component (they are 0.96 correlated)
 # ------------------------------------------------------------------
-print("n rows:", len(ids), "| NaNs:", {k: int(np.isnan(v).sum()) for k, v in P.items()})
-print("pred mean/std:", {k: (round(float(v.mean()), 6), round(float(v.std()), 6)) for k, v in P.items()})
-C = np.corrcoef(np.vstack([P[k] for k in names]))
-print("pairwise corr:")
-print(pl.DataFrame({"model": names, **{n: C[:, i] for i, n in enumerate(names)}}))
+gbm = z((z(P["lgb"]) + z(P["cat"])) / 2)
+mlp = z(P["mlp"])
 
 # ------------------------------------------------------------------
-# Build each candidate and report how close it is to each single model
+# Build and save the small-weight blends
 # ------------------------------------------------------------------
-for tag, W in CANDIDATES.items():
-    wsum = sum(W.values())
-    blend = sum(W[k] * z(P[k]) for k in names) / wsum
-    cors = {k: round(float(np.corrcoef(blend, P[k])[0, 1]), 4) for k in names}
-    print(f"{tag:10s} corr(blend, model): {cors}")
+for f in GBM_FRACS:
+    blend = (1 - f) * mlp + f * gbm
+    tag = f"mlp_gbm{int(round(f * 100)):02d}"          # -> mlp_gbm05, mlp_gbm10
+    out = f"blend_{tag}.csv"
     pl.DataFrame({
         "sample_id": pl.Series(ids, dtype=pl.Int32),
         "prediction": pl.Series(blend, dtype=pl.Float64),
-    }).write_csv(f"blend_{tag}.csv")
-print("saved blend_*.csv")
-print(f"saved {OUT_CSV}")
+    }).write_csv(out)
+    print(f"{out}: corr(blend, mlp) = {np.corrcoef(blend, P['mlp'])[0, 1]:.5f}")
